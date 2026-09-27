@@ -1,0 +1,49 @@
+{
+  "name": "mf-certification",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "esbuild", "prisma"]
+  },
+  "scripts": {
+    "dev": "pnpm run --parallel dev:web dev:api",
+    "dev:web": "pnpm --filter @mf/web dev",
+    "dev:api": "pnpm --filter @mf/api dev",
+    "dev:db": "docker compose up -d postgres",
+    "db:generate": "pnpm --filter @mf/db generate",
+    "db:migrate": "pnpm --filter @mf/db migrate",
+    "db:validate": "pnpm --filter @mf/db validate",
+    "db:seed": "pnpm --filter @mf/api seed",
+    "docs:generate": "tsx scripts/generate-data-dictionary.ts",
+    "docs:check": "tsx scripts/check-data-dictionary.ts",
+    "contracts:check": "tsx scripts/check-contracts.ts",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm db:validate && pnpm contracts:check && pnpm docs:check && pnpm test",
+    "build": "pnpm db:generate && pnpm --filter @mf/contracts typecheck && pnpm --filter @mf/web build && pnpm --filter @mf/api build",
+    "start": "pnpm --filter @mf/api start",
+    "smoke": "tsx scripts/smoke-check.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/node": "^22.18.6",
+    "eslint": "^9.36.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.22",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^3.2.4"
+  }
+}

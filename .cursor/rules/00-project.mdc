@@ -1,0 +1,21 @@
+---
+description: 本專案的功能範圍、共用契約與資料一致性規則
+alwaysApply: true
+---
+
+- 開始工作先讀 PROJECT_SPEC.md、docs/PROGRESS.md 與相關來源檔。
+- 本案為七類共用表單的精簡版；新增功能先核對既定範圍。
+- 不確定的官方分類、附件名稱及審查規則寫入 OPEN_QUESTIONS，不自行杜撰。
+- DB 模型與 enum 以 packages/db/prisma/schema.prisma 為唯一來源。
+- API 輸入輸出及 DTO 以 packages/contracts/src/schemas 為唯一來源。
+- 狀態、角色、驗證規則、中文標籤從共用來源匯入，不在頁面手抄。
+- 前端不得匯入 PrismaClient、server env 或含機密的 server 模組。
+- 新增／改名欄位要同步 schema、migration、契約、mapper、fixture、字典與受影響頁面。
+- 每次更改資料結構先檢查 DATA_DICTIONARY，避免建立同義重複欄位。
+- 保留舊 migration 及既有資料；禁止以 reset 或全表刪除解決錯誤。
+- API 必須驗身分、角色及資料所屬關係；前端隱藏按鈕不是授權。
+- 狀態更新只經 workflow action 與交易；處理 expectedVersion 和重複請求。
+- Mock 與 API 使用同一契約；API 出錯不可靜默退回 Mock。
+- 不將密碼、token、DB URL 或實際 secret 寫入程式、文件或日誌。
+- 交付前跑目前階段的必要檢查，記錄實際結果並更新 PROGRESS。
+- 未完成或未測試要明列，不假裝成功，不因文件寫完就宣稱功能完成。

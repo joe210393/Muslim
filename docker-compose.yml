@@ -1,0 +1,21 @@
+name: mf-cert
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mf
+      POSTGRES_PASSWORD: mf_dev_password
+      POSTGRES_DB: mf_dev
+    ports:
+      - "54329:5432"
+    volumes:
+      - mf_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mf -d mf_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mf_pg:

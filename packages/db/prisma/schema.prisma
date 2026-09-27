@@ -1,0 +1,460 @@
+// 資料模型與資料庫 enum 的唯一來源。
+// 欄位命名：Prisma camelCase，資料庫 snake_case（@map / @@map）。
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  APPLICANT
+  CASE_OFFICER
+  ADMIN
+
+  @@map("user_role")
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  INITIAL_REVIEW
+  SECOND_REVIEW
+  FINAL_REVIEW
+  NEED_SUPPLEMENT
+  APPROVED
+  REJECTED
+
+  @@map("application_status")
+}
+
+enum ApplicationAction {
+  SUBMIT
+  START_REVIEW
+  PASS_INITIAL
+  PASS_SECOND
+  APPROVE
+  REQUEST_SUPPLEMENT
+  RESUBMIT
+  REJECT
+  ASSIGN
+
+  @@map("application_action")
+}
+
+enum ConfigurationStatus {
+  CONFIRMED
+  DEMO
+
+  @@map("configuration_status")
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+
+  @@map("course_status")
+}
+
+enum EnrollmentStatus {
+  CONFIRMED
+  CANCELLED
+
+  @@map("enrollment_status")
+}
+
+enum AttendanceStatus {
+  NOT_RECORDED
+  PRESENT
+  ABSENT
+
+  @@map("attendance_status")
+}
+
+enum NotificationJobStatus {
+  PENDING
+  SENT
+  FAILED
+  MOCKED
+
+  @@map("notification_job_status")
+}
+
+enum NotificationType {
+  SUBMISSION_CONFIRMATION
+  SUPPLEMENT_REQUEST
+  DECISION_RESULT
+  PASSWORD_RESET
+
+  @@map("notification_type")
+}
+
+enum ImportBatchType {
+  ORGANIZATIONS
+  APPLICATION_DRAFTS
+
+  @@map("import_batch_type")
+}
+
+enum ImportBatchStatus {
+  PREVIEWED
+  COMMITTED
+  FAILED
+
+  @@map("import_batch_status")
+}
+
+model User {
+  id             String   @id @default(uuid()) @db.Uuid
+  email          String   @unique @db.VarChar(320)
+  passwordHash   String   @map("password_hash")
+  displayName    String   @map("display_name") @db.VarChar(100)
+  role           UserRole
+  organizationId String?  @map("organization_id") @db.Uuid
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization            Organization?          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sessions                Session[]
+  passwordResetTokens     PasswordResetToken[]
+  createdApplications     Application[]          @relation("ApplicationCreatedBy")
+  assignedApplications    Application[]          @relation("ApplicationAssignedTo")
+  submissions             ApplicationSubmission[]
+  applicationEvents       ApplicationEvent[]
+  uploadedFiles           FileObject[]
+  createdCourses          Course[]
+  enrollments             Enrollment[]
+  attendanceRecords       Enrollment[]           @relation("AttendanceRecordedBy")
+  registeredCertifications Certification[]
+  notificationJobs        NotificationJob[]
+  auditLogs               AuditLog[]
+  importBatches           ImportBatch[]
+
+  @@index([organizationId])
+  @@index([role, isActive])
+  @@map("users")
+}
+
+model Organization {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationName String   @map("organization_name") @db.VarChar(200)
+  taxId            String?  @unique @map("tax_id") @db.VarChar(32)
+  contactName      String?  @map("contact_name") @db.VarChar(100)
+  contactPhone     String?  @map("contact_phone") @db.VarChar(30)
+  contactEmail     String?  @map("contact_email") @db.VarChar(320)
+  address          String?  @db.VarChar(300)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users        User[]
+  applications Application[]
+
+  @@map("organizations")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  userId    String    @map("user_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model ApplicationCategory {
+  id           String  @id @default(uuid()) @db.Uuid
+  code         String  @unique @db.VarChar(16)
+  name         String  @db.VarChar(200)
+  description  String? @db.VarChar(1000)
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @map("display_order")
+
+  versions     CategoryFormVersion[]
+  applications Application[]
+
+  @@map("application_categories")
+}
+
+model CategoryFormVersion {
+  id                  String              @id @default(uuid()) @db.Uuid
+  categoryId          String              @map("category_id") @db.Uuid
+  version             Int
+  configurationStatus ConfigurationStatus @map("configuration_status")
+  definition          Json
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  category     ApplicationCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  applications Application[]
+  submissions  ApplicationSubmission[]
+
+  @@unique([categoryId, version])
+  @@map("category_form_versions")
+}
+
+model Application {
+  id                         String             @id @default(uuid()) @db.Uuid
+  applicationNo              String             @unique @map("application_no") @db.VarChar(32)
+  organizationId             String             @map("organization_id") @db.Uuid
+  createdById                String             @map("created_by_id") @db.Uuid
+  categoryId                 String             @map("category_id") @db.Uuid
+  categoryFormVersionId      String             @map("category_form_version_id") @db.Uuid
+  status                     ApplicationStatus
+  resumeStatus               ApplicationStatus? @map("resume_status")
+  assignedToId               String?            @map("assigned_to_id") @db.Uuid
+  version                    Int                @default(1)
+  organizationNameSnapshot   String?            @map("organization_name_snapshot") @db.VarChar(200)
+  taxIdSnapshot              String?            @map("tax_id_snapshot") @db.VarChar(32)
+  contactNameSnapshot        String?            @map("contact_name_snapshot") @db.VarChar(100)
+  contactPhoneSnapshot       String?            @map("contact_phone_snapshot") @db.VarChar(30)
+  contactEmailSnapshot       String?            @map("contact_email_snapshot") @db.VarChar(320)
+  organizationAddressSnapshot String?           @map("organization_address_snapshot") @db.VarChar(300)
+  siteName                   String?            @map("site_name") @db.VarChar(200)
+  siteAddress                String?            @map("site_address") @db.VarChar(300)
+  applicationDescription     String?            @map("application_description") @db.VarChar(4000)
+  declarationAccepted        Boolean            @default(false) @map("declaration_accepted")
+  formData                   Json               @default("{}") @map("form_data")
+  sourceSystem               String?            @map("source_system") @db.VarChar(64)
+  sourceRecordKey            String?            @map("source_record_key") @db.VarChar(128)
+  submittedAt                DateTime?          @map("submitted_at") @db.Timestamptz(6)
+  decidedAt                  DateTime?          @map("decided_at") @db.Timestamptz(6)
+  createdAt                  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy           User                 @relation("ApplicationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  category            ApplicationCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  categoryFormVersion CategoryFormVersion  @relation(fields: [categoryFormVersionId], references: [id], onDelete: Restrict)
+  assignedTo          User?                @relation("ApplicationAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
+  submissions         ApplicationSubmission[]
+  events              ApplicationEvent[]
+  attachments         ApplicationAttachment[]
+  certification       Certification?
+  notificationJobs    NotificationJob[]
+
+  @@unique([sourceSystem, sourceRecordKey])
+  @@index([status])
+  @@index([organizationId])
+  @@index([assignedToId])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@map("applications")
+}
+
+model ApplicationSubmission {
+  id                     String   @id @default(uuid()) @db.Uuid
+  applicationId          String   @map("application_id") @db.Uuid
+  revision               Int
+  submittedById          String   @map("submitted_by_id") @db.Uuid
+  submittedAt            DateTime @map("submitted_at") @db.Timestamptz(6)
+  formVersionId          String   @map("form_version_id") @db.Uuid
+  payloadSnapshot        Json     @map("payload_snapshot")
+  attachmentIdsSnapshot  Json     @map("attachment_ids_snapshot")
+
+  application Application         @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  submittedBy User                @relation(fields: [submittedById], references: [id], onDelete: Restrict)
+  formVersion CategoryFormVersion @relation(fields: [formVersionId], references: [id], onDelete: Restrict)
+  events      ApplicationEvent[]
+
+  @@unique([applicationId, revision])
+  @@map("application_submissions")
+}
+
+model ApplicationEvent {
+  id            String             @id @default(uuid()) @db.Uuid
+  applicationId String             @map("application_id") @db.Uuid
+  submissionId  String?            @map("submission_id") @db.Uuid
+  actorId       String             @map("actor_id") @db.Uuid
+  action        ApplicationAction
+  fromStatus    ApplicationStatus? @map("from_status")
+  toStatus      ApplicationStatus? @map("to_status")
+  publicComment String?            @map("public_comment") @db.VarChar(2000)
+  internalNote  String?            @map("internal_note") @db.VarChar(2000)
+  requestId     String             @map("request_id") @db.VarChar(80)
+  requestHash   String             @map("request_hash") @db.VarChar(128)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  application Application          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  submission  ApplicationSubmission? @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  actor       User                 @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([applicationId, requestId])
+  @@index([applicationId, createdAt])
+  @@map("application_events")
+}
+
+model FileObject {
+  id           String    @id @default(uuid()) @db.Uuid
+  uploadedById String    @map("uploaded_by_id") @db.Uuid
+  storageKey   String    @unique @map("storage_key")
+  originalName String    @map("original_name") @db.VarChar(255)
+  mimeType     String    @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int       @map("size_bytes")
+  sha256       String    @db.Char(64)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  uploadedBy  User                    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  attachments ApplicationAttachment[]
+
+  @@map("file_objects")
+}
+
+model ApplicationAttachment {
+  id             String    @id @default(uuid()) @db.Uuid
+  applicationId  String    @map("application_id") @db.Uuid
+  fileId         String    @map("file_id") @db.Uuid
+  requirementKey String    @map("requirement_key") @db.VarChar(64)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  removedAt      DateTime? @map("removed_at") @db.Timestamptz(6)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  file        FileObject  @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, requirementKey])
+  @@map("application_attachments")
+}
+
+model Course {
+  id                         String       @id @default(uuid()) @db.Uuid
+  title                      String       @db.VarChar(200)
+  description                String       @db.VarChar(4000)
+  location                   String       @db.VarChar(200)
+  startsAt                   DateTime     @map("starts_at") @db.Timestamptz(6)
+  endsAt                     DateTime     @map("ends_at") @db.Timestamptz(6)
+  registrationOpensAt        DateTime     @map("registration_opens_at") @db.Timestamptz(6)
+  registrationClosesAt       DateTime     @map("registration_closes_at") @db.Timestamptz(6)
+  capacity                   Int
+  durationMinutes            Int          @map("duration_minutes")
+  requiredAttendanceMinutes  Int          @map("required_attendance_minutes")
+  status                     CourseStatus
+  createdById                String       @map("created_by_id") @db.Uuid
+  version                    Int          @default(1)
+  createdAt                  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+
+  @@index([status, registrationOpensAt, registrationClosesAt])
+  @@map("courses")
+}
+
+model Enrollment {
+  id                               String           @id @default(uuid()) @db.Uuid
+  courseId                         String           @map("course_id") @db.Uuid
+  userId                           String           @map("user_id") @db.Uuid
+  status                           EnrollmentStatus
+  attendanceStatus                 AttendanceStatus @default(NOT_RECORDED) @map("attendance_status")
+  attendedMinutes                  Int              @default(0) @map("attended_minutes")
+  requiredAttendanceMinutesSnapshot Int             @map("required_attendance_minutes_snapshot")
+  attendanceRecordedById           String?          @map("attendance_recorded_by_id") @db.Uuid
+  attendanceRecordedAt             DateTime?        @map("attendance_recorded_at") @db.Timestamptz(6)
+  version                          Int              @default(1)
+  enrolledAt                       DateTime         @default(now()) @map("enrolled_at") @db.Timestamptz(6)
+  cancelledAt                      DateTime?        @map("cancelled_at") @db.Timestamptz(6)
+
+  course                 Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  user                   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  attendanceRecordedBy   User?  @relation("AttendanceRecordedBy", fields: [attendanceRecordedById], references: [id], onDelete: Restrict)
+
+  @@unique([courseId, userId])
+  @@index([userId])
+  @@map("enrollments")
+}
+
+model Certification {
+  id             String   @id @default(uuid()) @db.Uuid
+  applicationId  String   @unique @map("application_id") @db.Uuid
+  certificateNo  String   @unique @map("certificate_no") @db.VarChar(64)
+  issuedOnDate   String   @map("issued_on_date") @db.Char(10)
+  validUntilDate String   @map("valid_until_date") @db.Char(10)
+  registeredById String   @map("registered_by_id") @db.Uuid
+  registeredAt   DateTime @default(now()) @map("registered_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application  Application @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  registeredBy User        @relation(fields: [registeredById], references: [id], onDelete: Restrict)
+
+  @@map("certifications")
+}
+
+model NotificationJob {
+  id              String                @id @default(uuid()) @db.Uuid
+  dedupeKey       String                @unique @map("dedupe_key") @db.VarChar(200)
+  type            NotificationType
+  recipientUserId String?               @map("recipient_user_id") @db.Uuid
+  recipientEmail  String                @map("recipient_email") @db.VarChar(320)
+  applicationId   String?               @map("application_id") @db.Uuid
+  status          NotificationJobStatus
+  attemptCount    Int                   @default(0) @map("attempt_count")
+  lastErrorCode   String?               @map("last_error_code") @db.VarChar(80)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt          DateTime?             @map("sent_at") @db.Timestamptz(6)
+
+  recipientUser User?        @relation(fields: [recipientUserId], references: [id], onDelete: SetNull)
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("notification_jobs")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String?  @map("actor_id") @db.Uuid
+  action      String   @db.VarChar(80)
+  entityType  String   @map("entity_type") @db.VarChar(80)
+  entityId    String?  @map("entity_id") @db.Uuid
+  requestId   String   @map("request_id") @db.VarChar(80)
+  safeChanges Json     @map("safe_changes")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model ImportBatch {
+  id            String            @id @default(uuid()) @db.Uuid
+  type          ImportBatchType
+  fileDigest    String            @map("file_digest") @db.Char(64)
+  createdById   String            @map("created_by_id") @db.Uuid
+  status        ImportBatchStatus
+  rowCount      Int               @map("row_count")
+  resultSummary Json              @map("result_summary")
+  commitKey     String?           @unique @map("commit_key") @db.VarChar(80)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([fileDigest, status])
+  @@map("import_batches")
+}
