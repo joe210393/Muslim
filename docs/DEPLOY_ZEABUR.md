@@ -14,7 +14,7 @@
 | `APP_BASE_URL` | 對外網址，例如 `https://muslim.zeabur.app` |
 | `SESSION_SECRET` | 至少 32 字元的隨機字串 |
 | `APP_ENV` | 還沒有 SMTP 時用 `staging`。設成 `production` 時必須同時把 `MAIL_DRIVER` 設成 `smtp`，且 `DEMO_MODE=false` |
-| `DEMO_MODE` | `false` |
+| `DEMO_MODE` | 展示站設 `true`，才可以使用 `applicant01@example.test` 等帳號送出示範類別。正式上線設 `false` |
 | `VITE_DATA_MODE` | `api` |
 | `UPLOAD_ROOT` | Volume 掛載路徑，例如 `/data/uploads` |
 

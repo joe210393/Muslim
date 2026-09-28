@@ -19,7 +19,7 @@
 
 ## 2026-09-28 部署
 
-`https://muslim.zeabur.app` 的程序有啟動，`/health/live` 回 200，`/health/ready` 回 500。登入因此失敗。尚未連上可查詢的 PostgreSQL，資料表也不會存在。啟動指令已改為先執行 migration。
+`https://muslim.zeabur.app` 的資料庫已可查詢。展示帳號尚未寫入，所以登入回「帳號或密碼不正確」。非 production 的啟動現在會補上展示帳號；正式環境仍不寫入。
 
 ## 下一步
 

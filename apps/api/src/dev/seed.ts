@@ -7,8 +7,17 @@ import path from "node:path";
 import { createStorage } from "../storage/storage";
 
 const env = getEnv();
-if (env.APP_ENV === "production" || !env.DEMO_MODE) {
-  console.error("拒絕執行：示範 seed 只允許非 production，且 DEMO_MODE=true。一般啟動不會自動灌入假帳號。");
+const boot = process.argv.includes("--boot");
+if (env.APP_ENV === "production") {
+  if (boot) {
+    console.info("正式環境略過展示帳號。");
+    process.exit(0);
+  }
+  console.error("拒絕執行：正式環境不寫入展示帳號。");
+  process.exit(1);
+}
+if (!env.DEMO_MODE && !boot) {
+  console.error("拒絕執行：請先設 DEMO_MODE=true。一般指令不會寫入展示帳號。");
   process.exit(1);
 }
 

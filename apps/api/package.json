@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed": "tsx src/dev/seed.ts",
+    "seed:boot": "tsx src/dev/seed.ts --boot",
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
