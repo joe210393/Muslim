@@ -30,7 +30,7 @@
     "test:watch": "vitest",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm db:validate && pnpm contracts:check && pnpm docs:check && pnpm test",
     "build": "pnpm db:generate && pnpm --filter @mf/contracts typecheck && pnpm --filter @mf/web build && pnpm --filter @mf/api build",
-    "start": "pnpm --filter @mf/api start",
+    "start": "pnpm db:migrate && pnpm --filter @mf/api start",
     "smoke": "tsx scripts/smoke-check.ts"
   },
   "devDependencies": {

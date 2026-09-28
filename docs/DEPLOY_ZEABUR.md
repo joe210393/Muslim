@@ -4,11 +4,23 @@
 
 ## 服務
 
-1. 建立 PostgreSQL。
-2. 建立一個 Node 服務，使用專案根目錄的 `Dockerfile`。
-3. 設定環境變數，見 `docs/ENVIRONMENT.md`。正式環境 `DEMO_MODE=false`、`VITE_DATA_MODE=api`、`MAIL_DRIVER=smtp`、`APP_ENV=production`。
+1. 在同一個 Zeabur 專案建立 PostgreSQL。
+2. 建立 Node 服務，使用專案根目錄的 `Dockerfile`。啟動時會執行 `pnpm db:migrate`，不要在正式庫執行 seed。
+3. 在網站服務的 Variables 設定：
+
+| 變數 | 值 |
+|---|---|
+| `DATABASE_URL` | `${POSTGRES_CONNECTION_STRING}` |
+| `APP_BASE_URL` | 對外網址，例如 `https://muslim.zeabur.app` |
+| `SESSION_SECRET` | 至少 32 字元的隨機字串 |
+| `APP_ENV` | 還沒有 SMTP 時用 `staging`。設成 `production` 時必須同時把 `MAIL_DRIVER` 設成 `smtp`，且 `DEMO_MODE=false` |
+| `DEMO_MODE` | `false` |
+| `VITE_DATA_MODE` | `api` |
+| `UPLOAD_ROOT` | Volume 掛載路徑，例如 `/data/uploads` |
+
+`DATABASE_URL` 要選變數引用，不要貼本機的 `127.0.0.1`。服務與資料庫必須在同一個 Zeabur 專案，才連得到 `.zeabur.internal`。
+
 4. 掛載 Volume 到 `UPLOAD_ROOT`。沒有 Volume 時，重啟後上傳檔會不見。
-5. 第一次啟動前執行 migration：`pnpm db:migrate`。不要在正式庫執行 seed。
 
 ## 建置與啟動
 

@@ -17,6 +17,10 @@
 - T03、T05 到 T14 尚未實測。沒有 Playwright。正式 build 掃描未做。
 - 郵件是主控台模擬。沒有備份排程，也沒有公開網址。
 
+## 2026-09-28 部署
+
+`https://muslim.zeabur.app` 的程序有啟動，`/health/live` 回 200，`/health/ready` 回 500。登入因此失敗。尚未連上可查詢的 PostgreSQL，資料表也不會存在。啟動指令已改為先執行 migration。
+
 ## 下一步
 
 1. 把 `VITE_DATA_MODE` 改成 `api`，用瀏覽器重走登入、草稿與審查。

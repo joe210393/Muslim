@@ -1,4 +1,5 @@
 import { ErrorCodes, type ErrorCode } from "@mf/contracts";
+import { Prisma } from "@mf/db/server";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { ApiError } from "./errors";
@@ -41,12 +42,27 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
     });
     return;
   }
-  console.error(error);
-  res.status(500).json({
+  const databaseMessage = databaseErrorMessage(error);
+  console.error(safeErrorText(error));
+  res.status(databaseMessage ? 503 : 500).json({
     success: false,
-    error: { code: "INTERNAL" as ErrorCode, message: "系統發生錯誤" },
+    error: { code: "INTERNAL" as ErrorCode, message: databaseMessage ?? "系統發生錯誤" },
     requestId,
   });
+}
+
+function databaseErrorMessage(error: unknown): string | null {
+  if (error instanceof Prisma.PrismaClientInitializationError) return "資料庫無法連線";
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2021" || error.code === "P2022") return "資料庫資料表尚未建立";
+    if (error.code.startsWith("P1")) return "資料庫無法連線";
+  }
+  return null;
+}
+
+function safeErrorText(error: unknown): string {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.replace(/postgres(?:ql)?:\/\/\S+/gi, "postgresql://***");
 }
 
 export function fieldFailure(issues: { path: string; message: string }[]): never {
