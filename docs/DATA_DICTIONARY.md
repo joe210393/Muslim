@@ -51,6 +51,35 @@
 | Course | 課程狀態 | status | status | CourseStatus；DRAFT / PUBLISHED / CANCELLED / COMPLETED | 否 | 必填 | 必填 | 低 | 管理端可改 |
 | FileObject | 儲存鍵 | storageKey | storage_key | string；不可覆寫；阻擋路徑穿越 | 否 | server 產生 | 不回傳實體路徑 | 高 | 不可改 |
 | ApplicationAttachment | 附件要求代碼 | requirementKey | requirement_key | string；必須存在於該表單版本 | 否 | 上傳必填 | 依類別版本 | 低 | 移除只標 removedAt |
+| SiteContent | 版位 | slot | slot | ContentSlot；同一版位只有一筆 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| SiteContent | 眉題 | eyebrow | eyebrow | string；1–80 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| SiteContent | 標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| SiteContent | 副標 | subtitle | subtitle | string；1–500 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| SiteContent | 內文 | body | body | string；1–4000 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| SiteContent | 主按鈕文字 | ctaLabel | cta_label | string；最多 40 字 | 否 | 否 | 否 | 低 | 管理員可改 |
+| SiteContent | 主按鈕路徑 | ctaHref | cta_href | string；只允許站內路徑 | 否 | 否 | 否 | 低 | 管理員可改 |
+| SiteContent | 次按鈕文字 | secondaryCtaLabel | secondary_cta_label | string；最多 40 字 | 否 | 否 | 否 | 低 | 管理員可改 |
+| SiteContent | 次按鈕路徑 | secondaryCtaHref | secondary_cta_href | string；只允許站內路徑 | 否 | 否 | 否 | 低 | 管理員可改 |
+| SiteContent | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG | 是 | 否 | 否 | 低 | 管理員可換圖 |
+| SiteContent | 是否發布 | isPublished | is_published | boolean；未發布時前台不顯示該版位 | 否 | 否 | 否 | 低 | 管理員可改 |
+| ContractTemplate | 範本代碼 | code | code | string；唯一 | 否 | 必填 | 必填 | 低 | 不在畫面上改代碼 |
+| ContractTemplate | 範本標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| ContractTemplate | 範本內文 | body | body | string；可用 {{organizationName}} 等代換欄 | 否 | 必填 | 必填 | 低 | 管理員可改，已簽署合約不回寫 |
+| ContractRecord | 合約編號 | contractNo | contract_no | string；CT-西元年-序號 | 否 | server 產生 | 不可由 client 指定 | 低 | 不可改 |
+| ContractRecord | 合約標題 | title | title | string；1–200 字 | 否 | 發出時寫入 | 必填 | 低 | 待簽署可改 |
+| ContractRecord | 合約快照 | body | body_snapshot | string；API 欄位 body | 否 | 發出時寫入 | 必填 | 中 | 待簽署可改；簽署後凍結 |
+| ContractRecord | 合約狀態 | status | status | ContractStatus；ISSUED / SIGNED / VOID | 否 | 是 | 僅簽署或作廢 | 低 | 只經動作 |
+| ContractRecord | 簽署人 | signerName | signer_name | string；1–100 字 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
+| ContractRecord | 簽署人職稱 | signerTitle | signer_title | string；1–100 字 | 是 | 否 | 簽署必填 | 中 | 簽署時寫入 |
+| ContractRecord | 人像檔 | faceFileId | face_file_id | uuid；JPEG 或 PNG，最短邊 120 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
+| ContractRecord | 手寫簽名檔 | signatureFileId | signature_file_id | uuid；PNG，需有筆畫 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
+| ContractRecord | 合約 PDF | pdfFileId | pdf_file_id | uuid；內含簽名與人像 | 是 | 否 | 簽署後產生 | 高 | 簽署時產生 |
+| RoleFeature | 功能鍵 | featureKey | feature_key | string；與角色聯合唯一 | 否 | 必填 | 必填 | 中 | 管理員可改；不可關閉管理員的帳號管理 |
+| RoleFeature | 是否啟用 | enabled | enabled | boolean；關閉後該角色呼叫對應 API 會被拒絕 | 否 | 必填 | 必填 | 中 | 管理員可改 |
+| IntegrationSetting | 串接鍵 | key | key | string；主鍵 | 否 | 必填 | 必填 | 低 | 不可改鍵名 |
+| IntegrationSetting | 服務商 | provider | provider | string；1–80 字，不存放金鑰 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| IntegrationSetting | 是否啟用 | enabled | enabled | boolean；關閉後相關上傳或簽署會被拒絕 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| IntegrationSetting | 說明 | note | note | string；1–500 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 
 
 ## 使用頁面
@@ -60,5 +89,8 @@
 - Enrollment / Course：課程、報名、出席與學習紀錄
 - Certification：驗證紀錄與核定後人工登錄
 - FileObject / ApplicationAttachment：申請附件
+- SiteContent：首頁 Hero 與 Banner
+- ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
+- RoleFeature / IntegrationSetting：角色功能與串接開關
 
 環境變數實際值、密碼雜湊與 token 不寫入本檔。密碼雜湊欄位僅標示存在，API 不回傳。

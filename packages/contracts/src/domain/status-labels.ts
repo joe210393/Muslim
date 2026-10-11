@@ -5,6 +5,7 @@ import {
   CourseStatus,
   EnrollmentStatus,
   ImportBatchStatus,
+  ContractStatus,
   NotificationJobStatus,
   UserRole,
 } from "@mf/db/enums";
@@ -71,6 +72,12 @@ export const importBatchStatusLabels = record<ImportBatchStatus>({
   [ImportBatchStatus.PREVIEWED]: { label: "已預覽", tone: "info" },
   [ImportBatchStatus.COMMITTED]: { label: "已匯入", tone: "success" },
   [ImportBatchStatus.FAILED]: { label: "未匯入", tone: "danger" },
+});
+
+export const contractStatusLabels = record<ContractStatus>({
+  [ContractStatus.ISSUED]: { label: "待簽署", tone: "warning" },
+  [ContractStatus.SIGNED]: { label: "已簽署", tone: "success" },
+  [ContractStatus.VOID]: { label: "已作廢", tone: "neutral" },
 });
 
 export const completionLabels = {

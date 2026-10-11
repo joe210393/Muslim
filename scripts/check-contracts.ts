@@ -1,16 +1,18 @@
 import {
   ApplicationStatus,
+  ContractStatus,
   CourseStatus,
   UserRole,
   applicationStatusLabels,
   buildDemoDataset,
   categoryDefinitionSchema,
+  contractStatusLabels,
   courseStatusLabels,
   userRoleLabels,
   cat01DefinitionV1,
   cat01DefinitionV2,
   genericCategoryDefinition,
-} from "@mf/contracts";
+} from "../packages/contracts/src/index.ts";
 
 function assertCovered(name: string, values: Record<string, string>, labels: Record<string, unknown>) {
   for (const value of Object.values(values)) {
@@ -22,6 +24,7 @@ function assertCovered(name: string, values: Record<string, string>, labels: Rec
 }
 
 assertCovered("ApplicationStatus", ApplicationStatus, applicationStatusLabels);
+assertCovered("ContractStatus", ContractStatus, contractStatusLabels);
 assertCovered("CourseStatus", CourseStatus, courseStatusLabels);
 assertCovered("UserRole", UserRole, userRoleLabels);
 categoryDefinitionSchema.parse(cat01DefinitionV1);

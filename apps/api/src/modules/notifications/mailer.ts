@@ -6,6 +6,14 @@ import type { Env } from "../../config/env";
 export async function deliverNotification(env: Env, jobId: string, consoleDetail?: string): Promise<void> {
   const job = await prisma.notificationJob.findUnique({ where: { id: jobId } });
   if (!job || job.status === NotificationJobStatus.SENT || job.status === NotificationJobStatus.MOCKED) return;
+  const emailSetting = await prisma.integrationSetting.findUnique({ where: { key: "email" } }).catch(() => null);
+  if (emailSetting && !emailSetting.enabled) {
+    await prisma.notificationJob.update({
+      where: { id: job.id },
+      data: { status: NotificationJobStatus.FAILED, attemptCount: { increment: 1 }, lastErrorCode: "INTEGRATION_DISABLED" },
+    });
+    return;
+  }
   if (env.MAIL_DRIVER === "console") {
     console.info(
       `[mail:console] type=${job.type} to=${job.recipientEmail} status=MOCKED ${consoleDetail ? `detail=${consoleDetail}` : ""}（未真正寄出）`,

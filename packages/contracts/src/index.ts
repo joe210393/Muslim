@@ -5,6 +5,8 @@ export {
   ConfigurationStatus,
   CourseStatus,
   EnrollmentStatus,
+  ContentSlot,
+  ContractStatus,
   ImportBatchStatus,
   ImportBatchType,
   NotificationJobStatus,
@@ -22,12 +24,16 @@ export * from "./domain/training";
 export * from "./domain/certification";
 export * from "./domain/csv";
 export * from "./domain/hash";
+export * from "./domain/platform-defaults";
+export * from "./domain/image-info";
+export * from "./domain/signed-pdf";
 export * from "./schemas/common";
 export * from "./schemas/auth";
 export * from "./schemas/organization";
 export * from "./schemas/application";
 export * from "./schemas/training";
 export * from "./schemas/admin";
+export * from "./schemas/platform";
 export * from "./registry/field-metadata";
 export * from "./fixtures/categories";
 export {

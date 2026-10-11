@@ -223,5 +223,66 @@ export function createHttpServices(): Services {
     async audit() {
       return page(await request("GET", "/admin/audit-logs?pageSize=50")).items as Awaited<ReturnType<Services["audit"]>>;
     },
+    async publicSite() {
+      return (await request("GET", "/site-content")).data as Awaited<ReturnType<Services["publicSite"]>>;
+    },
+    async adminSite() {
+      return (await request("GET", "/admin/site-content")).data as Awaited<ReturnType<Services["adminSite"]>>;
+    },
+    async saveSite(slot, input) {
+      return (await request("PATCH", `/admin/site-content/${slot}`, input)).data as Awaited<ReturnType<Services["saveSite"]>>;
+    },
+    async uploadSiteImage(slot, file) {
+      const form = new FormData();
+      form.set("file", file);
+      return (await request("POST", `/admin/site-content/${slot}/image`, form)).data as Awaited<ReturnType<Services["uploadSiteImage"]>>;
+    },
+    async myContracts() {
+      return (await request("GET", "/contracts/mine")).data as Awaited<ReturnType<Services["myContracts"]>>;
+    },
+    async contract(id) {
+      return (await request("GET", `/contracts/${id}`)).data as Awaited<ReturnType<Services["contract"]>>;
+    },
+    async signContract(id, input) {
+      const form = new FormData();
+      form.set("signerName", input.signerName);
+      form.set("signerTitle", input.signerTitle);
+      form.set("expectedVersion", String(input.expectedVersion));
+      form.set("consent", "true");
+      form.set("face", input.face, "face.jpg");
+      form.set("signature", input.signature, "signature.png");
+      return (await request("POST", `/contracts/${id}/sign`, form)).data as Awaited<ReturnType<Services["signContract"]>>;
+    },
+    async contractDocument(id) {
+      const result = await request("GET", `/contracts/${id}/document`);
+      return { blob: result.data as Blob, name: "contract.pdf" };
+    },
+    async contractTemplate() {
+      return (await request("GET", "/admin/contract-template")).data as Awaited<ReturnType<Services["contractTemplate"]>>;
+    },
+    async saveContractTemplate(input) {
+      return (await request("PATCH", "/admin/contract-template", input)).data as Awaited<ReturnType<Services["contractTemplate"]>>;
+    },
+    async adminContracts() {
+      return (await request("GET", "/admin/contracts")).data as Awaited<ReturnType<Services["adminContracts"]>>;
+    },
+    async issueContract(organizationId) {
+      return (await request("POST", "/admin/contracts", { organizationId })).data as Awaited<ReturnType<Services["issueContract"]>>;
+    },
+    async saveContract(id, input) {
+      return (await request("PATCH", `/admin/contracts/${id}`, input)).data as Awaited<ReturnType<Services["saveContract"]>>;
+    },
+    async voidContract(id, expectedVersion) {
+      return (await request("POST", `/admin/contracts/${id}/void`, { expectedVersion })).data as Awaited<ReturnType<Services["voidContract"]>>;
+    },
+    async accessSettings() {
+      return (await request("GET", "/admin/access")).data as Awaited<ReturnType<Services["accessSettings"]>>;
+    },
+    async updateFeature(input) {
+      await request("PATCH", "/admin/access/features", input);
+    },
+    async updateIntegration(input) {
+      await request("PATCH", "/admin/access/integrations", input);
+    },
   };
 }

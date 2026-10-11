@@ -1,11 +1,11 @@
 import { applicationStatusLabels, attendanceStatusLabels, completionLabels, courseStatusLabels, enrollmentStatusLabels, userRoleLabels, type StatusTone } from "@mf/contracts";
 
 const tones: Record<StatusTone, string> = {
-  neutral: "bg-stone-100 text-stone-700",
-  info: "bg-sky-50 text-sky-800",
-  warning: "bg-amber-50 text-amber-800",
-  success: "bg-emerald-50 text-emerald-800",
-  danger: "bg-rose-50 text-rose-800",
+  neutral: "bg-[#ebe6dc] text-[#1a1916]",
+  info: "bg-[#e6eef3] text-[#163044]",
+  warning: "bg-[#f6edd8] text-[#4a3410]",
+  success: "bg-[#e5f0e8] text-[#163526]",
+  danger: "bg-[#f8e8e4] text-[#7a261c]",
 };
 
 export function toneClass(tone: StatusTone): string {

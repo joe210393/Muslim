@@ -5,3 +5,4 @@
 | 日期 | 變更 | 處理 |
 |---|---|---|
 | 2026-09-28 | 初版建立。畫面／API `taxId` 對資料庫 `tax_id`；申請快照為 `taxIdSnapshot`／`tax_id_snapshot` | 見 `schema.prisma` 與 `docs/DATA_DICTIONARY.md` |
+| 2026-10-11 | 新增首頁版位、合約範本與合約、角色功能、串接設定 | migration `20261011000000_site_and_contracts`。合約快照 API 欄位為 `body` |

@@ -15,8 +15,10 @@ import { randomUUID } from "node:crypto";
 import { ApiError } from "../../lib/errors";
 import type { SessionActor } from "../../middleware/auth";
 import type { StorageAdapter } from "../../storage/storage";
+import { assertIntegration } from "../platform/access";
 
 export async function addAttachment(actor: SessionActor, storage: StorageAdapter, applicationId: string, requirementKey: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }) {
+  await assertIntegration("media");
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
     include: { categoryFormVersion: true, attachments: { where: { removedAt: null }, include: { file: true } } },

@@ -38,6 +38,27 @@ import {
   type DemoDataset,
 } from "@mf/contracts";
 import { ClientError, type Services } from "../services/types";
+import {
+  accessSettings,
+  adminContracts,
+  adminSite,
+  contractDocument,
+  contractOf,
+  createInitialPlatform,
+  issueContract,
+  myContracts,
+  publicSite,
+  saveContract,
+  saveSite,
+  saveTemplate,
+  signContract,
+  templateOf,
+  updateFeature,
+  updateIntegration,
+  uploadSiteImage,
+  voidContract,
+  type PlatformState,
+} from "./platform";
 
 type State = {
   data: DemoDataset;
@@ -45,6 +66,7 @@ type State = {
   sequence: number;
   imports: Array<{ id: string; type: "ORGANIZATIONS" | "APPLICATION_DRAFTS"; status: string; rows: { rowNumber: number; ok: boolean; messages: string[]; preview: Record<string, string> }[]; records: Record<string, string>[]; ready: boolean; commitKey?: string; committed?: number }>;
   resetTokens: Array<{ token: string; userId: string; expiresAt: string; used: boolean }>;
+  platform: PlatformState;
 };
 
 const KEY = "mf-demo-state-v1";
@@ -233,9 +255,11 @@ export async function createMockServices(): Promise<Services> {
       sequence: 41,
       imports: [],
       resetTokens: [],
+      platform: createInitialPlatform(data),
     };
   };
   let state = (await idbGet()) ?? blank();
+  state.platform ??= createInitialPlatform(state.data);
   const save = () => idbSet(state);
 
   const services: Services = {
@@ -801,8 +825,79 @@ export async function createMockServices(): Promise<Services> {
       return toCsv(["userName", "attendanceStatus", "attendedMinutes"], rows.map((row) => [row.userName, row.attendanceStatus, row.attendedMinutes]));
     },
     async audit() {
-      if (requireActor(state).role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      const actor = requireActor(state);
+      if (actor.role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      const allowed = state.platform.features.find((item) => item.role === actor.role && item.featureKey === "audit.view");
+      if (!allowed?.enabled) throw new ClientError("這個角色目前沒有此功能", { status: 403, code: "FORBIDDEN" });
       return state.data.auditLogs.map((log) => ({ ...log, actorName: state.data.users.find((user) => user.id === log.actorId)?.displayName ?? null }));
+    },
+    async publicSite() {
+      return publicSite(state.platform, state.data.files);
+    },
+    async adminSite() {
+      return adminSite(state.platform, requireActor(state), state.data.files);
+    },
+    async saveSite(slot, input) {
+      const saved = saveSite(state.platform, requireActor(state), state.data.files, slot, input);
+      await save();
+      return saved;
+    },
+    async uploadSiteImage(slot, file) {
+      const saved = await uploadSiteImage(state.platform, requireActor(state), state.data, slot, file);
+      await save();
+      return saved;
+    },
+    async myContracts() {
+      return myContracts(state.platform, requireActor(state));
+    },
+    async contract(id) {
+      const row = contractOf(state.platform, requireActor(state), id);
+      return { ...row, body: row.body };
+    },
+    async signContract(id, input) {
+      const saved = await signContract(state.platform, requireActor(state), state.data, id, input);
+      await save();
+      return saved;
+    },
+    async contractDocument(id) {
+      return contractDocument(state.platform, requireActor(state), state.data, id);
+    },
+    async contractTemplate() {
+      return templateOf(state.platform, requireActor(state));
+    },
+    async saveContractTemplate(input) {
+      const saved = saveTemplate(state.platform, requireActor(state), input);
+      await save();
+      return saved;
+    },
+    async adminContracts() {
+      return adminContracts(state.platform, requireActor(state));
+    },
+    async issueContract(organizationId) {
+      const saved = issueContract(state.platform, requireActor(state), state.data, organizationId);
+      await save();
+      return saved;
+    },
+    async saveContract(id, input) {
+      const saved = saveContract(state.platform, requireActor(state), id, input);
+      await save();
+      return saved;
+    },
+    async voidContract(id, expectedVersion) {
+      const saved = voidContract(state.platform, requireActor(state), id, expectedVersion);
+      await save();
+      return saved;
+    },
+    async accessSettings() {
+      return accessSettings(state.platform, requireActor(state));
+    },
+    async updateFeature(input) {
+      updateFeature(state.platform, requireActor(state), input);
+      await save();
+    },
+    async updateIntegration(input) {
+      updateIntegration(state.platform, requireActor(state), input);
+      await save();
     },
     async resetDemo() {
       state = blank();

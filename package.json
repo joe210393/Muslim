@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "esbuild", "prisma"]
+    "onlyBuiltDependencies": ["@napi-rs/canvas", "@prisma/client", "@prisma/engines", "esbuild", "prisma"]
   },
   "scripts": {
     "dev": "pnpm run --parallel dev:web dev:api",

@@ -10,4 +10,6 @@ export {
   NotificationType,
   ImportBatchType,
   ImportBatchStatus,
+  ContentSlot,
+  ContractStatus,
 } from "./generated/prisma/enums";

@@ -1,5 +1,6 @@
 import { getEnv, repoRoot } from "../config/env";
-import { DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, buildDemoDataset, sha256Hex } from "@mf/contracts";
+import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, buildDemoDataset, formatContractNo, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
+import { ContractStatus } from "@mf/db/enums";
 import { prisma, type Prisma } from "@mf/db/server";
 import bcrypt from "bcryptjs";
 import { mkdir } from "node:fs/promises";
@@ -149,6 +150,38 @@ for (const log of data.auditLogs) {
 }
 
 await prisma.$executeRawUnsafe(`SELECT setval('application_no_seq', GREATEST(40, (SELECT last_value FROM application_no_seq)), true)`);
+
+const { ensureContent } = await import("../modules/platform/content");
+await ensureContent();
+const demoOrg = data.organizations[0];
+const template = await prisma.contractTemplate.findUnique({ where: { code: CONTRACT_TEMPLATE_CODE } });
+const adminUser = await prisma.user.findUnique({ where: { email: "admin@example.test" } });
+if (demoOrg && template && adminUser) {
+  const organization = await prisma.organization.findUnique({ where: { taxId: demoOrg.taxId } });
+  const existing = organization
+    ? await prisma.contractRecord.findFirst({ where: { organizationId: organization.id, status: { in: [ContractStatus.ISSUED, ContractStatus.SIGNED] } } })
+    : null;
+  if (organization && !existing) {
+    const contractNo = formatContractNo(taipeiYear(), 1);
+    await prisma.contractRecord.create({
+      data: {
+        contractNo,
+        organizationId: organization.id,
+        templateId: template.id,
+        title: template.title,
+        bodySnapshot: renderContractBody(template.body, {
+          organizationName: organization.organizationName,
+          taxId: organization.taxId ?? "",
+          contractNo,
+          issuedOn: taipeiDateLabel(),
+        }),
+        status: ContractStatus.ISSUED,
+        issuedById: adminUser.id,
+      },
+    });
+    await prisma.$executeRawUnsafe(`SELECT setval('contract_no_seq', GREATEST(1, (SELECT last_value FROM contract_no_seq)), true)`);
+  }
+}
 await mkdir(path.resolve(repoRoot(), env.UPLOAD_ROOT), { recursive: true });
 console.info(`示範資料已寫入（不會覆寫既有案件）。登入帳號見 README，密碼僅供本地示範。來源=${DEMO_SOURCE_SYSTEM}`);
 await prisma.$disconnect();

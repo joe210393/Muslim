@@ -18,6 +18,51 @@ import type {
 
 export type Page<T> = { items: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number } };
 
+export type SiteSlot = {
+  slot: "HOME_HERO" | "HOME_BANNER";
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  body: string;
+  ctaLabel: string;
+  ctaHref: string;
+  secondaryCtaLabel: string;
+  secondaryCtaHref: string;
+  imageUrl: string | null;
+};
+
+export type AdminSiteSlot = SiteSlot & { isPublished: boolean; version: number; updatedAt: string };
+export type SiteSlotInput = {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  body: string;
+  ctaLabel: string;
+  ctaHref: string;
+  secondaryCtaLabel: string;
+  secondaryCtaHref: string;
+  isPublished: boolean;
+  expectedVersion: number;
+};
+export type ContractItem = {
+  id: string;
+  contractNo: string;
+  organizationId: string;
+  organizationName: string;
+  title: string;
+  status: "ISSUED" | "SIGNED" | "VOID";
+  signerName: string | null;
+  signerTitle: string | null;
+  signedAt: string | null;
+  version: number;
+  createdAt: string;
+};
+export type ContractTemplateItem = { id: string; code: string; title: string; body: string; version: number; updatedAt: string };
+export type AccessSettings = {
+  features: Array<{ role: string; featureKey: string; label: string; enabled: boolean }>;
+  integrations: Array<{ key: string; label: string; provider: string; enabled: boolean; note: string }>;
+};
+
 export class ClientError extends Error {
   fieldErrors?: { path: string; message: string }[];
   code?: string;
@@ -77,6 +122,23 @@ export type Services = {
   exportApplications: () => Promise<string>;
   exportEnrollments: (courseId: string) => Promise<string>;
   audit: () => Promise<AuditLog[]>;
+  publicSite: () => Promise<{ hero: SiteSlot | null; banner: SiteSlot | null }>;
+  adminSite: () => Promise<AdminSiteSlot[]>;
+  saveSite: (slot: "HOME_HERO" | "HOME_BANNER", input: SiteSlotInput) => Promise<AdminSiteSlot>;
+  uploadSiteImage: (slot: "HOME_HERO" | "HOME_BANNER", file: File) => Promise<AdminSiteSlot>;
+  myContracts: () => Promise<ContractItem[]>;
+  contract: (id: string) => Promise<ContractItem & { body: string }>;
+  signContract: (id: string, input: { signerName: string; signerTitle: string; expectedVersion: number; face: Blob; signature: Blob }) => Promise<ContractItem & { body: string }>;
+  contractDocument: (id: string) => Promise<{ blob: Blob; name: string }>;
+  contractTemplate: () => Promise<ContractTemplateItem>;
+  saveContractTemplate: (input: { title: string; body: string; expectedVersion: number }) => Promise<ContractTemplateItem>;
+  adminContracts: () => Promise<ContractItem[]>;
+  issueContract: (organizationId: string) => Promise<ContractItem>;
+  saveContract: (id: string, input: { title: string; body: string; expectedVersion: number }) => Promise<ContractItem & { body: string }>;
+  voidContract: (id: string, expectedVersion: number) => Promise<ContractItem & { body: string }>;
+  accessSettings: () => Promise<AccessSettings>;
+  updateFeature: (input: { role: "APPLICANT" | "CASE_OFFICER" | "ADMIN"; featureKey: string; enabled: boolean }) => Promise<void>;
+  updateIntegration: (input: { key: string; provider: string; enabled: boolean; note: string }) => Promise<void>;
   resetDemo?: () => Promise<void>;
   demoAccounts?: () => Array<{ email: string; label: string }>;
   switchDemoUser?: (email: string) => Promise<PublicUser>;

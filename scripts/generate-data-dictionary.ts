@@ -24,6 +24,9 @@ const extra = `
 - Enrollment / Course：課程、報名、出席與學習紀錄
 - Certification：驗證紀錄與核定後人工登錄
 - FileObject / ApplicationAttachment：申請附件
+- SiteContent：首頁 Hero 與 Banner
+- ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
+- RoleFeature / IntegrationSetting：角色功能與串接開關
 
 環境變數實際值、密碼雜湊與 token 不寫入本檔。密碼雜湊欄位僅標示存在，API 不回傳。
 `;

@@ -23,16 +23,16 @@ export function PortalHome() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">總覽</h1>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{cards.map(([label, count]) => <Card key={String(label)}><p className="text-sm text-stone-500">{label}</p><p className="text-2xl font-semibold">{count}</p></Card>)}</div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{cards.map(([label, count]) => <Card key={String(label)}><p className="text-sm text-[var(--muted)]">{label}</p><p className="text-2xl font-semibold">{count}</p></Card>)}</div>
       <Card>
         <h2 className="font-medium">待辦案件</h2>
         {(apps.data?.items ?? []).filter((item) => item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT").slice(0, 5).map((item) => (
-          <Link key={item.id} className="mt-2 block text-sm text-[#0e5c4a]" to={item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT" ? `/portal/applications/${item.id}/edit` : `/portal/applications/${item.id}`}>{item.applicationNo} · {applicationStatusLabels[item.status].label}</Link>
+          <Link key={item.id} className="mt-2 block text-sm text-[var(--link)]" to={item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT" ? `/portal/applications/${item.id}/edit` : `/portal/applications/${item.id}`}>{item.applicationNo} · {applicationStatusLabels[item.status].label}</Link>
         ))}
       </Card>
       <Card>
         <h2 className="font-medium">近期課程</h2>
-        {data.upcoming.length === 0 ? <p className="text-sm text-stone-500">目前沒有即將開始的公開課程。</p> : data.upcoming.map((course) => <p key={course.id} className="text-sm">{course.title} · {formatTaipei(course.startsAt)} · {course.location}</p>)}
+        {data.upcoming.length === 0 ? <p className="text-sm text-[var(--muted)]">目前沒有即將開始的公開課程。</p> : data.upcoming.map((course) => <p key={course.id} className="text-sm">{course.title} · {formatTaipei(course.startsAt)} · {course.location}</p>)}
       </Card>
     </div>
   );
@@ -50,7 +50,7 @@ export function ProfilePage() {
   return (
     <Card className="space-y-3">
       <h1 className="text-xl font-semibold">業者資料</h1>
-      <p className="text-sm text-stone-500">統一編號 {query.data?.taxId ?? "—"}。修改這裡不會回寫已送出的申請快照。</p>
+      <p className="text-sm text-[var(--muted)]">統一編號 {query.data?.taxId ?? "—"}。修改這裡不會回寫已送出的申請快照。</p>
       <Field label="業者名稱"><TextInput value={form.organizationName} onChange={(event) => setForm({ ...form, organizationName: event.target.value })} /></Field>
       <Field label="聯絡人"><TextInput value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} /></Field>
       <Field label="電話"><TextInput value={form.contactPhone} onChange={(event) => setForm({ ...form, contactPhone: event.target.value })} /></Field>
@@ -95,7 +95,7 @@ export function ApplicationListPage() {
   const query = useQuery({ queryKey: ["applications", q, status], queryFn: () => services.applications({ q, status, page: 1 }) });
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">我的申請</h1><Link to="/portal/applications/new" className="rounded-md bg-[#0e5c4a] px-3 py-2 text-sm text-white">新增申請</Link></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">驗證申請</h1><Link to="/portal/applications/new" className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white">新增申請</Link></div>
       <div className="flex flex-wrap gap-2">
         <TextInput className="max-w-xs" placeholder="搜尋案件編號" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋" />
         <SelectInput className="max-w-xs" value={status} onChange={(event) => setStatus(event.target.value)} aria-label="狀態">
@@ -111,7 +111,7 @@ export function ApplicationListPage() {
           <tbody>
             {query.data?.items.map((item) => (
               <tr key={item.id} className="border-t border-stone-100">
-                <td className="p-3"><Link className="text-[#0e5c4a]" to={item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT" ? `/portal/applications/${item.id}/edit` : `/portal/applications/${item.id}`}>{item.applicationNo}</Link></td>
+                <td className="p-3"><Link className="text-[var(--link)]" to={item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT" ? `/portal/applications/${item.id}/edit` : `/portal/applications/${item.id}`}>{item.applicationNo}</Link></td>
                 <td className="p-3">{item.categoryName}</td>
                 <td className="p-3">{formatTaipei(item.updatedAt)}</td>
                 <td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td>
@@ -199,8 +199,8 @@ export function ApplicationEditPage() {
   }
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">{steps.map((label, index) => <button key={label} className={`rounded-full px-3 py-1 text-sm ${index === step ? "bg-[#0e5c4a] text-white" : "bg-white"}`} type="button" onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>
-      <p className="text-sm text-stone-500">案件 {draft.applicationNo} · 版本 {draft.version} · {draft.configurationStatus === "DEMO" ? "此類別為示範設定" : "類別已確認"}</p>
+      <div className="flex flex-wrap gap-2">{steps.map((label, index) => <button key={label} className={`rounded-full px-3 py-1 text-sm ${index === step ? "bg-[var(--accent)] text-white" : "bg-white"}`} type="button" onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>
+      <p className="text-sm text-[var(--muted)]">案件 {draft.applicationNo} · 版本 {draft.version} · {draft.configurationStatus === "DEMO" ? "此類別為示範設定" : "類別已確認"}</p>
       {step === 0 ? (
         <Field label="類別" hint="只有未送件草稿可以改類別，不相容的額外欄位會被清掉。">
           <CategorySelect value={draft.categoryId} disabled={draft.status !== "DRAFT"} onChange={(categoryId) => { setDraft({ ...draft, categoryId }); setDirty(true); }} />
@@ -237,8 +237,8 @@ export function ApplicationEditPage() {
             return (
               <Card key={requirement.key}>
                 <p className="font-medium">{requirement.label}{requirement.requiredOnSubmit ? "（送件必要）" : "（選填）"}</p>
-                <p className="text-xs text-stone-500">PDF、JPEG、PNG，單檔 10 MiB。{requirement.helpText}</p>
-                {file ? <p className="text-sm">{file.originalName} · {formatBytes(file.sizeBytes)}</p> : <p className="text-sm text-stone-500">尚未上傳</p>}
+                <p className="text-xs text-[var(--muted)]">PDF、JPEG、PNG，單檔 10 MiB。{requirement.helpText}</p>
+                {file ? <p className="text-sm">{file.originalName} · {formatBytes(file.sizeBytes)}</p> : <p className="text-sm text-[var(--muted)]">尚未上傳</p>}
                 <input className="mt-2 block text-sm" type="file" accept="application/pdf,image/jpeg,image/png" aria-label={requirement.label} onChange={async (event) => {
                   const selected = event.target.files?.[0];
                   if (!selected) return;
@@ -328,7 +328,7 @@ export function ApplicationDetailPage() {
       </Card>
       <Card>
         <h2 className="font-medium">歷程與公開意見</h2>
-        {(events.data ?? []).length === 0 ? <p className="text-sm text-stone-500">尚無送審紀錄。</p> : events.data?.map((event) => <p key={event.id} className="mt-2 text-sm">{formatTaipei(event.createdAt)} {event.actorName} {event.action} {event.publicComment ?? ""}</p>)}
+        {(events.data ?? []).length === 0 ? <p className="text-sm text-[var(--muted)]">尚無送審紀錄。</p> : events.data?.map((event) => <p key={event.id} className="mt-2 text-sm">{formatTaipei(event.createdAt)} {event.actorName} {event.action} {event.publicComment ?? ""}</p>)}
       </Card>
     </div>
   );
@@ -341,8 +341,8 @@ export function EnrollmentPage() {
   const [cancelId, setCancelId] = useState<string | null>(null);
   return (
     <div className="space-y-3">
-      <h1 className="text-2xl font-semibold">課程報名</h1>
-      <p className="text-sm text-stone-500">取消規則暫定為報名截止前，待確認。</p>
+      <h1 className="text-2xl font-semibold">教育訓練</h1>
+      <p className="text-sm text-[var(--muted)]">取消規則暫定為報名截止前，待確認。</p>
       {(rows.data ?? []).map((row) => (
         <Card key={row.id}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -382,8 +382,8 @@ export function CertificationPage() {
   const rows = useQuery({ queryKey: ["certifications"], queryFn: () => services.certifications() });
   return (
     <div className="space-y-3">
-      <h1 className="text-2xl font-semibold">驗證紀錄</h1>
-      <p className="text-sm text-stone-500">證書由管理員人工登錄，系統不自動產製，也不會自動換證。</p>
+      <h1 className="text-2xl font-semibold">電子證書</h1>
+      <p className="text-sm text-[var(--muted)]">證書由管理員人工登錄，系統不自動產製，也不會自動換證。</p>
       {(rows.data ?? []).length === 0 ? <Empty title="尚無證書資料" body="核定後才會出現人工登錄的紀錄。" /> : null}
       {rows.data?.map((item) => <Card key={item.id}><p className="font-medium">{item.certificateNo}</p><p className="text-sm">案件 {item.applicationNo} · {item.issuedOnDate} 至 {item.validUntilDate} · {item.validityLabel}</p></Card>)}
     </div>

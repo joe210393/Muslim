@@ -23,6 +23,15 @@ import {
   submitApplicationSchema,
   updateStaffUserSchema,
   parseCategoryDefinition,
+  siteContentWriteSchema,
+  contractTemplateWriteSchema,
+  issueContractSchema,
+  contractBodyWriteSchema,
+  voidContractSchema,
+  signContractFieldsSchema,
+  featureToggleSchema,
+  integrationWriteSchema,
+  contentSlotSchema,
 } from "@mf/contracts";
 import { getEnv, repoRoot } from "./config/env";
 import { prisma } from "@mf/db/server";
@@ -34,12 +43,15 @@ import path from "node:path";
 import { z } from "zod";
 import { ApiError } from "./lib/errors";
 import { errorMiddleware, ok, route } from "./lib/http";
-import { csrfGuard, isStaff, requireActor, requireRoles } from "./middleware/auth";
+import { csrfGuard, isStaff, loadActor, requireActor, requireRoles } from "./middleware/auth";
 import * as admin from "./modules/admin/service";
 import * as applications from "./modules/applications/service";
 import * as auth from "./modules/auth/service";
 import * as files from "./modules/files/service";
 import * as training from "./modules/training/service";
+import * as access from "./modules/platform/access";
+import * as siteContent from "./modules/platform/content";
+import * as contracts from "./modules/platform/contracts";
 import { createStorage } from "./storage/storage";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: FILE_POLICY.maxFileBytes } });
@@ -138,17 +150,22 @@ export function createApp() {
   }));
   api.post("/applications", route(async (req, res) => {
     const actor = await requireActor(req);
+    await access.assertFeature(actor, "applications.create");
     ok(res, req, await applications.createDraft(actor, createApplicationSchema.parse(req.body).categoryId));
   }));
   api.get("/applications/:id/events", route(async (req, res) => ok(res, req, await applications.listEvents(await requireActor(req), String(req.params.id)))));
   api.get("/applications/:id/submissions", route(async (req, res) => ok(res, req, await applications.listSubmissions(await requireActor(req), String(req.params.id)))));
   api.post("/applications/:id/submit", route(async (req, res) => {
+    const actor = await requireActor(req);
+    await access.assertFeature(actor, "applications.create");
     const body = submitApplicationSchema.parse(req.body);
-    ok(res, req, await applications.submitApplication(env, await requireActor(req), String(req.params.id), body.expectedVersion, body.requestId));
+    ok(res, req, await applications.submitApplication(env, actor, String(req.params.id), body.expectedVersion, body.requestId));
   }));
   api.post("/applications/:id/resubmit", route(async (req, res) => {
+    const actor = await requireActor(req);
+    await access.assertFeature(actor, "applications.create");
     const body = submitApplicationSchema.parse(req.body);
-    ok(res, req, await applications.resubmitApplication(env, await requireActor(req), String(req.params.id), body.expectedVersion, body.requestId));
+    ok(res, req, await applications.resubmitApplication(env, actor, String(req.params.id), body.expectedVersion, body.requestId));
   }));
   api.post("/applications/:id/attachments", upload.single("file"), route(async (req, res) => {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇檔案");
@@ -188,6 +205,7 @@ export function createApp() {
   api.get("/admin/applications/export", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
     res.type("text/csv").send(await admin.exportApplications(actor));
   }));
   api.get("/admin/applications", route(async (req, res) => {
@@ -204,48 +222,57 @@ export function createApp() {
   api.post("/admin/applications/:id/assign", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "applications.decide");
     const body = assignApplicationSchema.parse(req.body);
     ok(res, req, await applications.assignApplication(actor, String(req.params.id), body.assignedToId, body.expectedVersion, body.requestId));
   }));
   api.post("/admin/applications/:id/actions", route(async (req, res) => {
     const actor = await requireActor(req);
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
+    await access.assertFeature(actor, "applications.review");
     ok(res, req, await applications.reviewApplication(env, actor, String(req.params.id), reviewActionSchema.parse(req.body)));
   }));
   api.post("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "applications.decide");
     ok(res, req, await admin.upsertCertification(actor, String(req.params.id), certificationWriteSchema.parse(req.body)));
   }));
   api.patch("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "applications.decide");
     ok(res, req, await admin.upsertCertification(actor, String(req.params.id), certificationWriteSchema.parse(req.body)));
   }));
 
   api.get("/admin/courses", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.listCourses("manage"));
   }));
   api.post("/admin/courses", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.saveCourse(actor, courseWriteSchema.parse(req.body)));
   }));
   api.get("/admin/courses/:id", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.getCourse(actor, String(req.params.id)));
   }));
   api.patch("/admin/courses/:id", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.saveCourse(actor, courseWriteSchema.parse(req.body), String(req.params.id)));
   }));
   api.get("/admin/courses/:id/enrollments/export", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
     const result = await training.courseEnrollments(actor, String(req.params.id), 1, 50);
     const { toCsv } = await import("@mf/contracts");
     res.type("text/csv").send(toCsv(["userName", "userEmail", "status", "attendanceStatus", "attendedMinutes", "completion"], result.items.map((item) => [item.userName, item.userEmail, item.status, item.attendanceStatus, item.attendedMinutes, item.completion])));
@@ -253,6 +280,7 @@ export function createApp() {
   api.get("/admin/courses/:id/enrollments", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
     const query = paginationQuerySchema.parse(req.query);
     const result = await training.courseEnrollments(actor, String(req.params.id), query.page, query.pageSize);
     ok(res, req, result.items, result.meta);
@@ -260,12 +288,14 @@ export function createApp() {
   api.patch("/admin/enrollments/:id/attendance", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.updateAttendance(actor, String(req.params.id), attendancePatchSchema.parse(req.body)));
   }));
 
   api.get("/admin/users", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     const query = paginationQuerySchema.parse(req.query);
     const result = await admin.listUsers(typeof req.query.q === "string" ? req.query.q : undefined, query.page, query.pageSize);
     ok(res, req, result.items, result.meta);
@@ -273,16 +303,19 @@ export function createApp() {
   api.post("/admin/users", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     ok(res, req, await admin.createStaff(actor, createStaffUserSchema.parse(req.body)));
   }));
   api.patch("/admin/users/:id", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     ok(res, req, await admin.updateStaff(actor, String(req.params.id), updateStaffUserSchema.parse(req.body)));
   }));
   api.get("/admin/organizations", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     const query = paginationQuerySchema.parse(req.query);
     const result = await admin.listOrganizations(typeof req.query.q === "string" ? req.query.q : undefined, query.page, query.pageSize);
     ok(res, req, result.items, result.meta);
@@ -290,6 +323,7 @@ export function createApp() {
   api.get("/admin/organizations/:id", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     const org = await prisma.organization.findUnique({ where: { id: String(req.params.id) } });
     if (!org) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者");
     ok(res, req, { ...org, createdAt: org.createdAt.toISOString(), updatedAt: org.updatedAt.toISOString() });
@@ -297,28 +331,83 @@ export function createApp() {
   api.get("/admin/imports/template/:type", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     const type = req.params.type === "APPLICATION_DRAFTS" ? "APPLICATION_DRAFTS" : "ORGANIZATIONS";
     res.type("text/csv").send(admin.importTemplate(type));
   }));
   api.post("/admin/imports/preview", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     const type = req.body?.type === "APPLICATION_DRAFTS" ? "APPLICATION_DRAFTS" : "ORGANIZATIONS";
     ok(res, req, await admin.previewImport(actor, type, String(req.body?.csv ?? "")));
   }));
   api.post("/admin/imports/:id/commit", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "users.manage");
     const body = z.object({ requestId: z.string().uuid() }).parse(req.body);
     ok(res, req, await admin.commitImport(actor, String(req.params.id), body.requestId));
   }));
   api.get("/admin/audit-logs", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN]);
+    await access.assertFeature(actor, "audit.view");
     const query = paginationQuerySchema.parse(req.query);
     const result = await admin.listAudit(query.page, query.pageSize);
     ok(res, req, result.items, result.meta);
   }));
+  api.get("/site-content", route(async (req, res) => ok(res, req, await siteContent.publicSite())));
+  api.get("/site-content/media/:fileId", route(async (req, res) => {
+    const file = await siteContent.readSiteImage(await loadActor(req), storage, String(req.params.fileId));
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.get("/admin/site-content", route(async (req, res) => ok(res, req, await siteContent.adminSite(await requireActor(req)))));
+  api.patch("/admin/site-content/:slot", route(async (req, res) => {
+    const slot = contentSlotSchema.parse(req.params.slot);
+    ok(res, req, await siteContent.updateSite(await requireActor(req), slot, siteContentWriteSchema.parse(req.body)));
+  }));
+  api.post("/admin/site-content/:slot/image", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    const slot = contentSlotSchema.parse(req.params.slot);
+    ok(res, req, await siteContent.uploadSiteImage(await requireActor(req), storage, slot, req.file));
+  }));
+
+  api.get("/contracts/mine", route(async (req, res) => ok(res, req, await contracts.listMyContracts(await requireActor(req)))));
+  api.get("/contracts/:id/document", route(async (req, res) => {
+    const file = await contracts.readContractPdf(await requireActor(req), storage, String(req.params.id));
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.get("/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
+  api.post("/contracts/:id/sign", upload.fields([{ name: "face", maxCount: 1 }, { name: "signature", maxCount: 1 }]), route(async (req, res) => {
+    const uploaded = req.files as { face?: Express.Multer.File[]; signature?: Express.Multer.File[] } | undefined;
+    const face = uploaded?.face?.[0];
+    const signature = uploaded?.signature?.[0];
+    if (!face || !signature) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請拍攝人像並手寫簽名");
+    const fields = signContractFieldsSchema.parse(req.body);
+    ok(res, req, await contracts.signContract(await requireActor(req), storage, repoRoot(), String(req.params.id), fields, face, signature));
+  }));
+
+  api.get("/admin/contract-template", route(async (req, res) => ok(res, req, await contracts.getTemplate(await requireActor(req)))));
+  api.patch("/admin/contract-template", route(async (req, res) => ok(res, req, await contracts.saveTemplate(await requireActor(req), contractTemplateWriteSchema.parse(req.body)))));
+  api.get("/admin/contracts", route(async (req, res) => ok(res, req, await contracts.listAdminContracts(await requireActor(req)))));
+  api.post("/admin/contracts", route(async (req, res) => ok(res, req, await contracts.issueContract(await requireActor(req), issueContractSchema.parse(req.body).organizationId))));
+  api.get("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
+  api.patch("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.updateIssuedContract(await requireActor(req), String(req.params.id), contractBodyWriteSchema.parse(req.body)))));
+  api.post("/admin/contracts/:id/void", route(async (req, res) => ok(res, req, await contracts.voidContract(await requireActor(req), String(req.params.id), voidContractSchema.parse(req.body).expectedVersion))));
+
+  api.get("/admin/access", route(async (req, res) => {
+    const actor = await requireActor(req);
+    await access.assertFeature(actor, "users.manage");
+    ok(res, req, await access.listAccess());
+  }));
+  api.patch("/admin/access/features", route(async (req, res) => ok(res, req, await access.updateFeature(await requireActor(req), featureToggleSchema.parse(req.body)))));
+  api.patch("/admin/access/integrations", route(async (req, res) => ok(res, req, await access.updateIntegration(await requireActor(req), integrationWriteSchema.parse(req.body)))));
+
   api.use((req, res) => {
     res.status(404).json({ success: false, error: { code: ErrorCodes.NOT_FOUND, message: "找不到 API" }, requestId: req.header("x-request-id") ?? "unknown" });
   });

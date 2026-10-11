@@ -1,14 +1,33 @@
 @import "tailwindcss";
 
 :root {
-  color: #1c2421;
-  background: #f3f6f4;
-  font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --bg: #f4f1ea;
+  --surface: #fffcf7;
+  --ink: #1a1916;
+  --muted: #3f3c36;
+  --line: #d4cfc4;
+  --accent: #1c332c;
+  --link: #14352c;
+  --danger: #7a261c;
+  --danger-bg: #f8e8e4;
+  --ok: #163526;
+  --ok-bg: #e5f0e8;
+  --warn: #4a3410;
+  --warn-bg: #f6edd8;
+  --info: #163044;
+  --info-bg: #e6eef3;
+  --font-sans: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "PMingLiU", "Songti TC", serif;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-sans);
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
 }
 
 button,
@@ -16,6 +35,24 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+.serif {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: var(--link);
+}
+
+::selection {
+  background: #d9e4de;
+  color: var(--ink);
 }
 
 @media print {

@@ -4,53 +4,102 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
-import { Badge, Button, Card, ErrorText, Field, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ErrorText, Field, PageHeader, TextInput } from "../../components/ui";
+import { homeContent } from "../../content/site-content";
 import { formatTaipei, labels } from "../../lib/format";
-import { ClientError } from "../../services/types";
+import { ClientError, type SiteSlot } from "../../services/types";
 import { useState } from "react";
 
 export function HomePage() {
+  const services = useServices();
+  const content = useQuery({ queryKey: ["site-content", services.mode], queryFn: () => services.publicSite() });
   return (
-    <div className="space-y-6">
-      <section className="rounded-2xl bg-[#0e5c4a] px-6 py-10 text-white">
-        <p className="text-sm text-emerald-100">線上申請暨審核</p>
-        <h1 className="mt-2 text-3xl font-semibold">穆斯林友善驗證</h1>
-        <p className="mt-3 max-w-2xl text-emerald-50">業者可建立草稿、上傳附件並送件；承辦與管理員在同一套畫面完成派案、審查、補件與課程出席登錄。初版不自動核發證書。</p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link to="/guide" className="rounded-md bg-white px-4 py-2 text-sm font-medium text-[#0e5c4a]">開始了解申請</Link>
-          <Link to="/courses" className="rounded-md border border-white px-4 py-2 text-sm">查看課程</Link>
-          <Link to="/login" className="rounded-md border border-white px-4 py-2 text-sm">登入</Link>
-        </div>
-      </section>
-      <div className="grid gap-3 md:grid-cols-3">
-        {["選擇類別並建立草稿", "補齊資料與附件後送件", "依審查結果補件或等待核定"].map((step, index) => (
-          <Card key={step}><p className="text-sm text-stone-500">步驟 {index + 1}</p><p className="mt-1 font-medium">{step}</p></Card>
+    <div className="space-y-12">
+      {content.isLoading ? <p>載入中…</p> : null}
+      {content.error ? <ErrorText message="無法載入首頁內容" /> : null}
+      {content.data?.hero ? <Hero slot={content.data.hero} /> : null}
+      {content.data?.banner ? <Banner slot={content.data.banner} /> : null}
+      <div className="grid gap-8 border-t border-[var(--line)] pt-10 md:grid-cols-3">
+        {homeContent.points.map((point, index) => (
+          <section key={point.title}>
+            <p className="text-sm text-[var(--muted)]">0{index + 1}</p>
+            <h2 className="mt-2 text-2xl">{point.title}</h2>
+            <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{point.body}</p>
+          </section>
         ))}
       </div>
-      <p className="text-sm text-stone-600">聯絡窗口尚未確認，展示用信箱為 contact@example.test。本系統不使用未授權的官方標章。</p>
     </div>
   );
+}
+
+function Hero({ slot }: { slot: SiteSlot }) {
+  return (
+    <section className="overflow-hidden rounded-lg bg-[#1c332c] text-[#f7f4ee]">
+      <div className="grid md:grid-cols-[1.4fr_0.9fr]">
+        <div className="px-6 py-12 md:px-12 md:py-16">
+          <p className="text-sm tracking-wide">{slot.eyebrow}</p>
+          <h1 className="mt-4 max-w-3xl text-4xl leading-tight text-[#f7f4ee] md:text-5xl">{slot.title}</h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-[#f7f4ee]">{slot.subtitle}</p>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[#e4ddd2]">{slot.body}</p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <SiteLink href={slot.ctaHref} label={slot.ctaLabel} primary />
+            <SiteLink href={slot.secondaryCtaHref} label={slot.secondaryCtaLabel} />
+          </div>
+        </div>
+        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-full min-h-64 w-full object-cover" /> : <div className="hidden min-h-64 border-l border-[#34584c] md:block" />}
+      </div>
+    </section>
+  );
+}
+
+function Banner({ slot }: { slot: SiteSlot }) {
+  return (
+    <section className="grid items-center gap-8 border-y border-[var(--line)] py-10 md:grid-cols-[280px_1fr]">
+      {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-48 w-full rounded-md object-cover" /> : <div className="h-48 rounded-md bg-[#e7e1d6]" />}
+      <div>
+        <p className="text-sm text-[var(--muted)]">{slot.eyebrow}</p>
+        <h2 className="mt-2 text-3xl">{slot.title}</h2>
+        <p className="mt-4 leading-8">{slot.subtitle}</p>
+        <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{slot.body}</p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <SiteLink href={slot.ctaHref} label={slot.ctaLabel} primary dark />
+          <SiteLink href={slot.secondaryCtaHref} label={slot.secondaryCtaLabel} dark />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SiteLink({ href, label, primary, dark }: { href: string; label: string; primary?: boolean; dark?: boolean }) {
+  if (!label || !href.startsWith("/")) return null;
+  const className = primary
+    ? dark
+      ? "rounded-md bg-[#1c332c] px-4 py-2 text-sm text-[#f7f4ee] no-underline"
+      : "rounded-md bg-[#f7f4ee] px-4 py-2 text-sm text-[#1c332c] no-underline"
+    : dark
+      ? "rounded-md border border-[var(--ink)] px-4 py-2 text-sm text-[var(--ink)] no-underline"
+      : "rounded-md border border-[#f7f4ee] px-4 py-2 text-sm text-[#f7f4ee] no-underline";
+  return <Link to={href} className={className}>{label}</Link>;
 }
 
 export function GuidePage() {
   const services = useServices();
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">申請說明</h1>
-      <p className="text-sm text-stone-600">目前已知共 7 類。除第 1 類與廚房／餐廳相關外，其餘正式名稱、附件與審查細則尚未提供，畫面標示為示範設定。</p>
+    <div className="space-y-6">
+      <PageHeader eyebrow="驗證介紹" title="申請類別" lede="目前已知共 7 類。除第 1 類與廚房、餐廳相關外，其餘正式名稱、附件與審查細則尚未提供。" />
       {categories.isLoading ? <p>載入中…</p> : null}
       {categories.error ? <ErrorText message="無法載入類別" /> : null}
       <div className="grid gap-3 md:grid-cols-2">
         {categories.data?.map((category) => (
           <Card key={category.id}>
             <div className="flex items-center justify-between gap-2"><h2 className="font-medium">{category.name}</h2><Badge tone={labels.application.DRAFT.tone}>{category.latestVersion.configurationStatus === "DEMO" ? "示範設定" : "已確認"}</Badge></div>
-            <p className="mt-2 text-sm text-stone-600">{category.description}</p>
-            <p className="mt-2 text-xs text-stone-500">{category.latestVersion.definition.helpText}</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">{category.description}</p>
+            <p className="mt-2 text-xs text-[var(--muted)]">{category.latestVersion.definition.helpText}</p>
           </Card>
         ))}
       </div>
-      <Link to="/login" className="inline-block text-sm text-[#0e5c4a]">登入後建立申請</Link>
+      <Link to="/login" className="inline-block text-sm text-[var(--link)]">登入後建立申請</Link>
     </div>
   );
 }
@@ -61,19 +110,19 @@ export function CoursesPage() {
   const courses = useQuery({ queryKey: ["courses", "public"], queryFn: () => services.courses("public") });
   const filtered = (courses.data ?? []).filter((course) => course.title.includes(q) || course.location.includes(q));
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">課程資訊</h1>
+    <div className="space-y-6">
+      <PageHeader eyebrow="教育訓練" title="課程列表" lede="可先看梯次與名額。月曆、題庫、及格分數與正式教材待甲方提供後替換。" />
       <TextInput placeholder="搜尋課程或地點" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋課程" />
       {courses.isLoading ? <p>載入中…</p> : null}
-      {filtered.length === 0 && !courses.isLoading ? <p className="text-sm text-stone-600">沒有符合的課程。</p> : null}
+      {filtered.length === 0 && !courses.isLoading ? <p className="text-sm text-[var(--muted)]">沒有符合的課程。</p> : null}
       <div className="grid gap-3">
         {filtered.map((course) => (
           <Card key={course.id}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Link to={`/courses/${course.id}`} className="font-medium text-[#0e5c4a]">{course.title}</Link>
+              <Link to={`/courses/${course.id}`} className="font-medium text-[var(--link)]">{course.title}</Link>
               <Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge>
             </div>
-            <p className="mt-2 text-sm text-stone-600">{formatTaipei(course.startsAt)} · {course.location} · 剩餘 {course.remainingSeats} / {course.capacity}</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">{formatTaipei(course.startsAt)} · {course.location} · 剩餘 {course.remainingSeats} / {course.capacity}</p>
           </Card>
         ))}
       </div>
@@ -92,9 +141,9 @@ export function CourseDetailPage() {
   const item = course.data;
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">{item.title}</h1>
+      <PageHeader eyebrow="教育訓練" title={item.title} />
       {item.isDemo ? <Badge tone="warning">示範課程</Badge> : null}
-      <p className="text-sm leading-6 text-stone-700">{item.description}</p>
+      <p className="text-sm leading-6 text-[var(--muted)]">{item.description}</p>
       <Card>
         <p>時間：{formatTaipei(item.startsAt)} 至 {formatTaipei(item.endsAt)}</p>
         <p>地點：{item.location}</p>
@@ -114,7 +163,7 @@ export function CourseDetailPage() {
             setMessage(error instanceof ClientError ? error.message : "報名失敗");
           }
         }}>報名此梯次</Button>
-      ) : <Link to="/login" className="text-sm text-[#0e5c4a]">登入後報名</Link>}
+      ) : <Link to="/login" className="text-sm text-[var(--link)]">登入後報名</Link>}
     </div>
   );
 }
@@ -148,7 +197,7 @@ export function LoginPage() {
         <Button type="submit">登入</Button>
       </form>
       <div className="flex justify-between text-sm"><Link to="/forgot-password">忘記密碼</Link><Link to="/register">註冊業者帳號</Link></div>
-      {services.mode === "mock" ? <p className="text-xs text-stone-500">展示帳號 applicant01@example.test、officer.lin@example.test、admin@example.test，密碼為本地示範用 Demo1234!。正式環境不會顯示這段。</p> : null}
+      {services.mode === "mock" ? <p className="text-xs text-[var(--muted)]">展示帳號 applicant01@example.test、officer.lin@example.test、admin@example.test，密碼為本地示範用 Demo1234!。正式環境不會顯示這段。</p> : null}
     </Card>
   );
 }
@@ -199,7 +248,7 @@ export function ForgotPage() {
         setDemoUrl(result.demoResetUrl ?? null);
       }}>送出</Button>
       {message ? <p className="text-sm">{message}</p> : null}
-      {demoUrl ? <Link className="block text-sm text-[#0e5c4a]" to={demoUrl}>展示模式重設連結（正式環境不會出現）</Link> : null}
+      {demoUrl ? <Link className="block text-sm text-[var(--link)]" to={demoUrl}>展示模式重設連結（正式環境不會出現）</Link> : null}
     </Card>
   );
 }
@@ -224,7 +273,7 @@ export function ResetPage() {
         }
       }}>更新密碼</Button>
       {message ? <p className="text-sm">{message}</p> : null}
-      <Link to="/login" className="text-sm text-[#0e5c4a]">返回登入</Link>
+      <Link to="/login" className="text-sm text-[var(--link)]">返回登入</Link>
     </Card>
   );
 }

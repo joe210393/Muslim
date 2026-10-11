@@ -111,6 +111,21 @@ enum ImportBatchStatus {
   @@map("import_batch_status")
 }
 
+enum ContentSlot {
+  HOME_HERO
+  HOME_BANNER
+
+  @@map("content_slot")
+}
+
+enum ContractStatus {
+  ISSUED
+  SIGNED
+  VOID
+
+  @@map("contract_status")
+}
+
 model User {
   id             String   @id @default(uuid()) @db.Uuid
   email          String   @unique @db.VarChar(320)
@@ -137,6 +152,10 @@ model User {
   notificationJobs        NotificationJob[]
   auditLogs               AuditLog[]
   importBatches           ImportBatch[]
+  editedSiteContents      SiteContent[]      @relation("SiteContentEditor")
+  editedContractTemplates ContractTemplate[] @relation("TemplateEditor")
+  issuedContracts         ContractRecord[]   @relation("ContractIssuer")
+  signedContracts         ContractRecord[]   @relation("ContractSigner")
 
   @@index([organizationId])
   @@index([role, isActive])
@@ -156,6 +175,7 @@ model Organization {
 
   users        User[]
   applications Application[]
+  contracts    ContractRecord[]
 
   @@map("organizations")
 }
@@ -320,8 +340,12 @@ model FileObject {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  uploadedBy  User                    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
-  attachments ApplicationAttachment[]
+  uploadedBy           User                    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  attachments          ApplicationAttachment[]
+  siteImages           SiteContent[]           @relation("SiteImage")
+  contractFaces        ContractRecord[]        @relation("ContractFace")
+  contractSignatures   ContractRecord[]        @relation("ContractSignature")
+  contractDocuments    ContractRecord[]        @relation("ContractPdf")
 
   @@map("file_objects")
 }
@@ -457,4 +481,97 @@ model ImportBatch {
 
   @@index([fileDigest, status])
   @@map("import_batches")
+}
+
+model SiteContent {
+  id                 String      @id @default(uuid()) @db.Uuid
+  slot               ContentSlot @unique
+  eyebrow            String      @db.VarChar(80)
+  title              String      @db.VarChar(200)
+  subtitle           String      @db.VarChar(500)
+  body               String      @db.VarChar(4000)
+  ctaLabel           String      @map("cta_label") @db.VarChar(40)
+  ctaHref            String      @map("cta_href") @db.VarChar(200)
+  secondaryCtaLabel  String      @default("") @map("secondary_cta_label") @db.VarChar(40)
+  secondaryCtaHref   String      @default("") @map("secondary_cta_href") @db.VarChar(200)
+  imageFileId        String?     @unique @map("image_file_id") @db.Uuid
+  isPublished        Boolean     @default(true) @map("is_published")
+  updatedById        String?     @map("updated_by_id") @db.Uuid
+  version            Int         @default(1)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  image     FileObject? @relation("SiteImage", fields: [imageFileId], references: [id], onDelete: Restrict)
+  updatedBy User?       @relation("SiteContentEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("site_contents")
+}
+
+model ContractTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(64)
+  title       String   @db.VarChar(200)
+  body        String
+  isActive    Boolean  @default(true) @map("is_active")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  version     Int      @default(1)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  updatedBy User?            @relation("TemplateEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  contracts ContractRecord[]
+
+  @@map("contract_templates")
+}
+
+model ContractRecord {
+  id              String         @id @default(uuid()) @db.Uuid
+  contractNo      String         @unique @map("contract_no") @db.VarChar(32)
+  organizationId  String         @map("organization_id") @db.Uuid
+  templateId      String         @map("template_id") @db.Uuid
+  title           String         @db.VarChar(200)
+  bodySnapshot    String         @map("body_snapshot")
+  status          ContractStatus
+  signerName      String?        @map("signer_name") @db.VarChar(100)
+  signerTitle     String?        @map("signer_title") @db.VarChar(100)
+  faceFileId      String?        @unique @map("face_file_id") @db.Uuid
+  signatureFileId String?        @unique @map("signature_file_id") @db.Uuid
+  pdfFileId       String?        @unique @map("pdf_file_id") @db.Uuid
+  issuedById      String         @map("issued_by_id") @db.Uuid
+  signedById      String?        @map("signed_by_id") @db.Uuid
+  signedAt        DateTime?      @map("signed_at") @db.Timestamptz(6)
+  version         Int            @default(1)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  template      ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  faceFile      FileObject?      @relation("ContractFace", fields: [faceFileId], references: [id], onDelete: Restrict)
+  signatureFile FileObject?      @relation("ContractSignature", fields: [signatureFileId], references: [id], onDelete: Restrict)
+  pdfFile       FileObject?      @relation("ContractPdf", fields: [pdfFileId], references: [id], onDelete: Restrict)
+  issuedBy      User             @relation("ContractIssuer", fields: [issuedById], references: [id], onDelete: Restrict)
+  signedBy      User?            @relation("ContractSigner", fields: [signedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status])
+  @@map("contracts")
+}
+
+model RoleFeature {
+  id         String   @id @default(uuid()) @db.Uuid
+  role       UserRole
+  featureKey String   @map("feature_key") @db.VarChar(64)
+  enabled    Boolean
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([role, featureKey])
+  @@map("role_features")
+}
+
+model IntegrationSetting {
+  key       String   @id @db.VarChar(64)
+  label     String   @db.VarChar(80)
+  provider  String   @db.VarChar(80)
+  enabled   Boolean
+  note      String   @db.VarChar(500)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("integration_settings")
 }

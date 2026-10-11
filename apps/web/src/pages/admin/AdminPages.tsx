@@ -17,7 +17,7 @@ export function AdminHome() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">工作總覽</h1>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{cards.map(([label, count]) => <Card key={String(label)}><p className="text-sm text-stone-500">{label}</p><p className="text-2xl font-semibold">{count}</p></Card>)}</div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{cards.map(([label, count]) => <Card key={String(label)}><p className="text-sm text-[var(--muted)]">{label}</p><p className="text-2xl font-semibold">{count}</p></Card>)}</div>
       <Card><h2 className="font-medium">近期課程</h2>{data.upcoming.map((course) => <p key={course.id} className="text-sm">{course.title} · {formatTaipei(course.startsAt)}</p>)}</Card>
     </div>
   );
@@ -31,7 +31,7 @@ export function AdminApplicationList() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">案件管理</h1>
+        <h1 className="text-2xl font-semibold">案件審查</h1>
         <Button variant="secondary" onClick={async () => downloadText("applications.csv", await services.exportApplications())}>匯出 CSV</Button>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -41,7 +41,7 @@ export function AdminApplicationList() {
       {(query.data?.items.length ?? 0) === 0 ? <Empty title="沒有符合的案件" body="調整篩選，或確認你只能看到指派給自己的案件。" /> : null}
       <div className="overflow-x-auto rounded-xl bg-white">
         <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">承辦</th><th className="p-3">狀態</th></tr></thead>
-          <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[#0e5c4a]" to={`/admin/applications/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
+          <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/applications/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -82,18 +82,18 @@ export function AdminApplicationDetail() {
       <Card className="text-sm"><p>業者 {item.organizationName} · 統編 {item.taxId}</p><p>場所 {item.siteName} / {item.siteAddress}</p><p>{item.applicationDescription}</p><p>表單版本 {item.formVersion} · {item.configurationStatus === "DEMO" ? "示範設定" : "已確認"}</p></Card>
       <Card>
         <h2 className="font-medium">附件</h2>
-        {item.attachments.map((file) => <button key={file.id} className="mt-1 block text-sm text-[#0e5c4a]" type="button" onClick={async () => { const downloaded = await services.download(file.fileId); const url = URL.createObjectURL(downloaded.blob); const link = document.createElement("a"); link.href = url; link.download = downloaded.name; link.click(); }}>{file.originalName}</button>)}
-        {item.attachments.length === 0 ? <p className="text-sm text-stone-500">沒有附件。</p> : null}
+        {item.attachments.map((file) => <button key={file.id} className="mt-1 block text-sm text-[var(--link)]" type="button" onClick={async () => { const downloaded = await services.download(file.fileId); const url = URL.createObjectURL(downloaded.blob); const link = document.createElement("a"); link.href = url; link.download = downloaded.name; link.click(); }}>{file.originalName}</button>)}
+        {item.attachments.length === 0 ? <p className="text-sm text-[var(--muted)]">沒有附件。</p> : null}
       </Card>
       <Card className="space-y-2">
         <h2 className="font-medium">派案與審查</h2>
-        <p className="text-xs text-stone-500">不能用下拉直接改狀態。郵件若為模擬，不會顯示成已寄出。</p>
+        <p className="text-xs text-[var(--muted)]">不能用下拉直接改狀態。郵件若為模擬，不會顯示成已寄出。</p>
         {session.user?.role === "ADMIN" ? (
           <>
             <Field label="指派承辦"><SelectInput value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="">選擇</option>{(users.data ?? []).filter((user) => user.role !== "APPLICANT" && user.isActive).map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}</SelectInput></Field>
             <Button variant="secondary" onClick={async () => { try { await services.assign(item.id, assignee, item.version, crypto.randomUUID()); await client.invalidateQueries({ queryKey: ["application", applicationId] }); } catch (reason) { setError(reason instanceof ClientError ? reason.message : "派案失敗"); } }}>指派承辦</Button>
           </>
-        ) : <p className="text-sm text-stone-500">派案、核定與退件由管理員執行。承辦可提出審查意見。</p>}
+        ) : <p className="text-sm text-[var(--muted)]">派案、核定與退件由管理員執行。承辦可提出審查意見。</p>}
         <Field label="公開意見"><TextArea value={comment} onChange={(event) => setComment(event.target.value)} /></Field>
         <Field label="內部註記"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
         <div className="flex flex-wrap gap-2">{actions.map((action) => <Button key={action.code} onClick={() => setPending(action.code)}>{action.label}</Button>)}</div>
@@ -137,8 +137,8 @@ export function CourseListPage() {
   const courses = useQuery({ queryKey: ["courses", "manage"], queryFn: () => services.courses("manage") });
   return (
     <div className="space-y-3">
-      <div className="flex justify-between"><h1 className="text-2xl font-semibold">課程管理</h1><Link className="rounded-md bg-[#0e5c4a] px-3 py-2 text-sm text-white" to="/admin/courses/new">新增課程</Link></div>
-      {courses.data?.map((course) => <Card key={course.id}><div className="flex justify-between"><Link className="font-medium text-[#0e5c4a]" to={`/admin/courses/${course.id}/edit`}>{course.title}</Link><Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge></div><p className="text-sm">名額 {course.confirmedCount}/{course.capacity}</p><Link className="text-sm" to={`/admin/courses/${course.id}/enrollments`}>報名名單</Link></Card>)}
+      <div className="flex justify-between"><h1 className="text-2xl font-semibold">教育訓練管理</h1><Link className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white" to="/admin/courses/new">新增課程</Link></div>
+      {courses.data?.map((course) => <Card key={course.id}><div className="flex justify-between"><Link className="font-medium text-[var(--link)]" to={`/admin/courses/${course.id}/edit`}>{course.title}</Link><Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge></div><p className="text-sm">名額 {course.confirmedCount}/{course.capacity}</p><Link className="text-sm" to={`/admin/courses/${course.id}/enrollments`}>報名名單</Link></Card>)}
     </div>
   );
 }
@@ -237,7 +237,7 @@ export function UsersPage() {
       {message ? <p className="text-sm">{message}</p> : null}
       {users.data?.map((user) => (
         <Card key={user.id} className="flex flex-wrap items-center justify-between gap-2">
-          <div><p>{user.displayName}</p><p className="text-sm text-stone-500">{user.email} · {user.organizationName ?? "無組織"} · {userRoleLabels[user.role as UserRole]?.label ?? user.role}</p></div>
+          <div><p>{user.displayName}</p><p className="text-sm text-[var(--muted)]">{user.email} · {user.organizationName ?? "無組織"} · {userRoleLabels[user.role as UserRole]?.label ?? user.role}</p></div>
           {user.role !== "APPLICANT" ? <Button variant="secondary" onClick={async () => { await services.updateUser(user.id, { isActive: !user.isActive }); await client.invalidateQueries({ queryKey: ["users"] }); }}>{user.isActive ? "停用" : "啟用"}</Button> : <Badge tone={user.isActive ? "success" : "neutral"}>{user.isActive ? "啟用" : "停用"}</Badge>}
         </Card>
       ))}
@@ -267,7 +267,7 @@ export function ImportsPage() {
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">資料匯入</h1>
-      <p className="text-sm text-stone-600">先預覽。有錯誤不會寫入；確認後整批成功或整批不匯入。不能用 CSV 直接建立已核定案件。</p>
+      <p className="text-sm text-[var(--muted)]">先預覽。有錯誤不會寫入；確認後整批成功或整批不匯入。不能用 CSV 直接建立已核定案件。</p>
       <SelectInput value={type} onChange={(event) => setType(event.target.value as typeof type)}><option value="ORGANIZATIONS">業者資料</option><option value="APPLICATION_DRAFTS">驗證草稿</option></SelectInput>
       <Button variant="secondary" onClick={async () => downloadText(`${type}.csv`, await services.importTemplate(type))}>下載範本</Button>
       <TextArea value={csv} onChange={(event) => setCsv(event.target.value)} aria-label="CSV 內容" />
