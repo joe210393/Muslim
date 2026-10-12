@@ -15,6 +15,9 @@ import type {
   OrganizationPatch,
   PublicConfig,
   PublicUser,
+  ReportPreview,
+  SavedReport,
+  SavedReportWrite,
 } from "@mf/contracts";
 
 export type Page<T> = { items: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number } };
@@ -155,6 +158,11 @@ export type Services = {
   importPreview: (type: "ORGANIZATIONS" | "APPLICATION_DRAFTS", csv: string) => Promise<ImportPreview>;
   importCommit: (id: string, requestId: string) => Promise<{ committed?: number }>;
   exportApplications: () => Promise<string>;
+  savedReports: () => Promise<SavedReport[]>;
+  saveReport: (input: SavedReportWrite, id?: string) => Promise<SavedReport>;
+  previewReport: (input: Pick<SavedReportWrite, "selections">) => Promise<ReportPreview>;
+  deleteReport: (id: string) => Promise<void>;
+  exportReport: (id: string) => Promise<string>;
   exportEnrollments: (courseId: string) => Promise<string>;
   audit: () => Promise<AuditLog[]>;
   publicSite: () => Promise<PublicSite>;

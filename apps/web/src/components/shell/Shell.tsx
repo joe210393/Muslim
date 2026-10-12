@@ -63,7 +63,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
     <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)]">
       <header className="border-b border-[var(--line)] bg-[var(--surface)]">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-4">
-          <Link to={session.user ? homePathForRole(session.user.role as UserRole) : "/"} className="text-[var(--ink)] no-underline">
+          <Link to={area === "public" || !session.user ? "/" : homePathForRole(session.user.role as UserRole)} className="text-[var(--ink)] no-underline">
             <span className="serif block text-xl">{brand.name}</span>
             <span className="mt-1 block text-sm font-medium">{session.user ? session.user.email : "尚未登入"}</span>
             {session.user ? <span className="block text-xs text-[var(--muted)]">{userRoleLabels[session.user.role as UserRole]?.label ?? "請重新登入"}</span> : null}
@@ -71,7 +71,12 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
           <nav className="flex flex-wrap items-center gap-4 text-sm">
             {area === "public" ? links.map((item) => (
               <NavLink key={item.href} to={item.href} end={item.href === "/"} className={({ isActive }) => `btn rounded-md px-3 py-2 no-underline ${isActive ? "is-selected" : ""}`}>{item.label}</NavLink>
-            )) : <span className="text-sm text-[var(--muted)]">{area === "portal" ? "業者會員區" : "內部後台"}</span>}
+            )) : (
+              <>
+                <span className="text-sm text-[var(--muted)]">{area === "portal" ? "業者會員區" : "內部後台"}</span>
+                <Link className="btn rounded-md px-3 py-2 no-underline" to="/">前台</Link>
+              </>
+            )}
             {session.user ? <Link className="no-underline text-[var(--ink)]" to={homePathForRole(session.user.role as UserRole)}>進入作業</Link> : <Link className="no-underline text-[var(--ink)]" to="/login">註冊／登入</Link>}
           </nav>
         </div>
@@ -108,6 +113,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
                 </NavLink>
               );
               })}
+              <Link className="btn rounded-md px-3 py-2 text-left text-sm no-underline" to="/">前台</Link>
               <button className="btn rounded-md px-3 py-2 text-left text-sm" type="button" onClick={async () => { await services.logout(); await session.setUser(null); navigate("/"); }}>登出</button>
             </div>
           </aside>

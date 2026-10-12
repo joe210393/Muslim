@@ -97,6 +97,10 @@
 | IntegrationSetting | 服務商 | provider | provider | string；1–80 字，不存放金鑰 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | IntegrationSetting | 是否啟用 | enabled | enabled | boolean；關閉後相關上傳或簽署會被拒絕 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | IntegrationSetting | 說明 | note | note | string；1–500 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| SavedReport | 報表名稱 | name | name | string；1–80 字，全系統不可重複 | 否 | 必填 | 必填 | 低 | 可改 |
+| SavedReport | 欄位組合 | selections | selections | json；可同時包含案件、業者、訓練報名、合約；每個來源的欄位必須在白名單內 | 否 | 必填 | 必填 | 中 | 可改 |
+| SavedReport | 顯示方式 | chartKind | chart_kind | string；table / bar / pie | 否 | 否 | 否 | 低 | 可改 |
+| SavedReport | 統計欄位 | chartField | chart_field | string；來源.欄位，必須是已勾選欄位 | 否 | 否 | 否 | 低 | 可改 |
 
 
 ## 使用頁面
@@ -110,5 +114,6 @@
 - Course：公開列表可切換月曆。課程介紹、圖片與 YouTube 在課程頁
 - ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
 - UserFeature / IntegrationSetting：帳號功能與串接開關。RoleFeature 只保留舊資料，不再用來授權
+- SavedReport：後台自訂報表。一份報表可同時包含案件、業者、訓練報名、合約的白名單欄位，並以表格、長條圖或圓餅圖查看。密碼、憑證與檔案本體不可選
 
 環境變數實際值、密碼雜湊與 token 不寫入本檔。密碼雜湊欄位僅標示存在，API 不回傳。

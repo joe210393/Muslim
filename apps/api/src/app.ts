@@ -32,6 +32,8 @@ import {
   featureToggleSchema,
   integrationWriteSchema,
   contentSlotSchema,
+  savedReportWriteSchema,
+  reportPreviewRequestSchema,
 } from "@mf/contracts";
 import { getEnv, repoRoot } from "./config/env";
 import { prisma } from "@mf/db/server";
@@ -52,6 +54,7 @@ import * as training from "./modules/training/service";
 import * as access from "./modules/platform/access";
 import * as siteContent from "./modules/platform/content";
 import * as contracts from "./modules/platform/contracts";
+import * as reports from "./modules/reports/service";
 import { createStorage } from "./storage/storage";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: FILE_POLICY.maxFileBytes } });
@@ -101,8 +104,8 @@ export function createApp() {
     ok(res, req, { message: "已登出" });
   }));
   api.get("/auth/me", route(async (req, res) => {
-    const actor = await requireActor(req);
-    ok(res, req, await auth.publicUser(actor));
+    const actor = await loadActor(req);
+    ok(res, req, actor ? await auth.publicUser(actor) : null);
   }));
   api.post("/auth/forgot-password", route(async (req, res) => ok(res, req, await auth.forgotPassword(env, forgotPasswordRequestSchema.parse(req.body), req.ip ?? "local"))));
   api.post("/auth/reset-password", route(async (req, res) => ok(res, req, await auth.resetPassword(resetPasswordRequestSchema.parse(req.body)))));
@@ -201,6 +204,43 @@ export function createApp() {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
     ok(res, req, await admin.summaryFor(actor));
+  }));
+  api.get("/admin/reports", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
+    ok(res, req, await reports.listReports());
+  }));
+  api.post("/admin/reports/preview", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
+    ok(res, req, await reports.previewReport(actor, reportPreviewRequestSchema.parse(req.body).selections));
+  }));
+  api.post("/admin/reports", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
+    ok(res, req, await reports.saveReport(actor, savedReportWriteSchema.parse(req.body)));
+  }));
+  api.patch("/admin/reports/:id", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
+    ok(res, req, await reports.saveReport(actor, savedReportWriteSchema.parse(req.body), z.string().uuid().parse(req.params.id)));
+  }));
+  api.delete("/admin/reports/:id", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
+    await reports.deleteReport(actor, z.string().uuid().parse(req.params.id));
+    ok(res, req, { message: "已刪除" });
+  }));
+  api.get("/admin/reports/:id/export", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "reports.export");
+    res.type("text/csv; charset=utf-8").send(await reports.exportReport(actor, z.string().uuid().parse(req.params.id)));
   }));
   api.get("/admin/applications/export", route(async (req, res) => {
     const actor = await requireActor(req);

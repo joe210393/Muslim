@@ -1,10 +1,10 @@
-import { EditorialKind, STAFF_FEATURES, type ContentSlot } from "@mf/contracts";
+import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, reportFieldId, reportFieldsFor, sourceLabel, type ContentSlot, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useServices } from "../../app/session";
 import { siteReviewChecklist, standardReports } from "../../content/site-content";
-import { Button, Card, ErrorText, Field, PageHeader, PendingNote, SectionNav, TextArea, TextInput } from "../../components/ui";
+import { Button, Card, ErrorText, Field, PageHeader, PendingNote, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type EditorialUpdate, type EditorialWrite, type SiteSlotInput } from "../../services/types";
 
 const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string }>> = {
@@ -417,26 +417,284 @@ export function ContractAdminPage() {
 
 export function ReportsPage() {
   const services = useServices();
+  const [part, setPart] = useState("built");
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="內部後台" title="報表" lede="可下載的報表會真正產生檔案。尚未具備資料的報表只列出欄位，不提供空檔下載。" />
-      <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">報表</th><th className="p-3 font-medium">欄位</th><th className="p-3 font-medium">狀態</th></tr></thead>
-          <tbody>
-            {standardReports.map((report) => (
-              <tr key={report.name} className="border-t border-[var(--line)]">
-                <td className="p-3">{report.name}</td>
-                <td className="p-3">{report.fields}</td>
-                <td className="p-3">{report.ready ? "可匯出現有資料" : "待資料齊全"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <PageHeader eyebrow="內部後台" title="報表" lede="既有報表維持原樣。自訂報表可以同時勾選案件、業者、訓練報名和合約，存下來之後在畫面上看表格、長條圖或圓餅圖。" />
+      <SectionNav items={[{ id: "built", label: "既有報表" }, { id: "custom", label: "自訂報表" }]} value={part} onChange={setPart} />
+      {part === "built" ? (
+        <>
+          <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">報表</th><th className="p-3 font-medium">欄位</th><th className="p-3 font-medium">狀態</th></tr></thead>
+              <tbody>
+                {standardReports.map((report) => (
+                  <tr key={report.name} className="border-t border-[var(--line)]">
+                    <td className="p-3">{report.name}</td>
+                    <td className="p-3">{report.fields}</td>
+                    <td className="p-3">{report.ready ? "可匯出現有資料" : "待資料齊全"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={async () => downloadText("applications.csv", await services.exportApplications())}>下載案件進度 CSV</Button>
+            <Link to="/admin/imports">資料匯入</Link>
+          </div>
+        </>
+      ) : <CustomReports />}
+    </div>
+  );
+}
+
+function emptyPicked(): Record<ReportSource, string[]> {
+  return { APPLICATION: [], ORGANIZATION: [], ENROLLMENT: [], CONTRACT: [] };
+}
+
+function pickedFrom(report: SavedReport | null) {
+  const picked = emptyPicked();
+  for (const selection of report?.selections ?? []) picked[selection.source] = [...selection.fieldKeys];
+  return picked;
+}
+
+function selectionsFrom(picked: Record<ReportSource, string[]>) {
+  return REPORT_SOURCES.map((item) => ({ source: item.key, fieldKeys: picked[item.key] })).filter((item) => item.fieldKeys.length > 0);
+}
+
+function CustomReports() {
+  const services = useServices();
+  const queryClient = useQueryClient();
+  const reports = useQuery({ queryKey: ["saved-reports"], queryFn: () => services.savedReports() });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [source, setSource] = useState<ReportSource>("APPLICATION");
+  const [picked, setPicked] = useState(emptyPicked);
+  const [chartKind, setChartKind] = useState<SavedReport["chartKind"]>("table");
+  const [chartField, setChartField] = useState("");
+  const [version, setVersion] = useState<number | undefined>(undefined);
+  const [saved, setSaved] = useState<SavedReport | null>(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const selections = selectionsFrom(picked);
+  const preview = useQuery({
+    queryKey: ["report-preview", selections],
+    queryFn: () => services.previewReport({ selections }),
+    enabled: selections.length > 0,
+  });
+  const fields = reportFieldsFor(source);
+  const fieldOptions = selections.flatMap((selection) => selection.fieldKeys.map((key) => {
+    const field = reportFieldsFor(selection.source).find((item) => item.key === key);
+    return { id: reportFieldId(selection.source, key), label: `${sourceLabel(selection.source)}／${field?.label ?? key}` };
+  }));
+
+  function load(report: SavedReport | null) {
+    setSelectedId(report?.id ?? null);
+    setName(report?.name ?? "");
+    setPicked(pickedFrom(report));
+    setChartKind(report?.chartKind ?? "table");
+    setChartField(report?.chartField ?? "");
+    setVersion(report?.version);
+    setSaved(report);
+    setMessage("");
+    setError("");
+  }
+
+  async function save() {
+    setError("");
+    setMessage("");
+    if (!name.trim() || selections.length === 0) {
+      setError("請填名稱，並至少在一個來源勾選欄位");
+      return;
+    }
+    const field = fieldOptions.some((option) => option.id === chartField) ? chartField : (fieldOptions[0]?.id ?? "");
+    try {
+      const next = await services.saveReport({ name, selections, chartKind, chartField: field, expectedVersion: version }, selectedId ?? undefined);
+      setSelectedId(next.id);
+      setVersion(next.version);
+      setChartField(next.chartField);
+      setSaved(next);
+      setMessage("已儲存。離開這一頁再回來，欄位和圖表還在。");
+      await queryClient.invalidateQueries({ queryKey: ["saved-reports"] });
+    } catch (caught) {
+      setError(caught instanceof ClientError ? caught.message : "儲存失敗");
+    }
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="space-y-2">
+        <Button onClick={() => load(null)}>新增報表</Button>
+        {(reports.data ?? []).map((report) => (
+          <button key={report.id} className={`btn block w-full rounded-md px-3 py-2 text-left text-sm ${selectedId === report.id ? "is-selected" : ""}`} type="button" onClick={() => load(report)}>
+            {report.name}
+          </button>
+        ))}
+        {reports.data?.length === 0 ? <p className="text-sm text-[var(--muted)]">還沒有自訂報表。</p> : null}
       </div>
-      <div className="flex flex-wrap gap-3">
-        <Button onClick={async () => downloadText("applications.csv", await services.exportApplications())}>下載案件進度 CSV</Button>
-        <Link to="/admin/imports">資料匯入</Link>
+      <div className="space-y-4">
+        <Card className="space-y-4">
+          <Field label="報表名稱"><TextInput value={name} onChange={(event) => setName(event.target.value)} /></Field>
+          <SectionNav
+            items={REPORT_SOURCES.map((item) => ({ id: item.key, label: picked[item.key].length ? `${item.label}（${picked[item.key].length}）` : item.label }))}
+            value={source}
+            onChange={(next) => setSource(next as ReportSource)}
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {fields.map((field) => (
+              <label key={field.key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={picked[source].includes(field.key)}
+                  onChange={(event) => setPicked((current) => ({
+                    ...current,
+                    [source]: event.target.checked ? [...current[source], field.key] : current[source].filter((key) => key !== field.key),
+                  }))}
+                />
+                {field.label}
+              </label>
+            ))}
+          </div>
+          <p className="text-sm text-[var(--muted)]">換到下一個來源時，前面勾過的欄位會留著。密碼、登入憑證、簽名圖檔與合約全文不能選。案件只包含這個帳號看得到的案件。</p>
+          {error ? <ErrorText message={error} /> : null}
+          {message ? <p className="text-sm">{message}</p> : null}
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={() => void save()}>儲存</Button>
+            <Button disabled={!saved} onClick={async () => { if (!saved) return; downloadText(`${saved.name}.csv`, await services.exportReport(saved.id)); }}>下載 CSV</Button>
+            <Button variant="danger" disabled={!saved} onClick={async () => {
+              if (!saved) return;
+              await services.deleteReport(saved.id);
+              load(null);
+              await queryClient.invalidateQueries({ queryKey: ["saved-reports"] });
+            }}>刪除</Button>
+          </div>
+        </Card>
+        <ReportView
+          preview={selections.length ? preview.data : undefined}
+          loading={preview.isFetching}
+          failed={preview.error instanceof ClientError ? preview.error.message : preview.error ? "無法顯示報表" : ""}
+          chartKind={chartKind}
+          chartField={fieldOptions.some((option) => option.id === chartField) ? chartField : (fieldOptions[0]?.id ?? "")}
+          fieldOptions={fieldOptions}
+          onChartKind={setChartKind}
+          onChartField={setChartField}
+        />
+      </div>
+    </div>
+  );
+}
+
+const CHART_COLORS = ["#1f6eae", "#6aafe6", "#0c4f86", "#2f7d6d", "#a56b2a", "#6b4c9a", "#9a4d55", "#8ec0e4"];
+
+function compactPoints(points: Array<{ label: string; count: number }>, limit: number) {
+  if (points.length <= limit) return points;
+  const rest = points.slice(limit).reduce((sum, point) => sum + point.count, 0);
+  return [...points.slice(0, limit), { label: "其他", count: rest }];
+}
+
+function ReportView({
+  preview,
+  loading,
+  failed,
+  chartKind,
+  chartField,
+  fieldOptions,
+  onChartKind,
+  onChartField,
+}: {
+  preview?: ReportPreview;
+  loading: boolean;
+  failed: string;
+  chartKind: SavedReport["chartKind"];
+  chartField: string;
+  fieldOptions: Array<{ id: string; label: string }>;
+  onChartKind: (kind: SavedReport["chartKind"]) => void;
+  onChartField: (field: string) => void;
+}) {
+  const [source, fieldKey] = chartField.split(".");
+  const section = preview?.sections.find((item) => item.source === source);
+  const group = section?.groups.find((item) => item.fieldKey === fieldKey);
+  return (
+    <Card className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionNav items={[{ id: "table", label: "表格" }, { id: "bar", label: "長條圖" }, { id: "pie", label: "圓餅圖" }]} value={chartKind} onChange={(next) => onChartKind(next as SavedReport["chartKind"])} />
+        {chartKind === "table" ? null : (
+          <Field label="統計欄位">
+            <SelectInput value={chartField} onChange={(event) => onChartField(event.target.value)}>
+              {fieldOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </SelectInput>
+          </Field>
+        )}
+      </div>
+      {failed ? <ErrorText message={failed} /> : null}
+      {loading && !preview ? <p className="text-sm">載入報表…</p> : null}
+      {!preview && !loading ? <p className="text-sm text-[var(--muted)]">勾選欄位後，這裡會顯示現有資料。</p> : null}
+      {preview && chartKind === "table" ? preview.sections.map((item) => (
+        <div key={item.source} className="space-y-2">
+          <h2 className="text-base font-medium">{item.label}</h2>
+          <p className="text-sm text-[var(--muted)]">共 {item.total} 筆{item.total > item.rows.length ? `，畫面顯示前 ${item.rows.length} 筆` : ""}。</p>
+          <div className="overflow-x-auto rounded-lg border border-[var(--line)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+                <tr>{item.columns.map((column) => <th key={column.key} className="p-3 font-medium">{column.label}</th>)}</tr>
+              </thead>
+              <tbody>
+                {item.rows.map((row, index) => (
+                  <tr key={`${item.source}-${index}`} className="border-t border-[var(--line)]">
+                    {item.columns.map((column) => <td key={column.key} className="p-3">{row[column.key]}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )) : null}
+      {preview && chartKind !== "table" && group ? <CountChart kind={chartKind} title={fieldOptions.find((option) => option.id === chartField)?.label ?? group.label} points={group.points} /> : null}
+    </Card>
+  );
+}
+
+function CountChart({ kind, title, points }: { kind: "bar" | "pie"; title: string; points: Array<{ label: string; count: number }> }) {
+  const shown = compactPoints(points, kind === "pie" ? 8 : 12);
+  const total = shown.reduce((sum, point) => sum + point.count, 0);
+  if (!total) return <p className="text-sm text-[var(--muted)]">這個欄位目前沒有資料。</p>;
+  if (kind === "bar") {
+    const max = Math.max(...shown.map((point) => point.count));
+    return (
+      <div className="space-y-3">
+        <h2 className="text-base font-medium">{title}</h2>
+        {shown.map((point) => (
+          <div key={point.label} className="grid items-center gap-3 text-sm sm:grid-cols-[9rem_minmax(0,1fr)_3rem]">
+            <span className="truncate">{point.label}</span>
+            <div className="h-3 rounded-full bg-[var(--panel)]">
+              <div className="h-3 rounded-full bg-[var(--accent-deep)]" style={{ width: `${(point.count / max) * 100}%` }} />
+            </div>
+            <span>{point.count}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  let cursor = 0;
+  const stops = shown.map((point, index) => {
+    const start = cursor;
+    cursor += (point.count / total) * 100;
+    return `${CHART_COLORS[index % CHART_COLORS.length]} ${start}% ${cursor}%`;
+  });
+  return (
+    <div className="space-y-4">
+      <h2 className="text-base font-medium">{title}</h2>
+      <div className="flex flex-wrap items-center gap-6">
+        <div className="h-48 w-48 rounded-full border border-[var(--line)]" style={{ background: `conic-gradient(${stops.join(",")})` }} />
+        <ul className="space-y-2 text-sm">
+          {shown.map((point, index) => (
+            <li key={point.label} className="flex items-center gap-2">
+              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />
+              <span>{point.label}</span>
+              <span className="text-[var(--muted)]">{point.count}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

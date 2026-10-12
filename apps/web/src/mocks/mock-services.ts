@@ -36,6 +36,16 @@ import {
   certificationValidity,
   validateCertificationDates,
   toCsv,
+  reportFieldsFor,
+  countReportValues,
+  reportPreviewSchema,
+  reportSelectionsSchema,
+  reportSectionsCsv,
+  sourceLabel,
+  applicationStatusLabels,
+  enrollmentStatusLabels,
+  attendanceStatusLabels,
+  contractStatusLabels,
   parseCsv,
   rowsToObjects,
   type DemoDataset,
@@ -273,6 +283,77 @@ function learningOf(state: State, enrollment: DemoDataset["enrollments"][number]
   };
 }
 
+function reportWhen(value: string | null | undefined) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value));
+}
+
+function reportRows(state: State, actor: DemoDataset["users"][number], source: "APPLICATION" | "ORGANIZATION" | "ENROLLMENT" | "CONTRACT"): Array<Record<string, string>> {
+  if (source === "APPLICATION") {
+    return state.data.applications.filter((app) => canViewApplication(actor, app)).map((app) => {
+      const organization = state.data.organizations.find((item) => item.id === app.organizationId);
+      const category = state.data.categories.find((item) => item.id === app.categoryId);
+      const assignee = state.data.users.find((item) => item.id === app.assignedToId);
+      return {
+        applicationNo: app.applicationNo,
+        status: applicationStatusLabels[app.status]?.label ?? app.status,
+        categoryName: category?.name ?? "",
+        organizationName: app.organizationNameSnapshot ?? organization?.organizationName ?? "",
+        taxId: app.taxIdSnapshot ?? organization?.taxId ?? "",
+        contactName: app.contactNameSnapshot ?? organization?.contactName ?? "",
+        contactPhone: app.contactPhoneSnapshot ?? organization?.contactPhone ?? "",
+        contactEmail: app.contactEmailSnapshot ?? organization?.contactEmail ?? "",
+        organizationAddress: app.organizationAddressSnapshot ?? organization?.address ?? "",
+        siteName: app.siteName ?? "",
+        siteAddress: app.siteAddress ?? "",
+        applicationDescription: app.applicationDescription ?? "",
+        assignedToName: assignee?.displayName ?? "",
+        submittedAt: reportWhen(app.submittedAt),
+        decidedAt: reportWhen(app.decidedAt),
+        createdAt: reportWhen(app.createdAt),
+      };
+    });
+  }
+  if (source === "ORGANIZATION") {
+    return state.data.organizations.map((org) => ({
+      organizationName: org.organizationName,
+      taxId: org.taxId ?? "",
+      contactName: org.contactName ?? "",
+      contactPhone: org.contactPhone ?? "",
+      contactEmail: org.contactEmail ?? "",
+      address: org.address ?? "",
+    }));
+  }
+  if (source === "ENROLLMENT") {
+    return state.data.enrollments.map((row) => {
+      const course = state.data.courses.find((item) => item.id === row.courseId);
+      const user = state.data.users.find((item) => item.id === row.userId);
+      const organization = state.data.organizations.find((item) => item.id === user?.organizationId);
+      return {
+        courseTitle: course?.title ?? "",
+        courseStartsAt: reportWhen(course?.startsAt),
+        location: course?.location ?? "",
+        userName: user?.displayName ?? "",
+        userEmail: user?.email ?? "",
+        organizationName: organization?.organizationName ?? "",
+        enrollmentStatus: enrollmentStatusLabels[row.status]?.label ?? row.status,
+        attendanceStatus: attendanceStatusLabels[row.attendanceStatus]?.label ?? row.attendanceStatus,
+        attendedMinutes: String(row.attendedMinutes),
+      };
+    });
+  }
+  return state.platform.contracts.map((row) => ({
+    contractNo: row.contractNo,
+    organizationName: row.organizationName,
+    title: row.title,
+    status: contractStatusLabels[row.status]?.label ?? row.status,
+    signerName: row.signerName ?? "",
+    signerTitle: row.signerTitle ?? "",
+    signedAt: reportWhen(row.signedAt),
+    createdAt: reportWhen(row.createdAt),
+  }));
+}
+
 export async function createMockServices(): Promise<Services> {
   const digest = await sha256Hex(DEMO_PASSWORD);
   const blank = (): State => {
@@ -288,6 +369,14 @@ export async function createMockServices(): Promise<Services> {
   };
   let state = (await idbGet()) ?? blank();
   state.platform ??= createInitialPlatform(state.data);
+  state.platform.reports = (state.platform.reports ?? []).map((report) => {
+    const legacy = report as typeof report & { source?: "APPLICATION" | "ORGANIZATION" | "ENROLLMENT" | "CONTRACT"; fieldKeys?: string[] };
+    if (legacy.selections) return { ...legacy, chartKind: legacy.chartKind ?? "table", chartField: legacy.chartField ?? "" };
+    if (legacy.source && legacy.fieldKeys?.length) {
+      return { id: legacy.id, name: legacy.name, selections: [{ source: legacy.source, fieldKeys: legacy.fieldKeys }], chartKind: "table" as const, chartField: "", version: legacy.version, updatedAt: legacy.updatedAt, createdById: legacy.createdById };
+    }
+    return { ...legacy, selections: legacy.selections ?? [], chartKind: legacy.chartKind ?? "table", chartField: legacy.chartField ?? "" };
+  });
   ensureAccountFeatures(state.platform, state.data.users);
   ensureEditorial(state.platform);
   for (const course of state.data.courses) {
@@ -859,6 +948,75 @@ export async function createMockServices(): Promise<Services> {
       const actor = requireActor(state);
       const rows = state.data.applications.filter((app) => canViewApplication(actor, app));
       return toCsv(["applicationNo", "status"], rows.map((app) => [app.applicationNo, app.status]));
+    },
+    async savedReports() {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "reports.export")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
+      return state.platform.reports.map(({ createdById: _createdById, ...report }) => report);
+    },
+    async saveReport(input, id) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "reports.export")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
+      const duplicate = state.platform.reports.find((report) => report.name === input.name && report.id !== id);
+      if (duplicate) throw new ClientError("這個報表名稱已經用過");
+      const now = new Date().toISOString();
+      if (!id) {
+        const created = { id: crypto.randomUUID(), name: input.name, selections: input.selections, chartKind: input.chartKind, chartField: input.chartField, version: 1, updatedAt: now, createdById: actor.id };
+        state.platform.reports.unshift(created);
+        await save();
+        const { createdById: _createdById, ...report } = created;
+        return report;
+      }
+      const current = state.platform.reports.find((report) => report.id === id);
+      if (!current) throw new ClientError("找不到報表", { status: 404, code: "NOT_FOUND" });
+      if (input.expectedVersion !== undefined && input.expectedVersion !== current.version) throw new ClientError("這份報表已被其他人更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+      current.name = input.name;
+      current.selections = input.selections;
+      current.chartKind = input.chartKind;
+      current.chartField = input.chartField;
+      current.version += 1;
+      current.updatedAt = now;
+      await save();
+      const { createdById: _createdById, ...report } = current;
+      return report;
+    },
+    async deleteReport(id) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "reports.export")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
+      const index = state.platform.reports.findIndex((report) => report.id === id);
+      if (index < 0) throw new ClientError("找不到報表", { status: 404, code: "NOT_FOUND" });
+      state.platform.reports.splice(index, 1);
+      await save();
+    },
+    async exportReport(id) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "reports.export")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
+      const report = state.platform.reports.find((item) => item.id === id);
+      if (!report) throw new ClientError("找不到報表", { status: 404, code: "NOT_FOUND" });
+      return reportSectionsCsv(report.selections.map((selection) => {
+        const fields = selection.fieldKeys.map((key) => reportFieldsFor(selection.source).find((field) => field.key === key)).filter((field) => field !== undefined);
+        const rows = reportRows(state, actor, selection.source);
+        return { title: sourceLabel(selection.source), headers: fields.map((field) => field.label), rows: rows.map((row) => fields.map((field) => row[field.key] ?? "")) };
+      }));
+    },
+    async previewReport(input) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "reports.export")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
+      const selections = reportSelectionsSchema.parse(input.selections);
+      return reportPreviewSchema.parse({
+        sections: selections.map((selection) => {
+          const fields = selection.fieldKeys.map((key) => reportFieldsFor(selection.source).find((field) => field.key === key)).filter((field) => field !== undefined);
+          const rows = reportRows(state, actor, selection.source);
+          return {
+            source: selection.source,
+            label: sourceLabel(selection.source),
+            columns: fields.map((field) => ({ key: field.key, label: field.label })),
+            rows: rows.slice(0, 100).map((row) => Object.fromEntries(fields.map((field) => [field.key, row[field.key] ?? ""]))),
+            total: rows.length,
+            groups: fields.map((field) => ({ fieldKey: field.key, label: field.label, points: countReportValues(rows, field.key) })),
+          };
+        }),
+      });
     },
     async exportEnrollments(courseId) {
       requireActor(state);

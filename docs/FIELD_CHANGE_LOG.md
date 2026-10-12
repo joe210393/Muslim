@@ -10,3 +10,5 @@
 | 2026-10-12 | 前台五個頁面改由內容管理儲存 | migration `20261012120000_editorial_content`。版位增加關於我們、最新消息、驗證介紹、常見問題。可重複的文字放 `editorial_entries` |
 | 2026-10-12 | 每個內容頁可放 YouTube 連結 | migration `20261012140000_site_youtube`。`youtube_url` 只接受 YouTube 網址 |
 | 2026-10-12 | 最新消息與課程可放圖片、YouTube | migration `20261012160000_blog_media`。消息文章與課程各有 `youtube_url`、`image_file_id` |
+| 2026-10-12 | 新增自訂報表 | migration `20261012180000_saved_reports`。`saved_reports` 存名稱、來源與勾選欄位。密碼、憑證與檔案本體不可選 |
+| 2026-10-12 | 自訂報表改為跨來源組合 | migration `20261012190000_report_selections`。`source`、`field_keys` 併入 `selections`。另存 `chart_kind`、`chart_field` |

@@ -28,6 +28,7 @@ const extra = `
 - Course：公開列表可切換月曆。課程介紹、圖片與 YouTube 在課程頁
 - ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
 - UserFeature / IntegrationSetting：帳號功能與串接開關。RoleFeature 只保留舊資料，不再用來授權
+- SavedReport：後台自訂報表。一份報表可同時包含案件、業者、訓練報名、合約的白名單欄位，並以表格、長條圖或圓餅圖查看。密碼、憑證與檔案本體不可選
 
 環境變數實際值、密碼雜湊與 token 不寫入本檔。密碼雜湊欄位僅標示存在，API 不回傳。
 `;

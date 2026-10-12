@@ -218,6 +218,21 @@ export function createHttpServices(): Services {
     async exportApplications() {
       return await ((await request("GET", "/admin/applications/export")).data as Blob).text();
     },
+    async savedReports() {
+      return (await request("GET", "/admin/reports")).data as Awaited<ReturnType<Services["savedReports"]>>;
+    },
+    async saveReport(input, id) {
+      return (await request(id ? "PATCH" : "POST", id ? `/admin/reports/${id}` : "/admin/reports", input)).data as Awaited<ReturnType<Services["saveReport"]>>;
+    },
+    async previewReport(input) {
+      return (await request("POST", "/admin/reports/preview", input)).data as Awaited<ReturnType<Services["previewReport"]>>;
+    },
+    async deleteReport(id) {
+      await request("DELETE", `/admin/reports/${id}`);
+    },
+    async exportReport(id) {
+      return await ((await request("GET", `/admin/reports/${id}/export`)).data as Blob).text();
+    },
     async exportEnrollments(courseId) {
       return await ((await request("GET", `/admin/courses/${courseId}/enrollments/export`)).data as Blob).text();
     },

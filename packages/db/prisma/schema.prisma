@@ -174,6 +174,7 @@ model User {
   issuedContracts         ContractRecord[]   @relation("ContractIssuer")
   signedContracts         ContractRecord[]   @relation("ContractSigner")
   features                UserFeature[]
+  savedReports            SavedReport[]
 
   @@index([organizationId])
   @@index([role, isActive])
@@ -602,6 +603,22 @@ model ContractRecord {
 
   @@index([organizationId, status])
   @@map("contracts")
+}
+
+model SavedReport {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(80)
+  selections  Json
+  chartKind   String   @default("table") @map("chart_kind") @db.VarChar(8)
+  chartField  String   @default("") @map("chart_field") @db.VarChar(80)
+  createdById String   @map("created_by_id") @db.Uuid
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@map("saved_reports")
 }
 
 model UserFeature {

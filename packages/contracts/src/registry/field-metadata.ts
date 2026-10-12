@@ -109,6 +109,10 @@ export const fieldMetadata: FieldMeta[] = [
   row("IntegrationSetting", "服務商", "provider", "provider", "string", "否", "必填", "必填", "無", "1–80 字，不存放金鑰", "低", "管理員可改"),
   row("IntegrationSetting", "是否啟用", "enabled", "enabled", "boolean", "否", "必填", "必填", "金流預設關閉", "關閉後相關上傳或簽署會被拒絕", "低", "管理員可改"),
   row("IntegrationSetting", "說明", "note", "note", "string", "否", "必填", "必填", "無", "1–500 字", "低", "管理員可改"),
+  row("SavedReport", "報表名稱", "name", "name", "string", "否", "必填", "必填", "無", "1–80 字，全系統不可重複", "低", "可改"),
+  row("SavedReport", "欄位組合", "selections", "selections", "json", "否", "必填", "必填", "無", "可同時包含案件、業者、訓練報名、合約；每個來源的欄位必須在白名單內", "中", "可改"),
+  row("SavedReport", "顯示方式", "chartKind", "chart_kind", "string", "否", "否", "否", "table", "table / bar / pie", "低", "可改"),
+  row("SavedReport", "統計欄位", "chartField", "chart_field", "string", "否", "否", "否", "空字串", "來源.欄位，必須是已勾選欄位", "低", "可改"),
 ];
 
 function row(

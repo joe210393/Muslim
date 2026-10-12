@@ -39,6 +39,7 @@ export type PlatformState = {
   features: Array<{ userId: string; featureKey: string; label: string; enabled: boolean }>;
   integrations: AccessSettings["integrations"];
   contractSequence: number;
+  reports: Array<{ id: string; name: string; selections: Array<{ source: "APPLICATION" | "ORGANIZATION" | "ENROLLMENT" | "CONTRACT"; fieldKeys: string[] }>; chartKind: "table" | "bar" | "pie"; chartField: string; version: number; updatedAt: string; createdById: string }>;
 };
 
 type Actor = DemoDataset["users"][number];
@@ -114,6 +115,7 @@ export function createInitialPlatform(data: DemoDataset): PlatformState {
     ),
     integrations: INTEGRATION_DEFAULTS.map((item) => ({ ...item })),
     contractSequence: 2,
+    reports: [],
   };
 }
 
