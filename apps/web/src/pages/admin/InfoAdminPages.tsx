@@ -180,8 +180,8 @@ function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; o
   const services = useServices();
   const slides = entries.filter((item) => item.kind === EditorialKind.HOME_GALLERY).sort((a, b) => a.sortOrder - b.sortOrder);
   const [message, setMessage] = useState("");
-  async function upload(files: FileList) {
-    setMessage("");
+  async function upload(files: File[]) {
+    setMessage("上傳中…");
     let order = slides.reduce((max, item) => Math.max(max, item.sortOrder), 0);
     try {
       for (const file of files) {
@@ -234,9 +234,9 @@ function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; o
         <label className="btn rounded-md px-4 py-2 text-sm">
           上傳圖片
           <input className="sr-only" type="file" accept="image/jpeg,image/png" multiple onChange={async (event) => {
-            const files = event.target.files;
+            const files = Array.from(event.target.files ?? []);
             event.target.value = "";
-            if (files?.length) await upload(files);
+            if (files.length) await upload(files);
           }} />
         </label>
       </div>
