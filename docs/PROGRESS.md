@@ -85,7 +85,7 @@ PostgreSQL 18 的資料目錄是 `/var/lib/postgresql/18/docker`。沒有把 Vol
 
 首頁頁首和首頁文字之間可以輪播圖片。後台「內容管理 → 首頁 → 圖庫」上傳 JPEG 或 PNG，可調整順序與刪除。兩張以上時每 5 秒換一張，也可以按上一張、下一張。沒有圖片時不顯示輪播，也不放示範照片。
 
-本地 mock 已確認：上傳兩張後，輪播在頁首下方、標題「把申請、補件與簽約放在同一條路徑」上方；下一張會換圖；往後會對調順序；刪除後輪播消失，最新消息仍在。本機 PostgreSQL 已套用 `20261012200000_home_gallery`。contracts、web、api 的 typecheck 通過。已推上 main，Zeabur 重新部署後才能在線上測試。
+本地 mock 已確認：上傳兩張後，輪播在頁首下方、標題「把申請、補件與簽約放在同一條路徑」上方；下一張會換圖；往後會對調順序；刪除後輪播消失，最新消息仍在。本機 PostgreSQL 已套用 `20261012200000_home_gallery`。contracts、web、api 的 typecheck 通過。`47af109` 已在 GitHub `main`，Zeabur 當時沒有重新部署，因此再推一次讓它建置這一版。
 
 ## 下一步
 
