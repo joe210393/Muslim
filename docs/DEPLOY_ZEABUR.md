@@ -22,6 +22,30 @@
 
 4. 掛載 Volume 到 `UPLOAD_ROOT`。沒有 Volume 時，重啟後上傳檔會不見。
 
+## 資料庫要掛在 PostgreSQL 18 的資料目錄
+
+網站服務重新部署不會清資料庫。資料消失，是 PostgreSQL 服務自己的資料目錄沒有掛 Volume。PostgreSQL 18 的資料在 `/var/lib/postgresql/18/docker`，不是舊版的 `/var/lib/postgresql/data`。
+
+在 **PostgreSQL 服務**（不是網站服務）設定：
+
+| 位置 | 值 |
+|---|---|
+| Volume 掛載目錄 | `/var/lib/postgresql/18/docker` |
+| `PGDATA` | `/var/lib/postgresql/18/docker/pgdata` |
+| `POSTGRES_DB` | `zeabur` |
+| `POSTGRES_USER` | `root` |
+| `POSTGRES_USERNAME` | `${POSTGRES_USER}` |
+| `POSTGRES_PASSWORD` | `${PASSWORD}` |
+| `POSTGRES_HOST` | `${CONTAINER_HOSTNAME}` |
+| `POSTGRES_PORT` | `${DATABASE_PORT}` |
+| `POSTGRES_DATABASE` | `${POSTGRES_DB}` |
+| `POSTGRES_CONNECTION_STRING` | `postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}` |
+| `POSTGRES_URI` | `${POSTGRES_CONNECTION_STRING}` |
+
+`PASSWORD` 只放在 Zeabur 的 PostgreSQL 服務變數裡，用平台產生的值。不要寫進 Git、`.env` 或文件。網站服務的 `DATABASE_URL` 維持 `${POSTGRES_CONNECTION_STRING}`，不要貼完整連線字串。
+
+第一次把 Volume 掛到這個目錄時，Zeabur 會把該目錄當成新的空磁碟。之後再重新部署，資料庫才會留著。
+
 ## 建置與啟動
 
 映像在建置時產生 Prisma client，並以 `VITE_DATA_MODE=api` 建置網站。啟動命令是 `pnpm --filter @mf/api start`。正式模式由 API 提供 `apps/web/dist`，並拒絕展示模式。

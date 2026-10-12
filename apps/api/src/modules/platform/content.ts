@@ -244,7 +244,7 @@ export async function uploadEntryImage(actor: SessionActor, storage: StorageAdap
   await assertIntegration("media");
   const current = await prisma.editorialEntry.findUnique({ where: { id } });
   if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到這則內容");
-  if (current.kind !== EditorialKind.NEWS) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "只有最新消息可以上傳圖片");
+  if (current.kind !== EditorialKind.NEWS && current.kind !== EditorialKind.HOME_GALLERY) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "只有最新消息與首頁圖庫可以上傳圖片");
   const bytes = new Uint8Array(file.buffer);
   const mime = detectFileSignature(bytes);
   if (!mime || mime === "application/pdf" || mime !== file.mimetype) {

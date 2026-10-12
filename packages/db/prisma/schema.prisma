@@ -123,6 +123,7 @@ enum ContentSlot {
 }
 
 enum EditorialKind {
+  HOME_GALLERY
   HOME_POINT
   ABOUT_FACT
   NEWS

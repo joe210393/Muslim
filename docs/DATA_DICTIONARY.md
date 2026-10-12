@@ -65,7 +65,7 @@
 | SiteContent | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG。每個內容頁都可以換圖 | 是 | 否 | 否 | 低 | 管理員可換圖 |
 | SiteContent | YouTube 連結 | youtubeUrl | youtube_url | string；空字串或 youtube.com、youtu.be 影片網址 | 否 | 否 | 否 | 低 | 管理員可改 |
 | SiteContent | 是否發布 | isPublished | is_published | boolean；未發布時前台不顯示該版位 | 否 | 否 | 否 | 低 | 管理員可改 |
-| EditorialEntry | 種類 | kind | kind | EditorialKind；首頁重點、關於事實、消息、驗證步驟、費用、問答、通知草稿 | 否 | 必填 | 必填 | 低 | 建立後不改種類 |
+| EditorialEntry | 種類 | kind | kind | EditorialKind；首頁圖庫、首頁重點、關於事實、消息、驗證步驟、費用、問答、通知草稿 | 否 | 必填 | 必填 | 低 | 建立後不改種類 |
 | EditorialEntry | 代碼 | slug | slug | string；同種類內唯一；小寫英文、數字與連字號。消息網址用此代碼 | 否 | 必填 | 必填 | 低 | 建立後不改 |
 | EditorialEntry | 分類 | groupLabel | group_label | string；最多 40 字；常見問題的分類 | 否 | 問答必填 | 問答必填 | 低 | 管理員可改 |
 | EditorialEntry | 標題 | title | title | string；1–200 字。問答為問題，費用為項目名稱，關於我們為標籤 | 否 | 必填 | 必填 | 低 | 管理員可改 |
@@ -110,7 +110,7 @@
 - Enrollment / Course：課程、報名、出席與學習紀錄
 - Certification：驗證紀錄與核定後人工登錄
 - FileObject / ApplicationAttachment：申請附件
-- SiteContent / EditorialEntry：首頁、關於我們、最新消息、驗證介紹、常見問題。最新消息是一篇篇文章，圖片與 YouTube 在文章上。首頁消息與課程各顯示前五筆
+- SiteContent / EditorialEntry：首頁、關於我們、最新消息、驗證介紹、常見問題。首頁圖庫是頁首與首頁文字之間的輪播。最新消息是一篇篇文章，圖片與 YouTube 在文章上。首頁消息與課程各顯示前五筆
 - Course：公開列表可切換月曆。課程介紹、圖片與 YouTube 在課程頁
 - ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
 - UserFeature / IntegrationSetting：帳號功能與串接開關。RoleFeature 只保留舊資料，不再用來授權

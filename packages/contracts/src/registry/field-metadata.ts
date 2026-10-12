@@ -77,7 +77,7 @@ export const fieldMetadata: FieldMeta[] = [
   row("SiteContent", "圖片", "imageFileId", "image_file_id", "uuid", "是", "否", "否", "null", "JPEG 或 PNG。每個內容頁都可以換圖", "低", "管理員可換圖"),
   row("SiteContent", "YouTube 連結", "youtubeUrl", "youtube_url", "string", "否", "否", "否", "空字串", "空字串或 youtube.com、youtu.be 影片網址", "低", "管理員可改"),
   row("SiteContent", "是否發布", "isPublished", "is_published", "boolean", "否", "否", "否", "true", "未發布時前台不顯示該版位", "低", "管理員可改"),
-  row("EditorialEntry", "種類", "kind", "kind", "EditorialKind", "否", "必填", "必填", "無", "首頁重點、關於事實、消息、驗證步驟、費用、問答、通知草稿", "低", "建立後不改種類"),
+  row("EditorialEntry", "種類", "kind", "kind", "EditorialKind", "否", "必填", "必填", "無", "首頁圖庫、首頁重點、關於事實、消息、驗證步驟、費用、問答、通知草稿", "低", "建立後不改種類"),
   row("EditorialEntry", "代碼", "slug", "slug", "string", "否", "必填", "必填", "無", "同種類內唯一；小寫英文、數字與連字號。消息網址用此代碼", "低", "建立後不改"),
   row("EditorialEntry", "分類", "groupLabel", "group_label", "string", "否", "問答必填", "問答必填", "空字串", "最多 40 字；常見問題的分類", "低", "管理員可改"),
   row("EditorialEntry", "標題", "title", "title", "string", "否", "必填", "必填", "無", "1–200 字。問答為問題，費用為項目名稱，關於我們為標籤", "低", "管理員可改"),

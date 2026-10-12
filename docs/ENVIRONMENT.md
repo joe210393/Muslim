@@ -7,7 +7,7 @@
 | `NODE_ENV` | Node 執行模式 | `production` |
 | `APP_ENV` | `local`、`staging` 或 `production` | `production` |
 | `PORT` | API 監聽埠 | 由平台指定 |
-| `DATABASE_URL` | PostgreSQL 連線 | 必填，使用平台密鑰 |
+| `DATABASE_URL` | PostgreSQL 連線 | 必填。Zeabur 設成 `${POSTGRES_CONNECTION_STRING}`，不要貼密碼 |
 | `SESSION_SECRET` | session 簽章用 | 必填且不可用範例短字串 |
 | `APP_BASE_URL` | 對外網址，重設密碼連結使用 | 必填 |
 | `STORAGE_DRIVER` | 目前只接受 `local` | `local` |

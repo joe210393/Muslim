@@ -15,7 +15,7 @@ const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string 
 };
 
 const CMS_PAGES: Record<string, { title: string; lede: string; part: string }> = {
-  home: { title: "首頁", lede: "這一頁只改首頁。Hero、Banner 與重點分開。最新消息與教育訓練仍各顯示前五筆。", part: "HOME_HERO" },
+  home: { title: "首頁", lede: "這一頁只改首頁。圖庫出現在頁首和首頁文字之間。Hero、Banner 與重點分開。", part: "gallery" },
   about: { title: "關於我們", lede: "這一頁只改關於我們。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
   news: { title: "最新消息", lede: "每一則消息是一篇文章。文章可以上傳圖片與 YouTube 連結。", part: "list" },
   verification: { title: "驗證介紹", lede: "這一頁只改驗證介紹。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
@@ -46,9 +46,10 @@ export function CmsPage() {
       {slots.error || entries.error ? <ErrorText message="無法載入內容" /> : null}
       {page === "home" ? (
         <>
-          <SectionNav items={[{ id: "HOME_HERO", label: "Hero" }, { id: "HOME_BANNER", label: "Banner" }, { id: "points", label: "重點" }]} value={part} onChange={setPart} />
+          <SectionNav items={[{ id: "gallery", label: "圖庫" }, { id: "HOME_HERO", label: "Hero" }, { id: "HOME_BANNER", label: "Banner" }, { id: "points", label: "重點" }]} value={part} onChange={setPart} />
+          {part === "gallery" ? <GalleryDesk entries={list} onChanged={refresh} /> : null}
           {part === "points" ? <EntryDesk kind={EditorialKind.HOME_POINT} entries={list} onChanged={refresh} /> : null}
-          {part !== "points" && slot(part as ContentSlot) ? <SlotEditor key={part} slot={slot(part as ContentSlot)!} mode="media" onSaved={refresh} /> : null}
+          {part !== "points" && part !== "gallery" && slot(part as ContentSlot) ? <SlotEditor key={part} slot={slot(part as ContentSlot)!} mode="media" onSaved={refresh} /> : null}
         </>
       ) : null}
       {page === "about" ? <CopyAndList part={part} setPart={setPart} pageSlot={slot("ABOUT")} listLabel="重點" listKind={EditorialKind.ABOUT_FACT} entries={list} onSaved={refresh} /> : null}
@@ -165,6 +166,7 @@ function SlotEditor({ slot, onSaved, mode }: { slot: AdminSiteSlot; onSaved: () 
 }
 
 const ENTRY_FIELDS: Record<EditorialKind, { title: string; summary?: string; body: string; note?: string; group?: boolean; date?: boolean; slug?: boolean; order?: boolean }> = {
+  HOME_GALLERY: { title: "說明", body: "備註", order: true },
   HOME_POINT: { title: "標題", body: "說明", order: true },
   ABOUT_FACT: { title: "標籤", body: "內容", order: true },
   NEWS: { title: "標題", summary: "摘要", body: "內文", date: true, slug: true },
@@ -173,6 +175,105 @@ const ENTRY_FIELDS: Record<EditorialKind, { title: string; summary?: string; bod
   FAQ: { title: "問題", body: "答案", group: true, order: true },
   EMAIL_DRAFT: { title: "主旨", summary: "寄送時機", body: "內文", order: true },
 };
+
+function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
+  const services = useServices();
+  const slides = entries.filter((item) => item.kind === EditorialKind.HOME_GALLERY).sort((a, b) => a.sortOrder - b.sortOrder);
+  const [message, setMessage] = useState("");
+  async function upload(files: FileList) {
+    setMessage("");
+    let order = slides.reduce((max, item) => Math.max(max, item.sortOrder), 0);
+    try {
+      for (const file of files) {
+        order += 1;
+        const title = file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "圖片";
+        const created = await services.createEntry({
+          kind: EditorialKind.HOME_GALLERY,
+          slug: `slide-${crypto.randomUUID().slice(0, 8)}`,
+          groupLabel: "",
+          title,
+          summary: "",
+          body: "首頁輪播",
+          note: "",
+          youtubeUrl: "",
+          publishedOn: null,
+          sortOrder: order,
+          isPublished: true,
+        });
+        try {
+          await services.uploadEntryImage(created.id, file);
+        } catch (uploadError) {
+          await services.deleteEntry(created.id).catch(() => undefined);
+          throw uploadError;
+        }
+      }
+      setMessage("已加入輪播");
+      await onChanged();
+    } catch (error) {
+      setMessage(error instanceof ClientError ? error.message : "上傳失敗");
+    }
+  }
+  async function move(index: number, direction: -1 | 1) {
+    const next = slides.slice();
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    const [picked] = next.splice(index, 1);
+    if (!picked) return;
+    next.splice(target, 0, picked);
+    for (let position = 0; position < next.length; position += 1) {
+      const item = next[position];
+      if (!item || item.sortOrder === position + 1) continue;
+      await services.updateEntry(item.id, { ...writeOf(item), sortOrder: position + 1, expectedVersion: item.version });
+    }
+    await onChanged();
+  }
+  return (
+    <Card className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-2xl">圖庫</h2>
+        <label className="btn rounded-md px-4 py-2 text-sm">
+          上傳圖片
+          <input className="sr-only" type="file" accept="image/jpeg,image/png" multiple onChange={async (event) => {
+            const files = event.target.files;
+            event.target.value = "";
+            if (files?.length) await upload(files);
+          }} />
+        </label>
+      </div>
+      <p className="text-sm text-[var(--muted)]">JPEG 或 PNG。有兩張以上時，首頁會每 5 秒換一張。沒有圖片時不顯示輪播。</p>
+      {slides.length === 0 ? <p className="text-sm text-[var(--muted)]">還沒有輪播圖片。</p> : null}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {slides.map((item, index) => (
+          <div key={item.id} className="overflow-hidden rounded-lg border border-[var(--line)]">
+            {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-40 w-full object-cover" /> : <div className="h-40 bg-[var(--panel)]" />}
+            <div className="flex flex-wrap gap-2 p-3">
+              <Button disabled={index === 0} onClick={() => void move(index, -1)}>往前</Button>
+              <Button disabled={index === slides.length - 1} onClick={() => void move(index, 1)}>往後</Button>
+              <Button variant="danger" onClick={async () => { await services.deleteEntry(item.id); await onChanged(); }}>刪除</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {message ? <p className="text-sm">{message}</p> : null}
+    </Card>
+  );
+}
+
+function writeOf(item: AdminEditorialEntry): EditorialWrite {
+  return {
+    kind: item.kind,
+    slug: item.slug,
+    groupLabel: item.groupLabel,
+    title: item.title,
+    summary: item.summary,
+    body: item.body,
+    note: item.note,
+    youtubeUrl: item.youtubeUrl,
+    publishedOn: item.publishedOn,
+    sortOrder: item.sortOrder,
+    isPublished: item.isPublished,
+  };
+}
 
 function EntryDesk({ kind, entries, onChanged }: { kind: EditorialKind; entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
   const mine = entries.filter((item) => item.kind === kind).sort((a, b) => (b.publishedOn ?? "").localeCompare(a.publishedOn ?? "") || a.sortOrder - b.sortOrder);

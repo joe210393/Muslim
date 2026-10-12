@@ -1,0 +1,1 @@
+ALTER TYPE "editorial_kind" ADD VALUE 'HOME_GALLERY';

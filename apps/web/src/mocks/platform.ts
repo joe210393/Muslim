@@ -335,7 +335,7 @@ export async function uploadEntryImage(platform: PlatformState, actor: Actor, da
   assertIntegration(platform, "media");
   const current = platform.entries.find((item) => item.id === id);
   if (!current) throw new ClientError("找不到這則內容", { status: 404 });
-  if (current.kind !== EditorialKind.NEWS) throw new ClientError("只有最新消息可以上傳圖片", { status: 400 });
+  if (current.kind !== EditorialKind.NEWS && current.kind !== EditorialKind.HOME_GALLERY) throw new ClientError("只有最新消息與首頁圖庫可以上傳圖片", { status: 400 });
   const bytes = new Uint8Array(await file.arrayBuffer());
   const mime = detectFileSignature(bytes);
   if (!mime || mime === "application/pdf") throw new ClientError("圖片只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });

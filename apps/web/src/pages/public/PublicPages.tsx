@@ -8,7 +8,7 @@ import { CourseCalendar } from "../../components/CourseCalendar";
 import { Badge, Button, Card, ContentImage, ErrorText, Field, PageHeader, PageMedia, TextInput } from "../../components/ui";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError, type SiteSlot } from "../../services/types";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 const PREVIEW_LIMIT = 5;
 
@@ -16,6 +16,7 @@ export function HomePage() {
   const services = useServices();
   const content = useQuery({ queryKey: ["site-content", services.mode], queryFn: () => services.publicSite() });
   const courses = useQuery({ queryKey: ["courses", "public"], queryFn: () => services.courses("public") });
+  const gallery = (content.data?.entries ?? []).filter((item) => item.kind === EditorialKind.HOME_GALLERY && item.imageUrl).sort((a, b) => a.sortOrder - b.sortOrder);
   const points = (content.data?.entries ?? []).filter((item) => item.kind === EditorialKind.HOME_POINT).sort((a, b) => a.sortOrder - b.sortOrder);
   const news = (content.data?.entries ?? []).filter((item) => item.kind === EditorialKind.NEWS).sort((a, b) => (b.publishedOn ?? "").localeCompare(a.publishedOn ?? "") || a.sortOrder - b.sortOrder);
   const courseItems = courses.data ?? [];
@@ -23,6 +24,7 @@ export function HomePage() {
     <div className="space-y-12">
       {content.isLoading ? <p>載入中…</p> : null}
       {content.error ? <ErrorText message="無法載入首頁內容" /> : null}
+      <HomeGallery slides={gallery} />
       {content.data?.hero ? <Hero slot={content.data.hero} /> : null}
       {content.data?.hero?.youtubeUrl ? <PageMedia youtubeUrl={content.data.hero.youtubeUrl} /> : null}
       {content.data?.banner ? <Banner slot={content.data.banner} /> : null}
@@ -65,6 +67,36 @@ function PreviewList({ title, count, empty, more, children }: { title: string; c
       <h2 className="text-3xl">{title}</h2>
       {count === 0 ? <p className="mt-4 text-sm text-[var(--muted)]">{empty}</p> : <div className="mt-4">{children}</div>}
       {more ? <Link to={more} className="btn mt-4 inline-block rounded-md px-4 py-2 text-sm no-underline">更多</Link> : null}
+    </section>
+  );
+}
+
+function HomeGallery({ slides }: { slides: Array<{ id: string; title: string; imageUrl: string | null }> }) {
+  const [index, setIndex] = useState(0);
+  const count = slides.length;
+  useEffect(() => {
+    if (count < 2) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = window.setInterval(() => setIndex((current) => (current + 1) % count), 5000);
+    return () => window.clearInterval(timer);
+  }, [count]);
+  if (!count) return null;
+  const current = slides[index % count];
+  if (!current?.imageUrl) return null;
+  return (
+    <section aria-label="首頁圖庫" className="relative overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel)]">
+      <img src={current.imageUrl} alt={current.title} className="h-72 w-full object-cover md:h-96" />
+      {count > 1 ? (
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <button type="button" className="btn rounded-md px-3 py-2 text-sm" onClick={() => setIndex((item) => (item - 1 + count) % count)}>上一張</button>
+          <div className="flex gap-2">
+            {slides.map((slide, slideIndex) => (
+              <button key={slide.id} type="button" aria-label={`第 ${slideIndex + 1} 張`} aria-pressed={slideIndex === index % count} className={`h-2.5 w-2.5 rounded-full ${slideIndex === index % count ? "bg-[var(--accent-deep)]" : "bg-[var(--surface)]"}`} onClick={() => setIndex(slideIndex)} />
+            ))}
+          </div>
+          <button type="button" className="btn rounded-md px-3 py-2 text-sm" onClick={() => setIndex((item) => (item + 1) % count)}>下一張</button>
+        </div>
+      ) : null}
     </section>
   );
 }
