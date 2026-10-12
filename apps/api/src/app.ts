@@ -20,6 +20,7 @@ import {
   registerRequestSchema,
   resetPasswordRequestSchema,
   reviewActionSchema,
+  saveFieldReviewsSchema,
   submitApplicationSchema,
   updateStaffUserSchema,
   parseCategoryDefinition,
@@ -271,6 +272,13 @@ export function createApp() {
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
     await access.assertFeature(actor, "applications.review");
     ok(res, req, await applications.reviewApplication(env, actor, String(req.params.id), reviewActionSchema.parse(req.body)));
+  }));
+  api.put("/admin/applications/:id/field-reviews", route(async (req, res) => {
+    const actor = await requireActor(req);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
+    await access.assertFeature(actor, "applications.review");
+    const body = saveFieldReviewsSchema.parse(req.body);
+    ok(res, req, await applications.saveFieldReviews(actor, String(req.params.id), body.expectedVersion, body.fieldReviews));
   }));
   api.post("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);

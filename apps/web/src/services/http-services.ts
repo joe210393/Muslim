@@ -137,6 +137,9 @@ export function createHttpServices(): Services {
     async review(id, input) {
       return (await request("POST", `/admin/applications/${id}/actions`, input)).data as Awaited<ReturnType<Services["application"]>>;
     },
+    async saveFieldReviews(id, expectedVersion, fieldReviews) {
+      return (await request("PUT", `/admin/applications/${id}/field-reviews`, { expectedVersion, fieldReviews })).data as Awaited<ReturnType<Services["saveFieldReviews"]>>;
+    },
     async events(id) {
       return (await request("GET", `/applications/${id}/events`)).data as Awaited<ReturnType<Services["events"]>>;
     },

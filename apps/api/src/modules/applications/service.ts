@@ -10,6 +10,8 @@ import {
   formatApplicationNo,
   pageMeta,
   parseCategoryDefinition,
+  checkFieldReviews,
+  reviewTargets,
   resolveTransition,
   sha256Hex,
   snapshotPayload,
@@ -17,6 +19,7 @@ import {
   validateDraft,
   validateSubmit,
   type ApplicationPatch,
+  type FieldReview,
 } from "@mf/contracts";
 import { prisma, type Prisma } from "@mf/db/server";
 import type { Env } from "../../config/env";
@@ -40,6 +43,23 @@ function asFormData(value: unknown): Record<string, string | number | boolean | 
     if (item === null || typeof item === "string" || typeof item === "number" || typeof item === "boolean") result[key] = item;
   }
   return result;
+}
+
+function presentFieldReviews(value: unknown, includeInternal: boolean): FieldReview[] {
+  if (!Array.isArray(value)) return [];
+  const rows: FieldReview[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.key !== "string") continue;
+    rows.push({
+      key: row.key,
+      needsSupplement: row.needsSupplement === true,
+      publicComment: typeof row.publicComment === "string" ? row.publicComment : "",
+      internalNote: includeInternal && typeof row.internalNote === "string" ? row.internalNote : "",
+    });
+  }
+  return rows;
 }
 
 function contentOf(app: {
@@ -167,6 +187,7 @@ export async function getApplication(actor: Actor, id: string) {
       sizeBytes: item.file.sizeBytes,
       createdAt: item.createdAt.toISOString(),
     })),
+    fieldReviews: presentFieldReviews(app.fieldReviews, actor.role !== UserRole.APPLICANT),
   };
 }
 
@@ -461,11 +482,35 @@ export async function assignApplication(actor: Actor, id: string, assignedToId: 
   return getApplication(actor, id);
 }
 
+export async function saveFieldReviews(actor: Actor, id: string, expectedVersion: number, fieldReviews: FieldReview[]) {
+  await prisma.$transaction(async (tx) => {
+    const app = await tx.application.findUnique({ where: { id }, include: { categoryFormVersion: true } });
+    if (!app || !canViewApplication(actor, app)) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
+    const canMark = actor.role === UserRole.ADMIN || app.assignedToId === actor.id;
+    if (!canMark) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有指派承辦或管理員可以寫審查意見");
+    if (app.status !== ApplicationStatus.INITIAL_REVIEW && app.status !== ApplicationStatus.SECOND_REVIEW && app.status !== ApplicationStatus.FINAL_REVIEW) {
+      throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "目前階段不能勾選補件");
+    }
+    if (app.status === ApplicationStatus.FINAL_REVIEW && actor.role !== UserRole.ADMIN) {
+      throw new ApiError(403, ErrorCodes.FORBIDDEN, "待核定階段只有管理員可以要求補件");
+    }
+    const checked = checkFieldReviews(ApplicationAction.PASS_INITIAL, reviewTargets(parseCategoryDefinition(app.categoryFormVersion.definition)), fieldReviews);
+    if (!checked.ok) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, checked.message);
+    if (app.version !== expectedVersion) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
+    const changed = await tx.application.updateMany({
+      where: { id, version: expectedVersion },
+      data: { fieldReviews: fieldReviews as Prisma.InputJsonValue, version: { increment: 1 } },
+    });
+    if (changed.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
+  });
+  return getApplication(actor, id);
+}
+
 export async function reviewApplication(
   env: Env,
   actor: Actor,
   id: string,
-  input: { action: string; expectedVersion: number; requestId: string; publicComment?: string; internalNote?: string },
+  input: { action: string; expectedVersion: number; requestId: string; publicComment?: string; internalNote?: string; fieldReviews?: FieldReview[] },
 ) {
   const action = input.action as ApplicationAction;
   const requestHash = await sha256Hex(JSON.stringify(input));
@@ -475,8 +520,12 @@ export async function reviewApplication(
       if (existing.requestHash !== requestHash) throw new ApiError(409, ErrorCodes.VALIDATION_ERROR, "相同 requestId 的內容不一致");
       return { jobId: null as string | null };
     }
-    const app = await tx.application.findUnique({ where: { id }, include: { createdBy: true } });
+    const app = await tx.application.findUnique({ where: { id }, include: { createdBy: true, categoryFormVersion: true } });
     if (!app || !canViewApplication(actor, app)) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
+    const reviews = input.fieldReviews ?? presentFieldReviews(app.fieldReviews, true);
+    const checked = checkFieldReviews(action, reviewTargets(parseCategoryDefinition(app.categoryFormVersion.definition)), reviews);
+    if (!checked.ok) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, checked.message);
+    const publicComment = checked.publicComment ?? input.publicComment;
     const transition = resolveTransition({
       action,
       status: app.status,
@@ -487,8 +536,9 @@ export async function reviewApplication(
     });
     if (!transition.ok) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, transition.message);
     const requirement = commentRequirement(action);
-    if (requirement === "public" && !input.publicComment?.trim()) fieldFailure([{ path: "publicComment", message: "請填寫公開意見" }]);
-    if (requirement === "review" && !input.publicComment?.trim() && !input.internalNote?.trim()) {
+    if (requirement === "public" && !publicComment?.trim()) fieldFailure([{ path: "publicComment", message: "請填寫公開意見" }]);
+    const hasInternal = Boolean(input.internalNote?.trim() || reviews.some((item) => item.internalNote.trim()));
+    if (requirement === "review" && !publicComment?.trim() && !hasInternal) {
       fieldFailure([{ path: "publicComment", message: "請填寫審查意見" }]);
     }
     const changed = await tx.application.updateMany({
@@ -496,6 +546,7 @@ export async function reviewApplication(
       data: {
         status: transition.toStatus,
         resumeStatus: transition.nextResumeStatus,
+        fieldReviews: reviews as Prisma.InputJsonValue,
         version: { increment: 1 },
         decidedAt: transition.toStatus === ApplicationStatus.APPROVED || transition.toStatus === ApplicationStatus.REJECTED ? new Date() : app.decidedAt,
       },
@@ -508,7 +559,7 @@ export async function reviewApplication(
         action,
         fromStatus: app.status,
         toStatus: transition.toStatus,
-        publicComment: input.publicComment?.trim() || null,
+        publicComment: publicComment?.trim() || null,
         internalNote: input.internalNote?.trim() || null,
         requestId: input.requestId,
         requestHash,

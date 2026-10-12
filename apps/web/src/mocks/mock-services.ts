@@ -19,6 +19,8 @@ import {
   canEnroll,
   canViewApplication,
   commentRequirement,
+  checkFieldReviews,
+  reviewTargets,
   detectFileSignature,
   formatApplicationNo,
   minutesToHourLabel,
@@ -196,6 +198,7 @@ function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]
     sourceRecordKey: app.sourceRecordKey,
     decidedAt: app.decidedAt,
     attachments,
+    fieldReviews: (app.fieldReviews ?? []).map((item) => ({ ...item, internalNote: viewer.role === UserRole.APPLICANT ? "" : item.internalNote })),
   };
 }
 
@@ -605,17 +608,43 @@ export async function createMockServices(): Promise<Services> {
       const decision = resolveTransition({ action: input.action as ApplicationAction, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, hasAssignee: Boolean(app.assignedToId) });
       if (!decision.ok) throw new ClientError(decision.message, { code: "INVALID_TRANSITION" });
       if (app.version !== input.expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+      const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
+      const reviews = input.fieldReviews ?? app.fieldReviews ?? [];
+      const checked = checkFieldReviews(input.action as ApplicationAction, reviewTargets(parseCategoryDefinition(version?.definition ?? { schemaVersion: 1, fields: [], attachmentRequirements: [], helpText: "" })), reviews);
+      if (!checked.ok) throw new ClientError(checked.message, { status: 400 });
+      const publicComment = checked.publicComment ?? input.publicComment;
       const requirement = commentRequirement(input.action as ApplicationAction);
-      if (requirement === "public" && !input.publicComment?.trim()) throw new ClientError("請填寫公開意見");
-      if (requirement === "review" && !input.publicComment?.trim() && !input.internalNote?.trim()) throw new ClientError("請填寫審查意見");
+      const hasInternal = Boolean(input.internalNote?.trim() || reviews.some((item) => item.internalNote.trim()));
+      if (requirement === "public" && !publicComment?.trim()) throw new ClientError("請填寫公開意見");
+      if (requirement === "review" && !publicComment?.trim() && !hasInternal) throw new ClientError("請填寫審查意見");
       const now = new Date().toISOString();
-      state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: input.action as ApplicationAction, fromStatus: app.status, toStatus: decision.toStatus, publicComment: input.publicComment ?? null, internalNote: input.internalNote ?? null, requestId: input.requestId, requestHash: input.requestId, createdAt: now });
+      state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: input.action as ApplicationAction, fromStatus: app.status, toStatus: decision.toStatus, publicComment: publicComment ?? null, internalNote: input.internalNote ?? null, requestId: input.requestId, requestHash: input.requestId, createdAt: now });
+      app.fieldReviews = reviews;
       app.status = decision.toStatus;
       app.resumeStatus = decision.nextResumeStatus;
       app.version += 1;
       app.updatedAt = now;
       if (decision.toStatus === ApplicationStatus.APPROVED || decision.toStatus === ApplicationStatus.REJECTED) app.decidedAt = now;
       state.data.notificationJobs.push({ id: crypto.randomUUID(), dedupeKey: `${input.action}:${id}:${input.requestId}`, type: input.action === "REQUEST_SUPPLEMENT" ? "SUPPLEMENT_REQUEST" : "DECISION_RESULT", recipientUserId: app.createdById, recipientEmail: state.data.users.find((user) => user.id === app.createdById)?.email ?? "", applicationId: id, status: "MOCKED", attemptCount: 1, lastErrorCode: "MOCK_MODE", createdAt: now, sentAt: null });
+      await save();
+      return toDetail(state, id, actor);
+    },
+    async saveFieldReviews(id, expectedVersion, fieldReviews) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "applications.review")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const app = state.data.applications.find((item) => item.id === id);
+      if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
+      if (actor.role !== UserRole.ADMIN && app.assignedToId !== actor.id) throw new ClientError("只有指派承辦或管理員可以寫審查意見", { status: 403 });
+      if (app.status !== ApplicationStatus.INITIAL_REVIEW && app.status !== ApplicationStatus.SECOND_REVIEW && app.status !== ApplicationStatus.FINAL_REVIEW) {
+        throw new ClientError("目前階段不能勾選補件", { status: 409 });
+      }
+      const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
+      const checked = checkFieldReviews(ApplicationAction.PASS_INITIAL, reviewTargets(parseCategoryDefinition(version?.definition ?? { schemaVersion: 1, fields: [], attachmentRequirements: [], helpText: "" })), fieldReviews);
+      if (!checked.ok) throw new ClientError(checked.message, { status: 400 });
+      if (app.version !== expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+      app.fieldReviews = fieldReviews;
+      app.version += 1;
+      app.updatedAt = new Date().toISOString();
       await save();
       return toDetail(state, id, actor);
     },

@@ -48,6 +48,7 @@ export const fieldMetadata: FieldMeta[] = [
   row("Application", "申請說明", "applicationDescription", "application_description", "string", "是", "否", "送件必填", "null", "最多 4000 字", "中", "草稿／補件可改"),
   row("Application", "資料聲明", "declarationAccepted", "declaration_accepted", "boolean", "否", "否", "送件必須 true", "false", "未勾選不能送件", "低", "草稿／補件可改"),
   row("Application", "類別額外欄位", "formData", "form_data", "json", "否", "否", "依類別版本", "{}", "不可含保留 key 或未知欄位", "中", "草稿／補件可改"),
+  row("Application", "欄位審查", "fieldReviews", "field_reviews", "json", "否", "否", "審查時寫入", "[]", "每項含是否補件、公開意見、內部註記。業者看不到內部註記", "中", "管理員一開始派案後，承辦維持同一人"),
   row("Application", "外部來源", "sourceSystem", "source_system", "string", "與 sourceRecordKey 同空或同有", "否", "匯入時成對", "null", "與 sourceRecordKey 聯合唯一", "低", "匯入寫入"),
   row("Application", "外部鍵", "sourceRecordKey", "source_record_key", "string", "與 sourceSystem 成對", "否", "匯入時成對", "null", "不可只用公司名稱去重", "低", "匯入寫入"),
   row("Enrollment", "實際時數", "attendedMinutes", "attended_minutes", "int", "否", "否", "登錄出席時", "0", "0 到課程 durationMinutes；缺席不可為正", "低", "承辦登錄"),

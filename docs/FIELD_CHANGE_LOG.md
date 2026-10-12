@@ -13,3 +13,4 @@
 | 2026-10-12 | 新增自訂報表 | migration `20261012180000_saved_reports`。`saved_reports` 存名稱、來源與勾選欄位。密碼、憑證與檔案本體不可選 |
 | 2026-10-12 | 自訂報表改為跨來源組合 | migration `20261012190000_report_selections`。`source`、`field_keys` 併入 `selections`。另存 `chart_kind`、`chart_field` |
 | 2026-10-12 | 首頁圖庫 | migration `20261012200000_home_gallery`。`editorial_kind` 增加 `HOME_GALLERY`，一筆一張輪播圖 |
+| 2026-10-12 | 案件欄位審查 | migration `20261012210000_field_reviews`。`applications.field_reviews` 記錄每個送件欄位要不要補件、公開意見與內部註記 |

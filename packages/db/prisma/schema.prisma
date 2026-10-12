@@ -280,6 +280,7 @@ model Application {
   applicationDescription     String?            @map("application_description") @db.VarChar(4000)
   declarationAccepted        Boolean            @default(false) @map("declaration_accepted")
   formData                   Json               @default("{}") @map("form_data")
+  fieldReviews               Json               @default("[]") @map("field_reviews")
   sourceSystem               String?            @map("source_system") @db.VarChar(64)
   sourceRecordKey            String?            @map("source_record_key") @db.VarChar(128)
   submittedAt                DateTime?          @map("submitted_at") @db.Timestamptz(6)

@@ -36,6 +36,7 @@
 | Application | 申請說明 | applicationDescription | application_description | string；最多 4000 字 | 是 | 否 | 送件必填 | 中 | 草稿／補件可改 |
 | Application | 資料聲明 | declarationAccepted | declaration_accepted | boolean；未勾選不能送件 | 否 | 否 | 送件必須 true | 低 | 草稿／補件可改 |
 | Application | 類別額外欄位 | formData | form_data | json；不可含保留 key 或未知欄位 | 否 | 否 | 依類別版本 | 中 | 草稿／補件可改 |
+| Application | 欄位審查 | fieldReviews | field_reviews | json；每項含是否補件、公開意見、內部註記。業者看不到內部註記 | 否 | 否 | 審查時寫入 | 中 | 管理員一開始派案後，承辦維持同一人 |
 | Application | 外部來源 | sourceSystem | source_system | string；與 sourceRecordKey 聯合唯一 | 與 sourceRecordKey 同空或同有 | 否 | 匯入時成對 | 低 | 匯入寫入 |
 | Application | 外部鍵 | sourceRecordKey | source_record_key | string；不可只用公司名稱去重 | 與 sourceSystem 成對 | 否 | 匯入時成對 | 低 | 匯入寫入 |
 | Enrollment | 實際時數 | attendedMinutes | attended_minutes | int；0 到課程 durationMinutes；缺席不可為正 | 否 | 否 | 登錄出席時 | 低 | 承辦登錄 |

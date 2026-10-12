@@ -88,6 +88,7 @@ export type DemoApplication = {
   applicationDescription: string | null;
   declarationAccepted: boolean;
   formData: Record<string, string | number | boolean | null>;
+  fieldReviews?: Array<{ key: string; needsSupplement: boolean; publicComment: string; internalNote: string }>;
   sourceSystem: string | null;
   sourceRecordKey: string | null;
   submittedAt: string | null;

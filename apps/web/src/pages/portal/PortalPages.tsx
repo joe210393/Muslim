@@ -1,4 +1,4 @@
-import { applicationStatusLabels, type ApplicationDetail } from "@mf/contracts";
+import { applicationStatusLabels, reviewTargets, type ApplicationDetail } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -172,6 +172,10 @@ export function ApplicationEditPage() {
   if (query.isLoading || !draft) return <p>載入中…</p>;
   if (query.isError) return <ErrorText message="找不到申請或沒有權限" />;
   const steps = ["申請類別", "業者與聯絡資料", "申請內容", "附件資料", "確認送件"];
+  const supplements = (draft.fieldReviews ?? []).filter((item) => item.needsSupplement);
+  function supplementFor(key: string) {
+    return supplements.find((item) => item.key === key);
+  }
   async function save() {
     if (!draft) return;
     try {
@@ -201,28 +205,31 @@ export function ApplicationEditPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">{steps.map((label, index) => <button key={label} className={`btn rounded-full px-3 py-1 text-sm ${index === step ? "is-selected" : ""}`} type="button" aria-pressed={index === step} onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>
       <p className="text-sm text-[var(--muted)]">案件 {draft.applicationNo} · 版本 {draft.version} · {draft.configurationStatus === "DEMO" ? "此類別為示範設定" : "類別已確認"}</p>
+      {supplements.length ? <Card className="space-y-1 text-sm"><p className="font-medium">審查請補這些項目</p>{supplements.map((item) => <p key={item.key}>{reviewTargets(draft.definition).find((target) => target.key === item.key)?.label ?? item.key}：{item.publicComment}</p>)}</Card> : null}
       {step === 0 ? (
         <Field label="類別" hint="只有未送件草稿可以改類別，不相容的額外欄位會被清掉。">
           <CategorySelect value={draft.categoryId} disabled={draft.status !== "DRAFT"} onChange={(categoryId) => { setDraft({ ...draft, categoryId }); setDirty(true); }} />
+          {supplementFor("category") ? <p className="text-sm">審查請補件：{supplementFor("category")?.publicComment}</p> : null}
         </Field>
       ) : null}
       {step === 1 ? (
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="業者名稱"><TextInput value={draft.organizationName ?? ""} onChange={(event) => { setDraft({ ...draft, organizationName: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="統一編號" hint="暫定 8 位數字"><TextInput value={draft.taxId ?? ""} onChange={(event) => { setDraft({ ...draft, taxId: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="聯絡人"><TextInput value={draft.contactName ?? ""} onChange={(event) => { setDraft({ ...draft, contactName: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="電話"><TextInput value={draft.contactPhone ?? ""} onChange={(event) => { setDraft({ ...draft, contactPhone: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="Email"><TextInput value={draft.contactEmail ?? ""} onChange={(event) => { setDraft({ ...draft, contactEmail: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="地址"><TextInput value={draft.organizationAddress ?? ""} onChange={(event) => { setDraft({ ...draft, organizationAddress: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="業者名稱">{supplementFor("organizationName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("organizationName")?.publicComment}</p> : null}<TextInput value={draft.organizationName ?? ""} onChange={(event) => { setDraft({ ...draft, organizationName: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="統一編號" hint="暫定 8 位數字">{supplementFor("taxId") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("taxId")?.publicComment}</p> : null}<TextInput value={draft.taxId ?? ""} onChange={(event) => { setDraft({ ...draft, taxId: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="聯絡人">{supplementFor("contactName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactName")?.publicComment}</p> : null}<TextInput value={draft.contactName ?? ""} onChange={(event) => { setDraft({ ...draft, contactName: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="電話">{supplementFor("contactPhone") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactPhone")?.publicComment}</p> : null}<TextInput value={draft.contactPhone ?? ""} onChange={(event) => { setDraft({ ...draft, contactPhone: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="Email">{supplementFor("contactEmail") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactEmail")?.publicComment}</p> : null}<TextInput value={draft.contactEmail ?? ""} onChange={(event) => { setDraft({ ...draft, contactEmail: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="地址">{supplementFor("organizationAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("organizationAddress")?.publicComment}</p> : null}<TextInput value={draft.organizationAddress ?? ""} onChange={(event) => { setDraft({ ...draft, organizationAddress: event.target.value }); setDirty(true); }} /></Field>
         </div>
       ) : null}
       {step === 2 ? (
         <div className="space-y-3">
-          <Field label="場所名稱"><TextInput value={draft.siteName ?? ""} onChange={(event) => { setDraft({ ...draft, siteName: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="場所地址"><TextInput value={draft.siteAddress ?? ""} onChange={(event) => { setDraft({ ...draft, siteAddress: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="申請說明"><TextArea value={draft.applicationDescription ?? ""} onChange={(event) => { setDraft({ ...draft, applicationDescription: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="場所名稱">{supplementFor("siteName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteName")?.publicComment}</p> : null}<TextInput value={draft.siteName ?? ""} onChange={(event) => { setDraft({ ...draft, siteName: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="場所地址">{supplementFor("siteAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteAddress")?.publicComment}</p> : null}<TextInput value={draft.siteAddress ?? ""} onChange={(event) => { setDraft({ ...draft, siteAddress: event.target.value }); setDirty(true); }} /></Field>
+          <Field label="申請說明">{supplementFor("applicationDescription") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("applicationDescription")?.publicComment}</p> : null}<TextArea value={draft.applicationDescription ?? ""} onChange={(event) => { setDraft({ ...draft, applicationDescription: event.target.value }); setDirty(true); }} /></Field>
           {draft.definition.fields.map((field) => (
             <Field key={field.key} label={`${field.label}${field.requiredOnSubmit ? "（送件必填）" : ""}`} hint={field.helpText}>
+              {supplementFor(field.key) ? <p className="mb-1 text-sm">審查請補件：{supplementFor(field.key)?.publicComment}</p> : null}
               {field.inputType === "textarea" ? <TextArea value={String(draft.formData[field.key] ?? "")} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: event.target.value } }); setDirty(true); }} /> : null}
               {field.inputType === "select" ? <SelectInput value={String(draft.formData[field.key] ?? "")} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: event.target.value } }); setDirty(true); }}><option value="">請選擇</option>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectInput> : null}
               {field.inputType !== "textarea" && field.inputType !== "select" ? <TextInput type={field.inputType === "number" ? "number" : field.inputType === "date" ? "date" : "text"} value={String(draft.formData[field.key] ?? "")} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: field.inputType === "number" ? Number(event.target.value) : event.target.value } }); setDirty(true); }} /> : null}
@@ -237,6 +244,7 @@ export function ApplicationEditPage() {
             return (
               <Card key={requirement.key}>
                 <p className="font-medium">{requirement.label}{requirement.requiredOnSubmit ? "（送件必要）" : "（選填）"}</p>
+                {supplementFor(`attachment:${requirement.key}`) ? <p className="text-sm">審查請補件：{supplementFor(`attachment:${requirement.key}`)?.publicComment}</p> : null}
                 <p className="text-xs text-[var(--muted)]">PDF、JPEG、PNG，單檔 10 MiB。{requirement.helpText}</p>
                 {file ? <p className="text-sm">{file.originalName} · {formatBytes(file.sizeBytes)}</p> : <p className="text-sm text-[var(--muted)]">尚未上傳</p>}
                 <input className="mt-2 block text-sm" type="file" accept="application/pdf,image/jpeg,image/png" aria-label={requirement.label} onChange={async (event) => {
@@ -261,6 +269,7 @@ export function ApplicationEditPage() {
           <p>場所：{draft.siteName || "未填"}</p>
           <p>說明：{draft.applicationDescription || "未填"}</p>
           <p>附件：{draft.attachments.length} 個</p>
+          {supplementFor("declarationAccepted") ? <p>審查請補件：{supplementFor("declarationAccepted")?.publicComment}</p> : null}
           <label className="flex items-center gap-2"><input type="checkbox" checked={draft.declarationAccepted} onChange={(event) => { setDraft({ ...draft, declarationAccepted: event.target.checked }); setDirty(true); }} />我確認以上資料可作為本次送件內容</label>
           <Button onClick={() => setConfirm(true)}>送出申請</Button>
         </Card>
@@ -325,6 +334,7 @@ export function ApplicationDetailPage() {
         <p>場所：{item.siteName} / {item.siteAddress}</p>
         <p>說明：{item.applicationDescription}</p>
         <p>聯絡人：{item.contactName} {item.contactPhone}</p>
+        {(item.fieldReviews ?? []).filter((review) => review.needsSupplement).map((review) => <p key={review.key}>{reviewTargets(item.definition).find((target) => target.key === review.key)?.label ?? review.key}：{review.publicComment}</p>)}
       </Card>
       <Card>
         <h2 className="font-medium">歷程與公開意見</h2>

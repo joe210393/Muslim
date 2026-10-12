@@ -2,8 +2,9 @@ import { applicationStatusLabels, courseStatusLabels, type CourseStatus } from "
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { useServices, useSession } from "../../app/session";
-import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { useServices } from "../../app/session";
+import { ApplicationReview } from "./ApplicationReview";
+import { Badge, Button, Card, Empty, ErrorText, Field, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { PermissionsPage } from "./InfoAdminPages";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
@@ -55,71 +56,20 @@ export function AdminApplicationDetail() {
   const client = useQueryClient();
   const application = useQuery({ queryKey: ["application", applicationId], queryFn: () => services.application(applicationId) });
   const events = useQuery({ queryKey: ["events", applicationId], queryFn: () => services.events(applicationId) });
-  const session = useSession();
-  const users = useQuery({ queryKey: ["staff-options"], queryFn: () => services.users(), enabled: Boolean(session.user?.featureKeys?.includes("users.manage")) });
-  const [comment, setComment] = useState("");
-  const [note, setNote] = useState("");
-  const [assignee, setAssignee] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
-  const [section, setSection] = useState("review");
   if (!application.data) return application.isLoading ? <p>載入中…</p> : <ErrorText message="找不到案件" />;
   const item = application.data;
-  const canDecide = session.user?.featureKeys?.includes("applications.decide") ?? false;
-  const actions = availableActions(item.status, canDecide);
-  async function run(action: string) {
-    try {
-      await services.review(item.id, { action, expectedVersion: item.version, requestId: crypto.randomUUID(), publicComment: comment, internalNote: note });
-      setPending(null);
-      setError(null);
-      await client.invalidateQueries({ queryKey: ["application", applicationId] });
-      await client.invalidateQueries({ queryKey: ["events", applicationId] });
-    } catch (reason) {
-      setError(reason instanceof ClientError ? reason.message : "動作失敗");
-    }
-  }
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
         <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
       </div>
-      <SectionNav items={[{ id: "summary", label: "案件內容" }, { id: "review", label: "審查" }, { id: "history", label: "歷程" }]} value={section} onChange={setSection} />
-      {section === "summary" ? <Card className="text-sm"><p>業者 {item.organizationName} · 統編 {item.taxId}</p><p>場所 {item.siteName} / {item.siteAddress}</p><p>{item.applicationDescription}</p><p>表單版本 {item.formVersion} · {item.configurationStatus === "DEMO" ? "示範設定" : "已確認"}</p>
-        <h2 className="mt-4 font-medium">附件</h2>
-        {item.attachments.map((file) => <button key={file.id} className="mt-1 block text-sm text-[var(--link)]" type="button" onClick={async () => { const downloaded = await services.download(file.fileId); const url = URL.createObjectURL(downloaded.blob); const link = document.createElement("a"); link.href = url; link.download = downloaded.name; link.click(); }}>{file.originalName}</button>)}
-        {item.attachments.length === 0 ? <p className="text-sm text-[var(--muted)]">沒有附件。</p> : null}
-      </Card> : null}
-      {section === "review" ? <Card className="space-y-2">
-        <h2 className="font-medium">派案與審查</h2>
-        <p className="text-xs text-[var(--muted)]">不能用下拉直接改狀態。郵件若為模擬，不會顯示成已寄出。</p>
-        {!item.assignedToId && session.user?.role === "CASE_OFFICER" ? <p className="text-sm text-[var(--ink)]">這件已送出，但還沒派給承辦。請用管理員帳號指派後，承辦才能開始審查。</p> : null}
-        {canDecide ? (
-          <>
-            <Field label="指派承辦"><SelectInput value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="">選擇</option>{(users.data ?? []).filter((user) => user.role !== "APPLICANT" && user.isActive).map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}</SelectInput></Field>
-            <Button variant="secondary" onClick={async () => { try { await services.assign(item.id, assignee, item.version, crypto.randomUUID()); await client.invalidateQueries({ queryKey: ["application", applicationId] }); } catch (reason) { setError(reason instanceof ClientError ? reason.message : "派案失敗"); } }}>指派承辦</Button>
-          </>
-        ) : <p className="text-sm text-[var(--muted)]">這個帳號沒有派案與核定。有審查功能的人仍可提出審查意見。</p>}
-        <Field label="公開意見"><TextArea value={comment} onChange={(event) => setComment(event.target.value)} /></Field>
-        <Field label="內部註記"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
-        <div className="flex flex-wrap gap-2">{(session.user?.role === "CASE_OFFICER" && !canDecide && item.assignedToId !== session.user.id ? [] : actions).map((action) => <Button key={action.code} onClick={() => setPending(action.code)}>{action.label}</Button>)}</div>
-        {item.status === "APPROVED" ? <CertificationForm applicationId={item.id} /> : null}
-      </Card> : null}
-      {section === "history" ? <Card><h2 className="font-medium">歷程</h2>{events.data?.map((event) => <p key={event.id} className="mt-2 text-sm">{formatTaipei(event.createdAt)} {event.actorName} {event.action} {event.publicComment ?? ""} {event.internalNote ? `（內部：${event.internalNote}）` : ""}</p>)}</Card> : null}
-      {error ? <ErrorText message={error} /> : null}
-      {pending ? <Modal title="確認審查動作" onClose={() => setPending(null)}><p className="text-sm">將執行 {pending}。若版本已變，系統會拒絕覆蓋。</p><Button className="mt-3" onClick={() => void run(pending)}>確認執行</Button></Modal> : null}
+      <p className="text-sm text-[var(--muted)]">下面是業者送件的同一份表。要補的項目在該欄後面勾選，並寫給業者看的公開意見。內部註記只有員工看得到。</p>
+      <ApplicationReview item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); await client.invalidateQueries({ queryKey: ["events", applicationId] }); }} />
+      {item.status === "APPROVED" ? <Card><CertificationForm applicationId={item.id} /></Card> : null}
+      <Card><h2 className="font-medium">歷程</h2>{events.data?.map((event) => <p key={event.id} className="mt-2 text-sm">{formatTaipei(event.createdAt)} {event.actorName} {event.action} {event.publicComment ?? ""} {event.internalNote ? `（內部：${event.internalNote}）` : ""}</p>)}</Card>
     </div>
   );
-}
-
-function availableActions(status: string, canDecide: boolean) {
-  const decideOnly = new Set(["APPROVE", "REJECT"]);
-  const actions = status === "SUBMITTED" ? [{ code: "START_REVIEW", label: "開始初審" }]
-    : status === "INITIAL_REVIEW" ? [{ code: "PASS_INITIAL", label: "初審通過" }, { code: "REQUEST_SUPPLEMENT", label: "要求補件" }, { code: "REJECT", label: "退件" }]
-    : status === "SECOND_REVIEW" ? [{ code: "PASS_SECOND", label: "複審通過" }, { code: "REQUEST_SUPPLEMENT", label: "要求補件" }, { code: "REJECT", label: "退件" }]
-    : status === "FINAL_REVIEW" ? [{ code: "APPROVE", label: "核定" }, { code: "REQUEST_SUPPLEMENT", label: "要求補件" }, { code: "REJECT", label: "退件" }]
-    : [];
-  return canDecide ? actions : actions.filter((action) => !decideOnly.has(action.code) && status !== "FINAL_REVIEW");
 }
 
 function CertificationForm({ applicationId }: { applicationId: string }) {

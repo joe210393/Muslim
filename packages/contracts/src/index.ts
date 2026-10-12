@@ -21,6 +21,7 @@ export * from "./domain/application-workflow";
 export * from "./domain/file-policy";
 export * from "./domain/category-definition";
 export * from "./domain/application-validation";
+export * from "./domain/field-reviews";
 export * from "./domain/training";
 export * from "./domain/certification";
 export * from "./domain/csv";

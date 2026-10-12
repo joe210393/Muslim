@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { categoryDefinitionSchema } from "../domain/category-definition";
+import { fieldReviewsSchema } from "../domain/field-reviews";
 import {
   applicationActionSchema,
   applicationStatusSchema,
@@ -74,6 +75,7 @@ export const applicationDetailSchema = applicationListItemSchema.merge(applicati
   sourceRecordKey: z.string().nullable(),
   decidedAt: z.string().datetime().nullable(),
   attachments: z.array(attachmentSchema),
+  fieldReviews: fieldReviewsSchema,
 });
 
 export const applicationEventSchema = z.object({
@@ -130,6 +132,12 @@ export const reviewActionSchema = z.object({
   requestId: z.string().uuid(),
   publicComment: z.string().trim().max(2000).optional(),
   internalNote: z.string().trim().max(2000).optional(),
+  fieldReviews: fieldReviewsSchema.optional(),
+});
+
+export const saveFieldReviewsSchema = z.object({
+  expectedVersion: z.number().int(),
+  fieldReviews: fieldReviewsSchema,
 });
 
 export const assignApplicationSchema = z.object({
