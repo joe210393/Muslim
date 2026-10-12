@@ -1,20 +1,26 @@
 import {
   AttendanceStatus,
+  COURSE_VIDEO_MAX_BYTES,
+  CourseDelivery,
   CourseStatus,
   EnrollmentStatus,
   ErrorCodes,
   UserRole,
+  acceptWatchProgress,
   buildLearningRecord,
   canCancelEnrollment,
   canEnroll,
+  detectCourseVideo,
   detectFileSignature,
   extensionForMime,
   minutesToHourLabel,
+  onlinePassSeconds,
   pageMeta,
   remainingSeats,
   sha256Hex,
   validateAttendance,
   validateCourseDraft,
+  withdrawState,
   type CourseWrite,
 } from "@mf/contracts";
 import { prisma, type Prisma } from "@mf/db/server";
@@ -29,8 +35,11 @@ function courseDto(course: {
   id: string;
   title: string;
   description: string;
+  delivery: CourseDelivery;
   youtubeUrl: string;
   imageFileId: string | null;
+  videoFileId: string | null;
+  videoDurationSeconds: number;
   location: string;
   startsAt: Date;
   endsAt: Date;
@@ -46,8 +55,11 @@ function courseDto(course: {
     id: course.id,
     title: course.title,
     description: course.description,
+    delivery: course.delivery,
     youtubeUrl: course.youtubeUrl,
     imageUrl: course.imageFileId ? `/api/v1/media/${course.imageFileId}` : null,
+    hasVideo: Boolean(course.videoFileId),
+    videoDurationSeconds: course.videoDurationSeconds,
     location: course.location,
     startsAt: course.startsAt.toISOString(),
     endsAt: course.endsAt.toISOString(),
@@ -98,7 +110,11 @@ export async function saveCourse(actor: SessionActor, input: CourseWrite, id?: s
     throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "課程已被更新，請重新載入");
   }
   const count = current ? await confirmedCount(current.id) : 0;
-  const issues = validateCourseDraft(input, count);
+  const issues = validateCourseDraft({ ...input, hasVideo: Boolean(current?.videoFileId), location: input.delivery === CourseDelivery.ONLINE ? "" : input.location }, count);
+  if (current && current.delivery !== input.delivery) {
+    const recorded = await prisma.enrollment.count({ where: { courseId: current.id, OR: [{ attendanceStatus: { not: AttendanceStatus.NOT_RECORDED } }, { watchedSeconds: { gt: 0 } }] } });
+    if (recorded > 0) issues.push({ path: "delivery", message: "已有上課紀錄，不能改線上或線下" });
+  }
   if (current) {
     const recorded = await prisma.enrollment.count({
       where: { courseId: current.id, attendanceStatus: { not: AttendanceStatus.NOT_RECORDED } },
@@ -111,8 +127,9 @@ export async function saveCourse(actor: SessionActor, input: CourseWrite, id?: s
   const data = {
     title: input.title,
     description: input.description,
+    delivery: input.delivery,
     youtubeUrl: input.youtubeUrl,
-    location: input.location,
+    location: input.delivery === CourseDelivery.ONLINE ? "" : input.location,
     startsAt: new Date(input.startsAt),
     endsAt: new Date(input.endsAt),
     registrationOpensAt: new Date(input.registrationOpensAt),
@@ -164,6 +181,40 @@ export async function uploadCourseImage(actor: SessionActor, storage: StorageAda
   return courseDto((await prisma.course.findUnique({ where: { id } }))!, await confirmedCount(id));
 }
 
+export async function uploadCourseVideo(actor: SessionActor, storage: StorageAdapter, id: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }, durationSeconds: number) {
+  if (actor.role === UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有課程管理權限");
+  await assertIntegration("media");
+  const current = await prisma.course.findUnique({ where: { id } });
+  if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到課程");
+  if (current.delivery !== CourseDelivery.ONLINE) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "只有線上課程可以上傳影片");
+  if (!Number.isInteger(durationSeconds) || durationSeconds < 1) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "無法讀取影片長度");
+  if (file.size > COURSE_VIDEO_MAX_BYTES) throw new ApiError(400, ErrorCodes.FILE_TOO_LARGE, "課程影片請小於 200 MB");
+  const bytes = new Uint8Array(file.buffer);
+  const mime = detectCourseVideo(bytes);
+  if (!mime) throw new ApiError(400, ErrorCodes.UNSUPPORTED_FILE_TYPE, "課程影片只接受 MP4 或 WebM");
+  const fileId = randomUUID();
+  const storageKey = `courses/${id}/${fileId}.${extensionForMime(mime)}`;
+  await storage.save(storageKey, bytes);
+  try {
+    await prisma.fileObject.create({
+      data: {
+        id: fileId,
+        uploadedById: actor.id,
+        storageKey,
+        originalName: file.originalname.slice(0, 180) || "video",
+        mimeType: mime,
+        sizeBytes: bytes.byteLength,
+        sha256: await sha256Hex(bytes),
+      },
+    });
+    await prisma.course.update({ where: { id }, data: { videoFileId: fileId, videoDurationSeconds: durationSeconds, version: { increment: 1 } } });
+  } catch (error) {
+    await storage.delete(storageKey).catch(() => undefined);
+    throw error;
+  }
+  return courseDto((await prisma.course.findUnique({ where: { id } }))!, await confirmedCount(id));
+}
+
 export async function enroll(actor: SessionActor, courseId: string) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "請使用業者帳號報名");
   const enrollment = await prisma.$transaction(async (tx) => {
@@ -192,6 +243,8 @@ export async function enroll(actor: SessionActor, courseId: string) {
           cancelledAt: null,
           attendanceStatus: AttendanceStatus.NOT_RECORDED,
           attendedMinutes: 0,
+          watchedSeconds: 0,
+          watchUpdatedAt: null,
           attendanceRecordedAt: null,
           attendanceRecordedById: null,
           requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes,
@@ -214,10 +267,20 @@ export async function enroll(actor: SessionActor, courseId: string) {
 export async function cancelEnrollment(actor: SessionActor, enrollmentId: string) {
   const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
   if (!enrollment || enrollment.userId !== actor.id) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
+  const learning = buildLearningRecord({
+    enrollmentStatus: enrollment.status,
+    attendanceStatus: enrollment.attendanceStatus,
+    attendedMinutes: enrollment.attendedMinutes,
+    requiredAttendanceMinutesSnapshot: enrollment.requiredAttendanceMinutesSnapshot,
+    delivery: enrollment.course.delivery,
+    watchedSeconds: enrollment.watchedSeconds,
+    videoDurationSeconds: enrollment.course.videoDurationSeconds,
+  });
   const decision = canCancelEnrollment({
     enrollmentStatus: enrollment.status,
     registrationClosesAt: enrollment.course.registrationClosesAt.toISOString(),
     nowIso: new Date().toISOString(),
+    completed: learning.completion === "COMPLETED",
   });
   if (!decision.ok) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, decision.message);
   await prisma.enrollment.update({
@@ -231,6 +294,7 @@ export async function updateAttendance(actor: SessionActor, enrollmentId: string
   if (actor.role === UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有出席登錄權限");
   const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
   if (!enrollment) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
+  if (enrollment.course.delivery === CourseDelivery.ONLINE) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "線上課程以觀看時間計算通過，不能改出席");
   if (enrollment.version !== input.expectedVersion) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "出席資料已被更新，請重新載入");
   const issues = validateAttendance({ ...input, durationMinutes: enrollment.course.durationMinutes });
   if (issues.length) fieldFailure(issues);
@@ -269,7 +333,17 @@ async function mapEnrollment(id: string) {
     attendanceStatus: row.attendanceStatus,
     attendedMinutes: row.attendedMinutes,
     requiredAttendanceMinutesSnapshot: row.requiredAttendanceMinutesSnapshot,
+    delivery: row.course.delivery,
+    watchedSeconds: row.watchedSeconds,
+    videoDurationSeconds: row.course.videoDurationSeconds,
   });
+  const withdraw = withdrawState({
+    enrollmentStatus: row.status,
+    completed: learning.completion === "COMPLETED",
+    registrationClosesAt: row.course.registrationClosesAt.toISOString(),
+    nowIso: new Date().toISOString(),
+  });
+  const passSeconds = row.course.delivery === CourseDelivery.ONLINE ? onlinePassSeconds(row.course.videoDurationSeconds) : 0;
   return {
     id: row.id,
     courseId: row.courseId,
@@ -281,7 +355,14 @@ async function mapEnrollment(id: string) {
     status: row.status,
     attendanceStatus: row.attendanceStatus,
     attendedMinutes: row.attendedMinutes,
+    watchedSeconds: row.watchedSeconds,
     requiredAttendanceMinutesSnapshot: row.requiredAttendanceMinutesSnapshot,
+    delivery: row.course.delivery,
+    videoDurationSeconds: row.course.videoDurationSeconds,
+    passSeconds: Number.isFinite(passSeconds) ? passSeconds : 0,
+    durationMinutes: row.course.durationMinutes,
+    canCancel: withdraw.canCancel,
+    withdrawLabel: withdraw.label,
     completion: learning.completion,
     countsTowardTotal: learning.countsTowardTotal,
     attendedHoursLabel: minutesToHourLabel(row.attendedMinutes),
@@ -292,6 +373,45 @@ async function mapEnrollment(id: string) {
     endsAt: row.course.endsAt.toISOString(),
     location: row.course.location,
   };
+}
+
+export async function recordWatch(actor: SessionActor, enrollmentId: string, input: { expectedVersion: number; watchedSeconds: number }) {
+  const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
+  if (!enrollment || enrollment.userId !== actor.id) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
+  if (enrollment.status !== EnrollmentStatus.CONFIRMED) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "這筆報名已取消");
+  if (enrollment.course.delivery !== CourseDelivery.ONLINE) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "這不是線上課程");
+  if (enrollment.version !== input.expectedVersion) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "觀看進度已被更新，請重新載入");
+  const now = new Date();
+  const watchedSeconds = acceptWatchProgress({
+    currentSeconds: enrollment.watchedSeconds,
+    reportedSeconds: input.watchedSeconds,
+    videoDurationSeconds: enrollment.course.videoDurationSeconds,
+    lastReportedAt: enrollment.watchUpdatedAt?.toISOString() ?? null,
+    nowIso: now.toISOString(),
+  });
+  if (watchedSeconds === enrollment.watchedSeconds) return mapEnrollment(enrollment.id);
+  const passed = watchedSeconds >= onlinePassSeconds(enrollment.course.videoDurationSeconds);
+  const changed = await prisma.enrollment.updateMany({
+    where: { id: enrollmentId, version: input.expectedVersion },
+    data: {
+      watchedSeconds,
+      watchUpdatedAt: now,
+      attendanceStatus: passed ? AttendanceStatus.PRESENT : enrollment.attendanceStatus,
+      attendedMinutes: passed ? Math.floor(watchedSeconds / 60) : enrollment.attendedMinutes,
+      version: { increment: 1 },
+    },
+  });
+  if (changed.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "觀看進度已被更新，請重新載入");
+  return mapEnrollment(enrollment.id);
+}
+
+export async function readCourseVideo(actor: SessionActor, storage: StorageAdapter, enrollmentId: string) {
+  const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: { include: { video: true } } } });
+  if (!enrollment || !enrollment.course.video) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到課程影片");
+  const staff = actor.role === UserRole.ADMIN || actor.role === UserRole.CASE_OFFICER;
+  if (!staff && enrollment.userId !== actor.id) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到課程影片");
+  const bytes = await storage.read(enrollment.course.video.storageKey);
+  return { bytes, mimeType: enrollment.course.video.mimeType, name: enrollment.course.video.originalName };
 }
 
 export async function myEnrollments(actor: SessionActor) {

@@ -40,11 +40,15 @@
 | Application | 外部來源 | sourceSystem | source_system | string；與 sourceRecordKey 聯合唯一 | 與 sourceRecordKey 同空或同有 | 否 | 匯入時成對 | 低 | 匯入寫入 |
 | Application | 外部鍵 | sourceRecordKey | source_record_key | string；不可只用公司名稱去重 | 與 sourceSystem 成對 | 否 | 匯入時成對 | 低 | 匯入寫入 |
 | Enrollment | 實際時數 | attendedMinutes | attended_minutes | int；0 到課程 durationMinutes；缺席不可為正 | 否 | 否 | 登錄出席時 | 低 | 承辦登錄 |
+| Enrollment | 已看秒數 | watchedSeconds | watched_seconds | int；不可一次跳到結尾；須達影片秒數的三分之二才算通過 | 否 | 否 | 線上播放時累加 | 中 | 只有本人播放會增加 |
 | Enrollment | 完課門檻快照 | requiredAttendanceMinutes | required_attendance_minutes_snapshot | int；歷史完課不隨課程門檻默默改變 | 否 | 報名時寫入 | 報名時寫入 | 低 | 報名時固定 |
 | Enrollment | 出席狀態 | attendanceStatus | attendance_status | AttendanceStatus；未登錄不算不合格 | 否 | 否 | 否 | 低 | 承辦登錄 |
 | Certification | 證書編號 | certificateNo | certificate_no | string；unique；初版人工登錄 | 否 | 核定後登錄必填 | 必填 | 低 | 管理員可更正並留紀錄 |
 | Certification | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD，不可晚於到期日 | 否 | 必填 | 必填 | 低 | 管理員可更正 |
 | Certification | 到期日 | validUntilDate | valid_until_date | date；date-only；是否有效依 Asia/Taipei 計算 | 否 | 必填 | 必填 | 低 | 管理員可更正 |
+| Course | 上課方式 | delivery | delivery | CourseDelivery；ONLINE 線上課程；OFFLINE 線下課程 | 否 | 必填 | 必填 | 低 | 線下才填地點；線上須上傳影片 |
+| Course | 課程影片 | videoFileId | video_file_id | uuid；MP4 或 WebM。長度存 video_duration_seconds | 是 | 線上公開前必填 | 否 | 中 | 只有報名者或員工可看 |
+| Course | 影片秒數 | videoDurationSeconds | video_duration_seconds | int；線上通過門檻是秒數的三分之二 | 否 | 上傳時寫入 | 否 | 低 | 上傳時由影片本身讀取 |
 | Course | 課程名稱 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 尚無出席紀錄前可改 |
 | Course | 名額 | capacity | capacity | int；正整數，不可小於有效報名數 | 否 | 必填 | 必填 | 低 | 可改但受報名數限制 |
 | Course | 課程分鐘數 | durationMinutes | duration_minutes | int；正整數分鐘 | 否 | 必填 | 必填 | 低 | 有出席後初版不改門檻 |
@@ -78,13 +82,14 @@
 | EditorialEntry | 發布日 | publishedOn | published_on | date；YYYY-MM-DD。首頁消息依此由新到舊取前五則 | 消息以外可空 | 消息必填 | 消息必填 | 低 | 管理員可改 |
 | EditorialEntry | 排序 | sortOrder | sort_order | int；0–9999。同日消息再依此排序 | 否 | 否 | 否 | 低 | 管理員可改 |
 | EditorialEntry | 是否發布 | isPublished | is_published | boolean；未發布時前台與首頁都不列出 | 否 | 否 | 否 | 低 | 管理員可改或刪除 |
-| ContractTemplate | 範本代碼 | code | code | string；唯一 | 否 | 必填 | 必填 | 低 | 不在畫面上改代碼 |
+| ContractTemplate | 範本代碼 | code | code | string；同一代碼可有多版，與 revision 聯合唯一 | 否 | 必填 | 必填 | 低 | 新增範本時由系統產生，不在畫面上改 |
+| ContractTemplate | 範本版次 | revision | revision | int；同一代碼從 1 遞增。發出合約時選定這一版 | 否 | 必填 | 必填 | 低 | 新增版本時加一，不改舊版 |
 | ContractTemplate | 範本標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | ContractTemplate | 範本內文 | body | body | string；可用 {{organizationName}} 等代換欄 | 否 | 必填 | 必填 | 低 | 管理員可改，已簽署合約不回寫 |
 | ContractRecord | 合約編號 | contractNo | contract_no | string；CT-西元年-序號 | 否 | server 產生 | 不可由 client 指定 | 低 | 不可改 |
 | ContractRecord | 合約標題 | title | title | string；1–200 字 | 否 | 發出時寫入 | 必填 | 低 | 待簽署可改 |
 | ContractRecord | 合約快照 | body | body_snapshot | string；API 欄位 body | 否 | 發出時寫入 | 必填 | 中 | 待簽署可改；簽署後凍結 |
-| ContractRecord | 合約狀態 | status | status | ContractStatus；ISSUED / SIGNED / VOID | 否 | 是 | 僅簽署或作廢 | 低 | 只經動作 |
+| ContractRecord | 合約狀態 | status | status | ContractStatus；ISSUED 待簽署 / SIGNED 已簽署 / RENEWED 已續約 / NOT_RENEWED 未續約 / VOID 已作廢 | 否 | 是 | 僅簽署或續約登記 | 低 | 發出後不能改內文。簽署與續約登記才改狀態 |
 | ContractRecord | 簽署人 | signerName | signer_name | string；1–100 字 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
 | ContractRecord | 簽署人職稱 | signerTitle | signer_title | string；1–100 字 | 是 | 否 | 簽署必填 | 中 | 簽署時寫入 |
 | ContractRecord | 人像檔 | faceFileId | face_file_id | uuid；JPEG 或 PNG，最短邊 120 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |

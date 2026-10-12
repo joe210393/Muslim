@@ -154,7 +154,7 @@ await prisma.$executeRawUnsafe(`SELECT setval('application_no_seq', GREATEST(40,
 const { ensureContent } = await import("../modules/platform/content");
 await ensureContent();
 const demoOrg = data.organizations[0];
-const template = await prisma.contractTemplate.findUnique({ where: { code: CONTRACT_TEMPLATE_CODE } });
+const template = await prisma.contractTemplate.findFirst({ where: { code: CONTRACT_TEMPLATE_CODE }, orderBy: { revision: "asc" } });
 const adminUser = await prisma.user.findUnique({ where: { email: "admin@example.test" } });
 if (demoOrg && template && adminUser) {
   const organization = await prisma.organization.findUnique({ where: { taxId: demoOrg.taxId } });

@@ -4,6 +4,7 @@ import {
   AttendanceStatus,
   ConfigurationStatus,
   CourseStatus,
+  CourseDelivery,
   EnrollmentStatus,
   ImportBatchStatus,
   ImportBatchType,
@@ -38,6 +39,7 @@ export const applicationStatusSchema = enumSchema(ApplicationStatus);
 export const applicationActionSchema = enumSchema(ApplicationAction);
 export const configurationStatusSchema = enumSchema(ConfigurationStatus);
 export const courseStatusSchema = enumSchema(CourseStatus);
+export const courseDeliverySchema = enumSchema(CourseDelivery);
 export const enrollmentStatusSchema = enumSchema(EnrollmentStatus);
 export const attendanceStatusSchema = enumSchema(AttendanceStatus);
 export const notificationJobStatusSchema = enumSchema(NotificationJobStatus);

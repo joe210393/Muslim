@@ -4,6 +4,7 @@ export {
   ApplicationAction,
   ConfigurationStatus,
   CourseStatus,
+  CourseDelivery,
   EnrollmentStatus,
   AttendanceStatus,
   NotificationJobStatus,

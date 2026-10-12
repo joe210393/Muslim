@@ -46,11 +46,10 @@ export async function ensureContent() {
       })),
     });
   }
-  await prisma.contractTemplate.upsert({
-    where: { code: CONTRACT_TEMPLATE_CODE },
-    create: { code: CONTRACT_TEMPLATE_CODE, title: DEFAULT_CONTRACT_TITLE, body: DEFAULT_CONTRACT_BODY },
-    update: {},
-  });
+  const template = await prisma.contractTemplate.findFirst({ where: { code: CONTRACT_TEMPLATE_CODE } });
+  if (!template) {
+    await prisma.contractTemplate.create({ data: { code: CONTRACT_TEMPLATE_CODE, revision: 1, title: DEFAULT_CONTRACT_TITLE, body: DEFAULT_CONTRACT_BODY } });
+  }
 }
 
 function view(row: {

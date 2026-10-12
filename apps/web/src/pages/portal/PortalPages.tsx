@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useServices } from "../../app/session";
+import { TrainingPage } from "./TrainingPage";
 import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatBytes, formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
@@ -345,28 +346,7 @@ export function ApplicationDetailPage() {
 }
 
 export function EnrollmentPage() {
-  const services = useServices();
-  const client = useQueryClient();
-  const rows = useQuery({ queryKey: ["learning"], queryFn: () => services.learning() });
-  const [cancelId, setCancelId] = useState<string | null>(null);
-  return (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-semibold">教育訓練</h1>
-      <p className="text-sm text-[var(--muted)]">取消規則暫定為報名截止前，待確認。</p>
-      {(rows.data ?? []).map((row) => (
-        <Card key={row.id}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-medium">{row.courseTitle}</p>
-            <Badge tone={labels.enrollment[row.status].tone}>{labels.enrollment[row.status].label}</Badge>
-          </div>
-          <p className="text-sm">{formatTaipei(row.startsAt)} · {row.location}</p>
-          {row.status === "CONFIRMED" ? <Button variant="secondary" onClick={() => setCancelId(row.id)}>取消報名</Button> : null}
-        </Card>
-      ))}
-      {(rows.data?.length ?? 0) === 0 ? <Empty title="尚未報名" body="可從公開課程頁報名。" /> : null}
-      {cancelId ? <Modal title="取消報名" onClose={() => setCancelId(null)}><p className="text-sm">確定取消這筆報名？名額會釋放。</p><Button className="mt-3" onClick={async () => { await services.cancelEnrollment(cancelId); setCancelId(null); await client.invalidateQueries({ queryKey: ["learning"] }); }}>確認取消</Button></Modal> : null}
-    </div>
-  );
+  return <TrainingPage />;
 }
 
 export function LearningPage() {

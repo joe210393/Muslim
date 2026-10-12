@@ -21,6 +21,11 @@ export const siteContentWriteSchema = z.object({
   expectedVersion: z.number().int().positive(),
 });
 
+export const contractTemplateCreateSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(20).max(12000),
+});
+
 export const contractTemplateWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().trim().min(20).max(12000),
@@ -29,6 +34,7 @@ export const contractTemplateWriteSchema = z.object({
 
 export const issueContractSchema = z.object({
   organizationId: z.string().uuid(),
+  templateId: z.string().uuid(),
 });
 
 export const contractBodyWriteSchema = z.object({
@@ -38,6 +44,11 @@ export const contractBodyWriteSchema = z.object({
 });
 
 export const voidContractSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+});
+
+export const contractRenewalSchema = z.object({
+  decision: z.enum(["RENEWED", "NOT_RENEWED"]),
   expectedVersion: z.number().int().positive(),
 });
 
@@ -107,7 +118,9 @@ export const contractStatusSchema = z.nativeEnum(ContractStatus);
 export type SiteContentWrite = z.infer<typeof siteContentWriteSchema>;
 export type EditorialCreate = z.infer<typeof editorialCreateSchema>;
 export type EditorialUpdate = z.infer<ReturnType<typeof editorialUpdateSchemaFor>>;
+export type ContractTemplateCreate = z.infer<typeof contractTemplateCreateSchema>;
 export type ContractTemplateWrite = z.infer<typeof contractTemplateWriteSchema>;
 export type ContractBodyWrite = z.infer<typeof contractBodyWriteSchema>;
+export type ContractRenewal = z.infer<typeof contractRenewalSchema>;
 export type FeatureToggle = z.infer<typeof featureToggleSchema>;
 export type IntegrationWrite = z.infer<typeof integrationWriteSchema>;

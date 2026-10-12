@@ -82,14 +82,16 @@ export type ContractItem = {
   organizationId: string;
   organizationName: string;
   title: string;
-  status: "ISSUED" | "SIGNED" | "VOID";
+  status: "ISSUED" | "SIGNED" | "RENEWED" | "NOT_RENEWED" | "VOID";
   signerName: string | null;
   signerTitle: string | null;
   signedAt: string | null;
+  hasSignature: boolean;
+  hasFace: boolean;
   version: number;
   createdAt: string;
 };
-export type ContractTemplateItem = { id: string; code: string; title: string; body: string; version: number; updatedAt: string };
+export type ContractTemplateItem = { id: string; code: string; title: string; body: string; revision: number; version: number; updatedAt: string };
 export type AccessSettings = {
   accounts: Array<{
     id: string;
@@ -172,6 +174,9 @@ export type Services = {
   uploadSiteImage: (slot: ContentSlot, file: File) => Promise<AdminSiteSlot>;
   uploadEntryImage: (id: string, file: File) => Promise<AdminEditorialEntry>;
   uploadCourseImage: (id: string, file: File) => Promise<Course>;
+  uploadCourseVideo: (id: string, file: File, durationSeconds: number) => Promise<Course>;
+  recordWatch: (id: string, input: { expectedVersion: number; watchedSeconds: number }) => Promise<LearningRecord>;
+  courseVideo: (id: string) => Promise<{ blob: Blob; name: string }>;
   adminEntries: () => Promise<AdminEditorialEntry[]>;
   createEntry: (input: EditorialWrite) => Promise<AdminEditorialEntry>;
   updateEntry: (id: string, input: EditorialUpdate) => Promise<AdminEditorialEntry>;
@@ -180,12 +185,15 @@ export type Services = {
   contract: (id: string) => Promise<ContractItem & { body: string }>;
   signContract: (id: string, input: { signerName: string; signerTitle: string; expectedVersion: number; face: Blob; signature: Blob }) => Promise<ContractItem & { body: string }>;
   contractDocument: (id: string) => Promise<{ blob: Blob; name: string }>;
-  contractTemplate: () => Promise<ContractTemplateItem>;
-  saveContractTemplate: (input: { title: string; body: string; expectedVersion: number }) => Promise<ContractTemplateItem>;
+  contractSignature: (id: string) => Promise<{ blob: Blob; name: string }>;
+  contractFace: (id: string) => Promise<{ blob: Blob; name: string }>;
+  recordRenewal: (id: string, input: { decision: "RENEWED" | "NOT_RENEWED"; expectedVersion: number }) => Promise<ContractItem & { body: string }>;
+  contractTemplates: () => Promise<ContractTemplateItem[]>;
+  createContractTemplate: (input: { title: string; body: string }) => Promise<ContractTemplateItem>;
+  createContractTemplateVersion: (id: string, input: { title: string; body: string }) => Promise<ContractTemplateItem>;
+  saveContractTemplate: (id: string, input: { title: string; body: string; expectedVersion: number }) => Promise<ContractTemplateItem>;
   adminContracts: () => Promise<ContractItem[]>;
-  issueContract: (organizationId: string) => Promise<ContractItem>;
-  saveContract: (id: string, input: { title: string; body: string; expectedVersion: number }) => Promise<ContractItem & { body: string }>;
-  voidContract: (id: string, expectedVersion: number) => Promise<ContractItem & { body: string }>;
+  issueContract: (organizationId: string, templateId: string) => Promise<ContractItem>;
   accessSettings: () => Promise<AccessSettings>;
   updateFeature: (input: { userId: string; featureKey: string; enabled: boolean }) => Promise<void>;
   updateIntegration: (input: { key: string; provider: string; enabled: boolean; note: string }) => Promise<void>;

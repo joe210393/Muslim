@@ -19,7 +19,7 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
   });
   if (response.status === 204) return { data: null };
   const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("text/csv") || contentType.includes("application/pdf") || contentType.startsWith("image/")) {
+  if (contentType.includes("text/csv") || contentType.includes("application/pdf") || contentType.startsWith("image/") || contentType.startsWith("video/")) {
     if (!response.ok) throw new ClientError("下載失敗", { status: response.status });
     return { data: await response.blob() };
   }
@@ -266,6 +266,19 @@ export function createHttpServices(): Services {
       form.set("file", file);
       return (await request("POST", `/admin/courses/${id}/image`, form)).data as Awaited<ReturnType<Services["uploadCourseImage"]>>;
     },
+    async uploadCourseVideo(id, file, durationSeconds) {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("durationSeconds", String(durationSeconds));
+      return (await request("POST", `/admin/courses/${id}/video`, form)).data as Awaited<ReturnType<Services["uploadCourseVideo"]>>;
+    },
+    async recordWatch(id, input) {
+      return (await request("POST", `/enrollments/${id}/watch`, input)).data as Awaited<ReturnType<Services["recordWatch"]>>;
+    },
+    async courseVideo(id) {
+      const result = await request("GET", `/enrollments/${id}/video`);
+      return { blob: result.data as Blob, name: "course-video" };
+    },
     async adminEntries() {
       return (await request("GET", "/admin/editorial")).data as Awaited<ReturnType<Services["adminEntries"]>>;
     },
@@ -298,23 +311,34 @@ export function createHttpServices(): Services {
       const result = await request("GET", `/contracts/${id}/document`);
       return { blob: result.data as Blob, name: "contract.pdf" };
     },
-    async contractTemplate() {
-      return (await request("GET", "/admin/contract-template")).data as Awaited<ReturnType<Services["contractTemplate"]>>;
+    async contractSignature(id) {
+      const result = await request("GET", `/contracts/${id}/signature`);
+      return { blob: result.data as Blob, name: "signature.png" };
     },
-    async saveContractTemplate(input) {
-      return (await request("PATCH", "/admin/contract-template", input)).data as Awaited<ReturnType<Services["contractTemplate"]>>;
+    async contractFace(id) {
+      const result = await request("GET", `/contracts/${id}/face`);
+      return { blob: result.data as Blob, name: "face.jpg" };
+    },
+    async recordRenewal(id, input) {
+      return (await request("POST", `/contracts/${id}/renewal`, input)).data as Awaited<ReturnType<Services["recordRenewal"]>>;
+    },
+    async contractTemplates() {
+      return (await request("GET", "/admin/contract-templates")).data as Awaited<ReturnType<Services["contractTemplates"]>>;
+    },
+    async createContractTemplate(input) {
+      return (await request("POST", "/admin/contract-templates", input)).data as Awaited<ReturnType<Services["createContractTemplate"]>>;
+    },
+    async createContractTemplateVersion(id, input) {
+      return (await request("POST", `/admin/contract-templates/${id}/versions`, input)).data as Awaited<ReturnType<Services["createContractTemplateVersion"]>>;
+    },
+    async saveContractTemplate(id, input) {
+      return (await request("PATCH", `/admin/contract-templates/${id}`, input)).data as Awaited<ReturnType<Services["saveContractTemplate"]>>;
     },
     async adminContracts() {
       return (await request("GET", "/admin/contracts")).data as Awaited<ReturnType<Services["adminContracts"]>>;
     },
-    async issueContract(organizationId) {
-      return (await request("POST", "/admin/contracts", { organizationId })).data as Awaited<ReturnType<Services["issueContract"]>>;
-    },
-    async saveContract(id, input) {
-      return (await request("PATCH", `/admin/contracts/${id}`, input)).data as Awaited<ReturnType<Services["saveContract"]>>;
-    },
-    async voidContract(id, expectedVersion) {
-      return (await request("POST", `/admin/contracts/${id}/void`, { expectedVersion })).data as Awaited<ReturnType<Services["voidContract"]>>;
+    async issueContract(organizationId, templateId) {
+      return (await request("POST", "/admin/contracts", { organizationId, templateId })).data as Awaited<ReturnType<Services["issueContract"]>>;
     },
     async accessSettings() {
       return (await request("GET", "/admin/access")).data as Awaited<ReturnType<Services["accessSettings"]>>;

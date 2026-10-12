@@ -1,5 +1,4 @@
 import {
-  CONTRACT_TEMPLATE_CODE,
   ContractStatus,
   ErrorCodes,
   UserRole,
@@ -12,7 +11,8 @@ import {
   taipeiDateLabel,
   taipeiDateTimeLabel,
   taipeiYear,
-  type ContractBodyWrite,
+  type ContractRenewal,
+  type ContractTemplateCreate,
   type ContractTemplateWrite,
 } from "@mf/contracts";
 import { prisma } from "@mf/db/server";
@@ -34,6 +34,8 @@ function summary(row: {
   signerName: string | null;
   signerTitle: string | null;
   signedAt: Date | null;
+  signatureFileId?: string | null;
+  faceFileId?: string | null;
   version: number;
   createdAt: Date;
   organization: { organizationName: string };
@@ -48,27 +50,53 @@ function summary(row: {
     signerName: row.signerName,
     signerTitle: row.signerTitle,
     signedAt: row.signedAt?.toISOString() ?? null,
+    hasSignature: Boolean(row.signatureFileId),
+    hasFace: Boolean(row.faceFileId),
     version: row.version,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
-export async function getTemplate(actor: SessionActor) {
-  await assertFeature(actor, "contracts.issue");
-  await ensureContent();
-  const template = await prisma.contractTemplate.findUnique({ where: { code: CONTRACT_TEMPLATE_CODE } });
-  if (!template) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約範本");
-  return { id: template.id, code: template.code, title: template.title, body: template.body, version: template.version, updatedAt: template.updatedAt.toISOString() };
+function presentTemplate(template: { id: string; code: string; revision: number; title: string; body: string; version: number; updatedAt: Date }) {
+  return { id: template.id, code: template.code, revision: template.revision, title: template.title, body: template.body, version: template.version, updatedAt: template.updatedAt.toISOString() };
 }
 
-export async function saveTemplate(actor: SessionActor, input: ContractTemplateWrite) {
+export async function listTemplates(actor: SessionActor) {
+  await assertFeature(actor, "contracts.issue");
+  await ensureContent();
+  const rows = await prisma.contractTemplate.findMany({ orderBy: [{ title: "asc" }, { revision: "desc" }] });
+  return rows.map(presentTemplate);
+}
+
+export async function createTemplate(actor: SessionActor, input: ContractTemplateCreate) {
+  await assertFeature(actor, "contracts.issue");
+  const created = await prisma.contractTemplate.create({
+    data: { code: `TPL_${randomUUID().slice(0, 8).toUpperCase()}`, revision: 1, title: input.title, body: input.body, updatedById: actor.id },
+  });
+  return presentTemplate(created);
+}
+
+export async function createTemplateVersion(actor: SessionActor, id: string, input: ContractTemplateCreate) {
+  await assertFeature(actor, "contracts.issue");
+  const current = await prisma.contractTemplate.findUnique({ where: { id } });
+  if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約範本");
+  const latest = await prisma.contractTemplate.aggregate({ where: { code: current.code }, _max: { revision: true } });
+  const created = await prisma.contractTemplate.create({
+    data: { code: current.code, revision: (latest._max.revision ?? current.revision) + 1, title: input.title, body: input.body, updatedById: actor.id },
+  });
+  return presentTemplate(created);
+}
+
+export async function saveTemplate(actor: SessionActor, id: string, input: ContractTemplateWrite) {
   await assertFeature(actor, "contracts.issue");
   const result = await prisma.contractTemplate.updateMany({
-    where: { code: CONTRACT_TEMPLATE_CODE, version: input.expectedVersion },
+    where: { id, version: input.expectedVersion },
     data: { title: input.title, body: input.body, updatedById: actor.id, version: { increment: 1 } },
   });
   if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "範本已被更新，請重新載入");
-  return getTemplate(actor);
+  const template = await prisma.contractTemplate.findUnique({ where: { id } });
+  if (!template) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約範本");
+  return presentTemplate(template);
 }
 
 export async function listAdminContracts(actor: SessionActor) {
@@ -105,12 +133,12 @@ export async function getContract(actor: SessionActor, id: string) {
   return { ...summary(row), body: row.bodySnapshot };
 }
 
-export async function issueContract(actor: SessionActor, organizationId: string) {
+export async function issueContract(actor: SessionActor, organizationId: string, templateId: string) {
   await assertFeature(actor, "contracts.issue");
   await ensureContent();
   const [organization, template] = await Promise.all([
     prisma.organization.findUnique({ where: { id: organizationId } }),
-    prisma.contractTemplate.findUnique({ where: { code: CONTRACT_TEMPLATE_CODE } }),
+    prisma.contractTemplate.findUnique({ where: { id: templateId } }),
   ]);
   if (!organization || !template) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者或合約範本");
   const rows = await prisma.$queryRawUnsafe<Array<{ nextval: number }>>(`SELECT nextval('contract_no_seq')::int AS nextval`);
@@ -145,23 +173,31 @@ export async function issueContract(actor: SessionActor, organizationId: string)
   return summary(created);
 }
 
-export async function updateIssuedContract(actor: SessionActor, id: string, input: ContractBodyWrite) {
-  await assertFeature(actor, "contracts.issue");
+export async function recordRenewal(actor: SessionActor, id: string, input: ContractRenewal) {
+  await assertFeature(actor, "contracts.sign");
+  const contract = await loadReadable(actor, id);
+  if (actor.role !== UserRole.APPLICANT || actor.organizationId !== contract.organizationId) {
+    throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約");
+  }
+  if (contract.status !== ContractStatus.SIGNED || contract.version !== input.expectedVersion) {
+    throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "只有已簽署的合約可以登記續約");
+  }
+  const status = input.decision === "RENEWED" ? ContractStatus.RENEWED : ContractStatus.NOT_RENEWED;
   const result = await prisma.contractRecord.updateMany({
-    where: { id, status: ContractStatus.ISSUED, version: input.expectedVersion },
-    data: { title: input.title, bodySnapshot: input.body, version: { increment: 1 } },
+    where: { id, status: ContractStatus.SIGNED, version: input.expectedVersion },
+    data: { status, version: { increment: 1 } },
   });
-  if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "合約已簽署、已作廢，或內容已被更新");
-  return getContract(actor, id);
-}
-
-export async function voidContract(actor: SessionActor, id: string, expectedVersion: number) {
-  await assertFeature(actor, "contracts.issue");
-  const result = await prisma.contractRecord.updateMany({
-    where: { id, status: ContractStatus.ISSUED, version: expectedVersion },
-    data: { status: ContractStatus.VOID, version: { increment: 1 } },
+  if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "合約已被更新，請重新載入");
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.id,
+      action: "CONTRACT_RENEWAL",
+      entityType: "ContractRecord",
+      entityId: id,
+      requestId: crypto.randomUUID(),
+      safeChanges: { contractNo: contract.contractNo, status },
+    },
   });
-  if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "這份合約不能作廢");
   return getContract(actor, id);
 }
 
@@ -233,14 +269,22 @@ export async function signContract(
 }
 
 export async function readContractPdf(actor: SessionActor, storage: StorageAdapter, id: string) {
+  const file = await readContractFile(actor, storage, id, "pdf");
+  return file;
+}
+
+export async function readContractCapture(actor: SessionActor, storage: StorageAdapter, id: string, kind: "signature" | "face") {
+  return readContractFile(actor, storage, id, kind);
+}
+
+async function readContractFile(actor: SessionActor, storage: StorageAdapter, id: string, kind: "pdf" | "signature" | "face") {
   const contract = await loadReadable(actor, id);
-  if (!contract.pdfFileId || contract.status !== ContractStatus.SIGNED) {
-    throw new ApiError(404, ErrorCodes.NOT_FOUND, "這份合約還沒有簽署檔");
-  }
-  const file = await prisma.fileObject.findUnique({ where: { id: contract.pdfFileId } });
+  const fileId = kind === "pdf" ? contract.pdfFileId : kind === "signature" ? contract.signatureFileId : contract.faceFileId;
+  if (!fileId) throw new ApiError(404, ErrorCodes.NOT_FOUND, kind === "pdf" ? "這份合約還沒有簽署檔" : "這份合約還沒有客戶簽名");
+  const file = await prisma.fileObject.findUnique({ where: { id: fileId } });
   if (!file) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到簽署檔");
   const bytes = await storage.read(file.storageKey);
-  return { bytes, name: file.originalName };
+  return { bytes, name: file.originalName, mimeType: file.mimeType };
 }
 
 function inspectFace(file: { buffer: Buffer; mimetype: string }) {

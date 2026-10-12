@@ -1,14 +1,17 @@
 import { z } from "zod";
 import { youtubeVideoId } from "../domain/platform-defaults";
-import { attendanceStatusSchema, courseStatusSchema, enrollmentStatusSchema } from "./common";
+import { attendanceStatusSchema, courseDeliverySchema, courseStatusSchema, enrollmentStatusSchema } from "./common";
 import { completionLabels } from "../domain/status-labels";
 
 export const courseSchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  delivery: courseDeliverySchema,
   youtubeUrl: z.string(),
   imageUrl: z.string().nullable(),
+  hasVideo: z.boolean(),
+  videoDurationSeconds: z.number().int(),
   location: z.string(),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
@@ -27,8 +30,9 @@ export const courseSchema = z.object({
 export const courseWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(4000).default(""),
+  delivery: courseDeliverySchema.default("OFFLINE"),
   youtubeUrl: z.string().trim().max(200).default("").refine((value) => value === "" || youtubeVideoId(value) !== null, "請貼 YouTube 影片連結"),
-  location: z.string().trim().min(1).max(200),
+  location: z.string().trim().max(200).default(""),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   registrationOpensAt: z.string().datetime(),
@@ -51,7 +55,14 @@ export const enrollmentSchema = z.object({
   status: enrollmentStatusSchema,
   attendanceStatus: attendanceStatusSchema,
   attendedMinutes: z.number().int(),
+  watchedSeconds: z.number().int(),
   requiredAttendanceMinutesSnapshot: z.number().int(),
+  delivery: courseDeliverySchema,
+  videoDurationSeconds: z.number().int(),
+  passSeconds: z.number().int(),
+  durationMinutes: z.number().int(),
+  canCancel: z.boolean(),
+  withdrawLabel: z.string(),
   completion: z.enum(Object.keys(completionLabels) as [keyof typeof completionLabels, ...(keyof typeof completionLabels)[]]),
   version: z.number().int(),
   enrolledAt: z.string().datetime(),
@@ -59,6 +70,11 @@ export const enrollmentSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   location: z.string(),
+});
+
+export const watchProgressSchema = z.object({
+  expectedVersion: z.number().int(),
+  watchedSeconds: z.number().int().nonnegative(),
 });
 
 export const attendancePatchSchema = z.object({

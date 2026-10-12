@@ -68,7 +68,7 @@ export function ContractSignPage() {
         <>
           <article className="max-w-3xl whitespace-pre-wrap border-t border-[var(--line)] pt-6 leading-8">{item.body}</article>
           <p className="text-sm text-[var(--muted)]">{item.contractNo} · {contractStatusLabels[item.status].label}</p>
-          {item.status === "SIGNED" ? (
+          {item.status === "SIGNED" || item.status === "RENEWED" || item.status === "NOT_RENEWED" ? (
             <Button onClick={async () => downloadBlob(await services.contractDocument(item.id))}>下載已簽名 PDF</Button>
           ) : null}
           {item.status === "ISSUED" ? (
@@ -81,7 +81,7 @@ export function ContractSignPage() {
                   return;
                 }
                 if (!face || !signature) {
-                  setMessage("請拍攝人像並留下手寫簽名");
+                  setMessage("請先開啟相機拍攝人像，並在簽名欄手寫簽名");
                   return;
                 }
                 setMessage("");

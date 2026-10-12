@@ -4,6 +4,7 @@ import {
   AttendanceStatus,
   ConfigurationStatus,
   CourseStatus,
+  CourseDelivery,
   EnrollmentStatus,
   NotificationJobStatus,
   NotificationType,
@@ -160,8 +161,11 @@ export type DemoDataset = {
     durationMinutes: number;
     requiredAttendanceMinutes: number;
     status: CourseStatus;
+    delivery: CourseDelivery;
     youtubeUrl: string;
     imageFileId: string | null;
+    videoFileId: string | null;
+    videoDurationSeconds: number;
     createdById: string;
     version: number;
     createdAt: string;
@@ -174,6 +178,8 @@ export type DemoDataset = {
     status: EnrollmentStatus;
     attendanceStatus: AttendanceStatus;
     attendedMinutes: number;
+    watchedSeconds: number;
+    watchUpdatedAt: string | null;
     requiredAttendanceMinutesSnapshot: number;
     attendanceRecordedById: string | null;
     attendanceRecordedAt: string | null;
@@ -694,7 +700,7 @@ export function buildDemoDataset(): DemoDataset {
       createdAt: isoDaysBefore(9),
       updatedAt: isoDaysBefore(1),
     },
-  ] satisfies Array<Omit<DemoDataset["courses"][number], "youtubeUrl" | "imageFileId">>).map((course) => ({ ...course, youtubeUrl: "", imageFileId: null }));
+  ] satisfies Array<Omit<DemoDataset["courses"][number], "youtubeUrl" | "imageFileId" | "delivery" | "videoFileId" | "videoDurationSeconds">>).map((course) => ({ ...course, youtubeUrl: "", imageFileId: null, delivery: CourseDelivery.OFFLINE, videoFileId: null, videoDurationSeconds: 0 }));
 
   const enrollments: DemoDataset["enrollments"] = [
     enrollment(0x601, courses[0]!.id, applicants[0]!.id, EnrollmentStatus.CONFIRMED, AttendanceStatus.NOT_RECORDED, 0, 180, null),
@@ -768,6 +774,8 @@ function enrollment(
     status,
     attendanceStatus,
     attendedMinutes,
+    watchedSeconds: 0,
+    watchUpdatedAt: null,
     requiredAttendanceMinutesSnapshot,
     attendanceRecordedById,
     attendanceRecordedAt: attendanceRecordedById ? isoDaysBefore(20) : null,

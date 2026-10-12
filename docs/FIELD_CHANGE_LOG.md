@@ -14,3 +14,6 @@
 | 2026-10-12 | 自訂報表改為跨來源組合 | migration `20261012190000_report_selections`。`source`、`field_keys` 併入 `selections`。另存 `chart_kind`、`chart_field` |
 | 2026-10-12 | 首頁圖庫 | migration `20261012200000_home_gallery`。`editorial_kind` 增加 `HOME_GALLERY`，一筆一張輪播圖 |
 | 2026-10-12 | 案件欄位審查 | migration `20261012210000_field_reviews`。`applications.field_reviews` 記錄每個送件欄位要不要補件、公開意見與內部註記 |
+| 2026-10-12 | 課程分線上與線下 | migration `20261012220000_course_delivery`。`delivery`、`video_file_id`、`video_duration_seconds`、`watched_seconds`。線下才用地點；線上通過門檻是影片秒數的三分之二 |
+| 2026-10-12 | 合約範本可多版 | migration `20261012230000_contract_template_revisions`。`code` 不再單獨唯一，改與 `revision` 聯合唯一。既有範本為第 1 版。發出合約時選定 `templateId` |
+| 2026-10-12 | 合約增加續約狀態 | migration `20261012240000_contract_renewal_status`。`contract_status` 增加 `RENEWED`、`NOT_RENEWED`。已發出的內文不再由管理員修改 |

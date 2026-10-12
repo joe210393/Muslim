@@ -1,5 +1,6 @@
 import {
   APP_NAME,
+  COURSE_VIDEO_MAX_BYTES,
   DEMO_CONTACT_EMAIL,
   FILE_POLICY,
   ErrorCodes,
@@ -8,6 +9,7 @@ import {
   applicationPatchSchema,
   assignApplicationSchema,
   attendancePatchSchema,
+  watchProgressSchema,
   certificationWriteSchema,
   changePasswordRequestSchema,
   courseWriteSchema,
@@ -25,10 +27,10 @@ import {
   updateStaffUserSchema,
   parseCategoryDefinition,
   siteContentWriteSchema,
+  contractTemplateCreateSchema,
   contractTemplateWriteSchema,
   issueContractSchema,
-  contractBodyWriteSchema,
-  voidContractSchema,
+  contractRenewalSchema,
   signContractFieldsSchema,
   featureToggleSchema,
   integrationWriteSchema,
@@ -59,6 +61,7 @@ import * as reports from "./modules/reports/service";
 import { createStorage } from "./storage/storage";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: FILE_POLICY.maxFileBytes } });
+const uploadVideo = multer({ storage: multer.memoryStorage(), limits: { fileSize: COURSE_VIDEO_MAX_BYTES } });
 
 export function createApp() {
   const env = getEnv();
@@ -196,6 +199,14 @@ export function createApp() {
   api.get("/courses/:id", route(async (req, res) => ok(res, req, await training.getCourse(null, String(req.params.id)))));
   api.post("/courses/:id/enrollments", route(async (req, res) => ok(res, req, await training.enroll(await requireActor(req), String(req.params.id)))));
   api.post("/enrollments/:id/cancel", route(async (req, res) => ok(res, req, await training.cancelEnrollment(await requireActor(req), String(req.params.id)))));
+  api.post("/enrollments/:id/watch", route(async (req, res) => ok(res, req, await training.recordWatch(await requireActor(req), String(req.params.id), watchProgressSchema.parse(req.body)))));
+  api.get("/enrollments/:id/video", route(async (req, res) => {
+    const file = await training.readCourseVideo(await requireActor(req), storage, String(req.params.id));
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(file.name)}"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(Buffer.from(file.bytes));
+  }));
   api.get("/enrollments/mine", route(async (req, res) => ok(res, req, await training.myEnrollments(await requireActor(req)))));
   api.get("/learning-records/mine", route(async (req, res) => ok(res, req, await training.myEnrollments(await requireActor(req)))));
   api.get("/certifications/mine", route(async (req, res) => ok(res, req, await admin.myCertifications(await requireActor(req)))));
@@ -316,6 +327,14 @@ export function createApp() {
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
     await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.saveCourse(actor, courseWriteSchema.parse(req.body), String(req.params.id)));
+  }));
+  api.post("/admin/courses/:id/video", uploadVideo.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇影片");
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
+    const durationSeconds = Number(req.body?.durationSeconds);
+    ok(res, req, await training.uploadCourseVideo(actor, storage, String(req.params.id), req.file, durationSeconds));
   }));
   api.post("/admin/courses/:id/image", upload.single("file"), route(async (req, res) => {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
@@ -451,7 +470,18 @@ export function createApp() {
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
     res.send(Buffer.from(file.bytes));
   }));
+  api.get("/contracts/:id/signature", route(async (req, res) => {
+    const file = await contracts.readContractCapture(await requireActor(req), storage, String(req.params.id), "signature");
+    res.setHeader("Content-Type", file.mimeType);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.get("/contracts/:id/face", route(async (req, res) => {
+    const file = await contracts.readContractCapture(await requireActor(req), storage, String(req.params.id), "face");
+    res.setHeader("Content-Type", file.mimeType);
+    res.send(Buffer.from(file.bytes));
+  }));
   api.get("/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
+  api.post("/contracts/:id/renewal", route(async (req, res) => ok(res, req, await contracts.recordRenewal(await requireActor(req), String(req.params.id), contractRenewalSchema.parse(req.body)))));
   api.post("/contracts/:id/sign", upload.fields([{ name: "face", maxCount: 1 }, { name: "signature", maxCount: 1 }]), route(async (req, res) => {
     const uploaded = req.files as { face?: Express.Multer.File[]; signature?: Express.Multer.File[] } | undefined;
     const face = uploaded?.face?.[0];
@@ -461,13 +491,16 @@ export function createApp() {
     ok(res, req, await contracts.signContract(await requireActor(req), storage, repoRoot(), String(req.params.id), fields, face, signature));
   }));
 
-  api.get("/admin/contract-template", route(async (req, res) => ok(res, req, await contracts.getTemplate(await requireActor(req)))));
-  api.patch("/admin/contract-template", route(async (req, res) => ok(res, req, await contracts.saveTemplate(await requireActor(req), contractTemplateWriteSchema.parse(req.body)))));
+  api.get("/admin/contract-templates", route(async (req, res) => ok(res, req, await contracts.listTemplates(await requireActor(req)))));
+  api.post("/admin/contract-templates", route(async (req, res) => ok(res, req, await contracts.createTemplate(await requireActor(req), contractTemplateCreateSchema.parse(req.body)))));
+  api.post("/admin/contract-templates/:id/versions", route(async (req, res) => ok(res, req, await contracts.createTemplateVersion(await requireActor(req), String(req.params.id), contractTemplateCreateSchema.parse(req.body)))));
+  api.patch("/admin/contract-templates/:id", route(async (req, res) => ok(res, req, await contracts.saveTemplate(await requireActor(req), String(req.params.id), contractTemplateWriteSchema.parse(req.body)))));
   api.get("/admin/contracts", route(async (req, res) => ok(res, req, await contracts.listAdminContracts(await requireActor(req)))));
-  api.post("/admin/contracts", route(async (req, res) => ok(res, req, await contracts.issueContract(await requireActor(req), issueContractSchema.parse(req.body).organizationId))));
+  api.post("/admin/contracts", route(async (req, res) => {
+    const input = issueContractSchema.parse(req.body);
+    ok(res, req, await contracts.issueContract(await requireActor(req), input.organizationId, input.templateId));
+  }));
   api.get("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
-  api.patch("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.updateIssuedContract(await requireActor(req), String(req.params.id), contractBodyWriteSchema.parse(req.body)))));
-  api.post("/admin/contracts/:id/void", route(async (req, res) => ok(res, req, await contracts.voidContract(await requireActor(req), String(req.params.id), voidContractSchema.parse(req.body).expectedVersion))));
 
   api.get("/admin/access", route(async (req, res) => {
     const actor = await requireActor(req);

@@ -1,10 +1,11 @@
-import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, reportFieldId, reportFieldsFor, sourceLabel, type ContentSlot, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
+import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, contractStatusLabels, reportFieldId, reportFieldsFor, sourceLabel, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices } from "../../app/session";
+import { ApplicationReview } from "./ApplicationReview";
 import { siteReviewChecklist, standardReports } from "../../content/site-content";
-import { Button, Card, ErrorText, Field, PageHeader, PendingNote, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Empty, ErrorText, Field, PageHeader, PendingNote, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type EditorialUpdate, type EditorialWrite, type SiteSlotInput } from "../../services/types";
 
 const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string }>> = {
@@ -381,77 +382,186 @@ function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; e
 }
 
 export function SiteReviewPage() {
+  const services = useServices();
+  const query = useQuery({ queryKey: ["admin-applications", "", "SECOND_REVIEW"], queryFn: () => services.applications({ status: "SECOND_REVIEW", page: 1 }) });
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="內部後台" title="現場複審" lede="檢查項目依廚房與餐廳類申請推論。拍照、錄影與判定標準尚未核定，現場檔案仍請用案件附件歸檔。" />
-      <PendingNote />
-      <ol className="space-y-4">
-        {siteReviewChecklist.map((item, index) => (
-          <li key={item.key} className="border-t border-[var(--line)] pt-4">
-            <h2 className="text-xl">{index + 1}. {item.label}</h2>
-            <p className="mt-2 leading-7 text-[var(--muted)]">{item.detail}</p>
-          </li>
-        ))}
-      </ol>
-      <Link to="/admin/applications">回到案件審查</Link>
+      <PageHeader eyebrow="內部後台" title="現場複審" lede="初審通過的案件到這裡做現場複審，不再留在案件審查清單。" />
+      {(query.data?.items.length ?? 0) === 0 ? <Empty title="目前沒有待現場複審的案件" body="案件在初審通過之後會出現在這裡。" /> : (
+      <div className="overflow-x-auto rounded-xl bg-white">
+        <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">承辦</th><th className="p-3">狀態</th></tr></thead>
+          <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/site-reviews/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
+        </table>
+      </div>
+      )}
     </div>
   );
 }
 
-export function ContractAdminPage() {
+export function SiteReviewDetail() {
+  const { applicationId = "" } = useParams();
   const services = useServices();
   const client = useQueryClient();
-  const template = useQuery({ queryKey: ["contract-template"], queryFn: () => services.contractTemplate() });
-  const contracts = useQuery({ queryKey: ["admin-contracts"], queryFn: () => services.adminContracts() });
-  const organizations = useQuery({ queryKey: ["organizations", "contract"], queryFn: () => services.organizations() });
-  const [draft, setDraft] = useState({ title: "", body: "", expectedVersion: 1 });
-  const [organizationId, setOrganizationId] = useState("");
-  const [selected, setSelected] = useState("");
-  const [message, setMessage] = useState("");
-  const [panel, setPanel] = useState<"template" | "issue" | "records">("records");
-  useEffect(() => {
-    if (!template.data) return;
-    setDraft({ title: template.data.title, body: template.data.body, expectedVersion: template.data.version });
-  }, [template.data]);
-  const current = contracts.data?.find((item) => item.id === selected);
-  const detail = useQuery({ queryKey: ["admin-contract", selected], queryFn: () => services.contract(selected), enabled: Boolean(selected) });
-  const [issuedDraft, setIssuedDraft] = useState({ title: "", body: "", expectedVersion: 1 });
-  useEffect(() => {
-    if (!detail.data) return;
-    setIssuedDraft({ title: detail.data.title, body: detail.data.body, expectedVersion: detail.data.version });
-  }, [detail.data]);
+  const application = useQuery({ queryKey: ["application", applicationId], queryFn: () => services.application(applicationId) });
+  if (!application.data) return application.isLoading ? <p>載入中…</p> : <ErrorText message="找不到案件" />;
+  const item = application.data;
+  if (item.status !== "SECOND_REVIEW") {
+    return (
+      <Card>
+        <p>這件目前不是現場複審。</p>
+        <Link className="mt-3 inline-block text-[var(--link)]" to="/admin/site-reviews">回到現場複審</Link>
+      </Card>
+    );
+  }
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="內部後台" title="合約管理" lede="用上方切換範本、發出與單份合約。待簽署的可以改這一份；簽署後的 PDF 保留簽署當下的內容。" />
-      <SectionNav items={[{ id: "records", label: "已發出" }, { id: "issue", label: "發給業者" }, { id: "template", label: "合約範本" }]} value={panel} onChange={(id) => setPanel(id as "template" | "issue" | "records")} />
-      {panel === "template" && template.data ? (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
+        <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
+      </div>
+      <p className="text-sm text-[var(--muted)]">初審通過後在這裡複審。下面先看送件內容，再對照現場檢查項目。</p>
+      <ApplicationReview item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); }} />
+      <Card>
+        <h2 className="text-xl">現場檢查項目</h2>
+        <PendingNote />
+        <ol className="mt-4 space-y-4">
+          {siteReviewChecklist.map((check, index) => (
+            <li key={check.key}>
+              <h3 className="font-medium">{index + 1}. {check.label}</h3>
+              <p className="mt-1 text-sm leading-7 text-[var(--muted)]">{check.detail}</p>
+            </li>
+          ))}
+        </ol>
+      </Card>
+      <Link to="/admin/site-reviews">回到現場複審清單</Link>
+    </div>
+  );
+}
+
+const NEW_TEMPLATE_BODY = `合約當事人：{{organizationName}}
+統一編號：{{taxId}}
+合約編號：{{contractNo}}
+發出日期：{{issuedOn}}
+
+（請貼上這一版的合約內容）`;
+
+const issuedStatuses = ["ISSUED", "SIGNED", "RENEWED", "NOT_RENEWED"] as const satisfies readonly ContractStatus[];
+
+export function IssuedContractsPage() {
+  const services = useServices();
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("status");
+  const status = issuedStatuses.some((id) => id === requested) ? requested as (typeof issuedStatuses)[number] : "ISSUED";
+  const contracts = useQuery({ queryKey: ["admin-contracts"], queryFn: () => services.adminContracts() });
+  const rows = contracts.data?.filter((item) => item.status === status) ?? [];
+  return (
+    <div className="space-y-4">
+      <PageHeader eyebrow="合約管理" title="已發出" lede="發出之後不能再改標題或內文。點開可以看狀態；已簽署的也能看到客戶簽名。" />
+      <SectionNav items={issuedStatuses.map((id) => ({ id, label: contractStatusLabels[id].label }))} value={status} onChange={(id) => setParams(id === "ISSUED" ? {} : { status: id })} />
+      {contracts.isLoading ? <p>載入中…</p> : null}
+      {rows.length === 0 && !contracts.isLoading ? <Empty title={`沒有${contractStatusLabels[status].label}的合約`} body="換上方的狀態，或到發給業者建立一份新合約。" /> : null}
+      <div className="space-y-2">
+        {rows.map((item) => (
+          <Link key={item.id} to={`/admin/contracts/issued/${item.id}`} className="btn block rounded-lg p-3 no-underline">
+            <span className="block font-medium">{item.contractNo}</span>
+            <span className="block text-sm text-[var(--muted)]">{item.organizationName} · {item.title}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function IssuedContractDetailPage() {
+  const { contractId = "" } = useParams();
+  const services = useServices();
+  const detail = useQuery({ queryKey: ["admin-contract", contractId], queryFn: () => services.contract(contractId), enabled: Boolean(contractId) });
+  const item = detail.data;
+  return (
+    <div className="space-y-4">
+      <PageHeader eyebrow="已發出" title={item?.contractNo ?? "合約"} lede="這一份維持發出或簽署當下的內容，管理員不能在這裡修改。" />
+      <Link to="/admin/contracts/issued">回到已發出</Link>
+      {detail.isLoading ? <p>載入中…</p> : null}
+      {detail.error ? <ErrorText message={detail.error instanceof ClientError ? detail.error.message : "找不到合約"} /> : null}
+      {item ? (
         <Card>
-          <h2 className="text-2xl">合約範本</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">可用 {"{{organizationName}}"}、{"{{taxId}}"}、{"{{contractNo}}"}、{"{{issuedOn}}"}。正式法律文字之後直接貼上覆蓋。</p>
-          <form className="mt-4 space-y-3" onSubmit={async (event) => {
-            event.preventDefault();
-            try {
-              await services.saveContractTemplate(draft);
-              setMessage("範本已儲存");
-              await client.invalidateQueries({ queryKey: ["contract-template"] });
-            } catch (error) {
-              setMessage(error instanceof ClientError ? error.message : "儲存失敗");
-            }
-          }}>
-            <Field label="標題"><TextInput value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></Field>
-            <Field label="內文"><textarea className="min-h-64 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /></Field>
-            <Button type="submit">儲存範本</Button>
-          </form>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl">{item.title}</h2>
+            <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
+          </div>
+          <p className="mt-2 text-sm text-[var(--muted)]">{item.organizationName}</p>
+          <p className="mt-3 text-sm leading-7">{statusNote(item.status)}</p>
+          {item.signerName ? <p className="mt-3 text-sm">簽署人 {item.signerName}{item.signerTitle ? ` · ${item.signerTitle}` : ""}{item.signedAt ? ` · ${item.signedAt.slice(0, 16).replace("T", " ")}` : ""}</p> : null}
+          {item.hasSignature ? (
+            <div className="mt-4">
+              <h3 className="font-medium">客戶簽名</h3>
+              <SignedImage id={item.id} kind="signature" alt={`${item.signerName ?? "客戶"}的簽名`} />
+            </div>
+          ) : null}
+          {item.hasFace ? (
+            <div className="mt-4">
+              <h3 className="font-medium">簽署人像</h3>
+              <SignedImage id={item.id} kind="face" alt={`${item.signerName ?? "客戶"}簽署時的人像`} />
+            </div>
+          ) : null}
+          <article className="mt-6 whitespace-pre-wrap border-t border-[var(--line)] pt-4 text-sm leading-7">{item.body}</article>
+          {item.status === "SIGNED" || item.status === "RENEWED" || item.status === "NOT_RENEWED" ? (
+            <Button className="mt-4" onClick={async () => downloadBlob(await services.contractDocument(item.id))}>下載已簽名 PDF</Button>
+          ) : null}
         </Card>
       ) : null}
-      {panel === "issue" ? <Card>
-        <h2 className="text-2xl">發給業者</h2>
-        <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={async (event) => {
+    </div>
+  );
+}
+
+function statusNote(status: ContractStatus) {
+  if (status === "ISSUED") return "這份合約還在等業者簽署，目前沒有客戶簽名。";
+  if (status === "SIGNED") return "業者已簽署。下面是當時留下的簽名。";
+  if (status === "RENEWED") return "業者已把這份合約登記為已續約。簽名仍是簽署當下留下的。續約費用與是否重新現場複審仍待確認。";
+  if (status === "NOT_RENEWED") return "業者已把這份合約登記為未續約。簽名仍是簽署當下留下的。";
+  return "這份合約已作廢，內容不能再改。";
+}
+
+function SignedImage({ id, kind, alt }: { id: string; kind: "signature" | "face"; alt: string }) {
+  const services = useServices();
+  const file = useQuery({
+    queryKey: ["contract-capture", id, kind],
+    queryFn: () => (kind === "signature" ? services.contractSignature(id) : services.contractFace(id)),
+  });
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file.data) return;
+    const next = URL.createObjectURL(file.data.blob);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file.data]);
+  if (file.isLoading) return <p className="mt-2 text-sm text-[var(--muted)]">載入中…</p>;
+  if (file.error || !url) return <p className="mt-2 text-sm text-[var(--muted)]">圖檔無法顯示。</p>;
+  return <img src={url} alt={alt} className="mt-2 max-h-48 rounded-md border border-[var(--line)] bg-white" />;
+}
+
+export function IssueContractPage() {
+  const services = useServices();
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const templates = useQuery({ queryKey: ["contract-templates"], queryFn: () => services.contractTemplates() });
+  const organizations = useQuery({ queryKey: ["organizations", "contract"], queryFn: () => services.organizations() });
+  const [issueTemplateId, setIssueTemplateId] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!issueTemplateId && templates.data?.[0]) setIssueTemplateId(templates.data[0].id);
+  }, [issueTemplateId, templates.data]);
+  return (
+    <div className="space-y-4">
+      <PageHeader eyebrow="合約管理" title="發給業者" lede="選擇業者和範本版本。發出後這一份就不能再改內容。" />
+      <Card>
+        <form className="flex flex-wrap items-end gap-3" onSubmit={async (event) => {
           event.preventDefault();
           try {
-            const created = await services.issueContract(organizationId);
-            setMessage(`已發出 ${created.contractNo}`);
+            const created = await services.issueContract(organizationId, issueTemplateId);
             await client.invalidateQueries({ queryKey: ["admin-contracts"] });
+            navigate(`/admin/contracts/issued/${created.id}`);
           } catch (error) {
             setMessage(error instanceof ClientError ? error.message : "發出失敗");
           }
@@ -462,56 +572,87 @@ export function ContractAdminPage() {
               {organizations.data?.map((org) => <option key={org.id} value={org.id}>{org.organizationName}</option>)}
             </select>
           </Field>
+          <Field label="範本版本">
+            <select className="rounded-md border border-[var(--line)] bg-white px-3 py-2" value={issueTemplateId} onChange={(event) => setIssueTemplateId(event.target.value)} required>
+              <option value="">選擇版本</option>
+              {templates.data?.map((item) => <option key={item.id} value={item.id}>{item.title} · 第 {item.revision} 版</option>)}
+            </select>
+          </Field>
           <Button type="submit">發出合約</Button>
         </form>
-      </Card> : null}
-      {panel === "records" ? <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <div className="max-h-[32rem] space-y-2 overflow-auto">
-        {contracts.data?.map((item) => (
-          <button key={item.id} type="button" className={`btn block w-full rounded-lg p-3 text-left ${selected === item.id ? "is-selected" : ""}`} aria-pressed={selected === item.id} onClick={() => setSelected(item.id)}>
-            <span className="block font-medium">{item.contractNo}</span>
-            <span className="block text-sm text-[var(--muted)]">{item.organizationName} · {item.status === "SIGNED" ? "已簽署" : item.status === "VOID" ? "已作廢" : "待簽署"}</span>
-          </button>
-        ))}
-        {(contracts.data?.length ?? 0) === 0 ? <p className="text-sm text-[var(--muted)]">還沒有發出的合約。</p> : null}
-      </div>
-      {current && detail.data ? (
+        {message ? <p className="mt-3 text-sm">{message}</p> : null}
+      </Card>
+    </div>
+  );
+}
+
+export function ContractTemplatesPage() {
+  const services = useServices();
+  const client = useQueryClient();
+  const templates = useQuery({ queryKey: ["contract-templates"], queryFn: () => services.contractTemplates() });
+  const [draft, setDraft] = useState({ title: "", body: "", expectedVersion: 1 });
+  const [templateMode, setTemplateMode] = useState<"edit" | "create">("edit");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [message, setMessage] = useState("");
+  const selectedTemplate = templates.data?.find((item) => item.id === selectedTemplateId) ?? (selectedTemplateId ? undefined : templates.data?.[0]);
+  useEffect(() => {
+    if (templateMode === "create" || !selectedTemplate) return;
+    setDraft({ title: selectedTemplate.title, body: selectedTemplate.body, expectedVersion: selectedTemplate.version });
+  }, [templateMode, selectedTemplate]);
+  return (
+    <div className="space-y-4">
+      <PageHeader eyebrow="合約管理" title="合約範本" lede="可以新增多份範本，同一份範本也能留下很多版。已發出的合約不會跟著改。" />
+      <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="space-y-2">
+          <Button type="button" onClick={() => { setTemplateMode("create"); setDraft({ title: "", body: NEW_TEMPLATE_BODY, expectedVersion: 1 }); }}>新增範本</Button>
+          {templates.data?.map((item) => (
+            <button key={item.id} type="button" className={`btn block w-full rounded-lg p-3 text-left ${templateMode === "edit" && selectedTemplate?.id === item.id ? "is-selected" : ""}`} aria-pressed={templateMode === "edit" && selectedTemplate?.id === item.id} onClick={() => { setTemplateMode("edit"); setSelectedTemplateId(item.id); }}>
+              <span className="block font-medium">{item.title}</span>
+              <span className="block text-sm text-[var(--muted)]">第 {item.revision} 版</span>
+            </button>
+          ))}
+        </div>
         <Card>
-          <h2 className="text-2xl">{detail.data.contractNo}</h2>
-          {detail.data.status === "ISSUED" ? (
-            <form className="mt-4 space-y-3" onSubmit={async (event) => {
-              event.preventDefault();
-              try {
-                await services.saveContract(detail.data.id, issuedDraft);
-                setMessage("這份合約已更新");
-                await client.invalidateQueries({ queryKey: ["admin-contract", selected] });
-                await client.invalidateQueries({ queryKey: ["admin-contracts"] });
-              } catch (error) {
-                setMessage(error instanceof ClientError ? error.message : "更新失敗");
+          <h2 className="text-2xl">{templateMode === "create" ? "新增範本" : "編輯這一版"}</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">可用 {"{{organizationName}}"}、{"{{taxId}}"}、{"{{contractNo}}"}、{"{{issuedOn}}"}。新增版本會留下舊版。</p>
+          <form className="mt-4 space-y-3" onSubmit={async (event) => {
+            event.preventDefault();
+            try {
+              if (templateMode === "create") {
+                const created = await services.createContractTemplate({ title: draft.title, body: draft.body });
+                setTemplateMode("edit");
+                setSelectedTemplateId(created.id);
+                setMessage("已新增範本");
+              } else if (selectedTemplate) {
+                await services.saveContractTemplate(selectedTemplate.id, draft);
+                setMessage("這一版已儲存");
               }
-            }}>
-              <Field label="標題"><TextInput value={issuedDraft.title} onChange={(event) => setIssuedDraft({ ...issuedDraft, title: event.target.value })} /></Field>
-              <Field label="這一份的內文"><textarea className="min-h-48 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2" value={issuedDraft.body} onChange={(event) => setIssuedDraft({ ...issuedDraft, body: event.target.value })} /></Field>
-              <div className="flex flex-wrap gap-3">
-                <Button type="submit">儲存這一份</Button>
-                <Button type="button" variant="danger" onClick={async () => {
+              await client.invalidateQueries({ queryKey: ["contract-templates"] });
+            } catch (error) {
+              setMessage(error instanceof ClientError ? error.message : "儲存失敗");
+            }
+          }}>
+            <Field label="標題"><TextInput value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></Field>
+            <Field label="內文"><textarea className="min-h-64 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} required /></Field>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit">{templateMode === "create" ? "建立範本" : "儲存這一版"}</Button>
+              {templateMode === "edit" && selectedTemplate ? (
+                <Button type="button" onClick={async () => {
                   try {
-                    await services.voidContract(detail.data.id, issuedDraft.expectedVersion);
-                    setMessage("已作廢");
-                    await client.invalidateQueries({ queryKey: ["admin-contracts"] });
-                    await client.invalidateQueries({ queryKey: ["admin-contract", selected] });
+                    const created = await services.createContractTemplateVersion(selectedTemplate.id, { title: draft.title, body: draft.body });
+                    setSelectedTemplateId(created.id);
+                    setMessage(`已新增第 ${created.revision} 版`);
+                    await client.invalidateQueries({ queryKey: ["contract-templates"] });
                   } catch (error) {
-                    setMessage(error instanceof ClientError ? error.message : "作廢失敗");
+                    setMessage(error instanceof ClientError ? error.message : "新增版本失敗");
                   }
-                }}>作廢</Button>
-              </div>
-            </form>
-          ) : <pre className="mt-4 whitespace-pre-wrap text-sm leading-7">{detail.data.body}</pre>}
-          {detail.data.status === "SIGNED" ? <Button className="mt-4" onClick={async () => downloadBlob(await services.contractDocument(detail.data.id))}>下載已簽名 PDF</Button> : null}
+                }}>新增版本</Button>
+              ) : null}
+            </div>
+          </form>
+          {message ? <p className="mt-3 text-sm">{message}</p> : null}
         </Card>
-      ) : <p className="text-sm text-[var(--muted)]">{selected ? "載入合約中…" : "從左邊選一份合約。"}</p>}
-      </div> : null}
-      {message ? <p className="text-sm">{message}</p> : null}
+      </div>
     </div>
   );
 }

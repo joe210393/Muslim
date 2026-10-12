@@ -34,13 +34,19 @@ const cmsPages = [
   { href: "/admin/cms/faq", label: "常見問題" },
 ];
 
+const contractPages = [
+  { href: "/admin/contracts/issued", label: "已發出" },
+  { href: "/admin/contracts/issue", label: "發給業者" },
+  { href: "/admin/contracts/templates", label: "合約範本" },
+];
+
 const adminNav: Array<{ href: string; label: string; anyOf?: string[]; children?: Array<{ href: string; label: string }> }> = [
   { href: "/admin", label: "工作總覽" },
   { href: "/admin/cms", label: "內容管理", anyOf: ["cms.edit"], children: cmsPages },
   { href: "/admin/applications", label: "案件審查", anyOf: ["applications.review", "applications.decide"] },
   { href: "/admin/site-reviews", label: "現場複審", anyOf: ["applications.review", "applications.decide"] },
   { href: "/admin/organizations", label: "會員管理", anyOf: ["users.manage"] },
-  { href: "/admin/contracts", label: "合約管理", anyOf: ["contracts.issue"] },
+  { href: "/admin/contracts", label: "合約管理", anyOf: ["contracts.issue"], children: contractPages },
   { href: "/admin/courses", label: "教育訓練管理", anyOf: ["training.manage"] },
   { href: "/admin/reports", label: "報表", anyOf: ["reports.export"] },
   { href: "/admin/permissions", label: "員工", anyOf: ["users.manage"] },
@@ -52,11 +58,18 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
   const session = useSession();
   const navigate = useNavigate();
   const location = useLocation();
-  const [cmsOpen, setCmsOpen] = useState(() => location.pathname.startsWith("/admin/cms"));
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => ({
+    "/admin/cms": location.pathname.startsWith("/admin/cms"),
+    "/admin/contracts": location.pathname.startsWith("/admin/contracts"),
+  }));
   const allowed = new Set(session.user?.featureKeys ?? []);
   const visible = (items: Array<{ href: string; label: string; anyOf?: string[]; children?: Array<{ href: string; label: string }> }>) => items.filter((item) => !item.anyOf || item.anyOf.some((key) => allowed.has(key)));
   useEffect(() => {
-    if (location.pathname.startsWith("/admin/cms")) setCmsOpen(true);
+    setOpenGroups((current) => ({
+      ...current,
+      ...(location.pathname.startsWith("/admin/cms") ? { "/admin/cms": true } : {}),
+      ...(location.pathname.startsWith("/admin/contracts") ? { "/admin/contracts": true } : {}),
+    }));
   }, [location.pathname]);
   const links = area === "portal" ? visible(portalNav) : area === "admin" ? visible(adminNav) : publicNav.map(([href, label]) => ({ href: href ?? "/", label: label ?? "" }));
   return (
@@ -94,16 +107,17 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
                   <button
                     className={`btn w-full rounded-md px-3 py-2 text-left text-sm ${location.pathname.startsWith(item.href) ? "is-selected" : ""}`}
                     type="button"
-                    aria-expanded={cmsOpen}
+                    aria-expanded={Boolean(openGroups[item.href])}
                     onClick={() => {
-                      const next = !cmsOpen;
-                      setCmsOpen(next);
-                      if (next && !location.pathname.startsWith("/admin/cms")) navigate("/admin/cms/home");
+                      const next = !openGroups[item.href];
+                      setOpenGroups((current) => ({ ...current, [item.href]: next }));
+                      const first = children[0];
+                      if (next && first && !location.pathname.startsWith(item.href)) navigate(first.href);
                     }}
                   >
                     {item.label}
                   </button>
-                  {cmsOpen ? children.map((child) => (
+                  {openGroups[item.href] ? children.map((child) => (
                     <NavLink key={child.href} to={child.href} className={({ isActive }) => `btn block rounded-md px-3 py-2 text-left text-sm no-underline md:ml-3 ${isActive ? "is-selected" : ""}`}>{child.label}</NavLink>
                   )) : null}
                 </div>

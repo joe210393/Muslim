@@ -199,7 +199,7 @@ export function CoursesPage() {
                     <Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge>
                   </div>
                   <p className="line-clamp-3 text-sm leading-6 text-[var(--muted)]">{course.description}</p>
-                  <p className="text-sm text-[var(--muted)]">{formatTaipei(course.startsAt)} · {course.location}</p>
+                  <p className="text-sm text-[var(--muted)]">{formatTaipei(course.startsAt)} · {course.delivery === "ONLINE" ? "線上課程" : course.location}</p>
                 </div>
               </Link>
             </article>
@@ -226,8 +226,8 @@ export function CourseDetailPage() {
       {item.isDemo ? <Badge tone="warning">示範課程</Badge> : null}
       <Card>
         <p>時間：{formatTaipei(item.startsAt)} 至 {formatTaipei(item.endsAt)}</p>
-        <p>地點：{item.location}</p>
-        <p>課程 {item.durationMinutes} 分鐘，完課門檻 {item.requiredAttendanceMinutes} 分鐘（示範規則，不作為申請資格的硬性阻擋）</p>
+        <p>{item.delivery === "ONLINE" ? "線上課程。報名後在教育訓練觀看影片，看完時間的三分之二才算通過。" : `地點：${item.location}`}</p>
+        <p>課程 {item.durationMinutes} 分鐘{item.delivery === "OFFLINE" ? `，完課門檻 ${item.requiredAttendanceMinutes} 分鐘（示範規則，不作為申請資格的硬性阻擋）` : ""}</p>
         <p>名額 {item.capacity}，剩餘 {item.remainingSeats}。額滿時不提供候補。</p>
         <p>報名期間：{formatTaipei(item.registrationOpensAt)} 至 {formatTaipei(item.registrationClosesAt)}</p>
       </Card>

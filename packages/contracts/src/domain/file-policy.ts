@@ -5,6 +5,10 @@ export const FILE_POLICY = {
   maxApplicationBytes: 100 * 1024 * 1024,
 };
 
+export const COURSE_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+
+export type CourseVideoMime = "video/mp4" | "video/webm";
+
 export type AllowedMimeType = (typeof FILE_POLICY.allowedMimeTypes)[number];
 
 export function isAllowedMimeType(mimeType: string): mimeType is AllowedMimeType {
@@ -34,7 +38,15 @@ export function detectFileSignature(bytes: Uint8Array): AllowedMimeType | null {
   return null;
 }
 
-export function extensionForMime(mimeType: AllowedMimeType): string {
+export function detectCourseVideo(bytes: Uint8Array): CourseVideoMime | null {
+  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "video/mp4";
+  if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "video/webm";
+  return null;
+}
+
+export function extensionForMime(mimeType: AllowedMimeType | CourseVideoMime): string {
+  if (mimeType === "video/mp4") return "mp4";
+  if (mimeType === "video/webm") return "webm";
   if (mimeType === "application/pdf") return "pdf";
   if (mimeType === "image/jpeg") return "jpg";
   return "png";

@@ -34,8 +34,9 @@ import { ClientError, type AccessSettings, type AdminEditorialEntry, type AdminS
 export type PlatformState = {
   contents: Array<AdminSiteSlot & { imageFileId: string | null }>;
   entries: Array<AdminEditorialEntry & { imageFileId: string | null }>;
-  template: { id: string; code: string; title: string; body: string; version: number; updatedAt: string };
-  contracts: Array<ContractItem & { body: string; templateId: string; faceFileId: string | null; signatureFileId: string | null; pdfFileId: string | null }>;
+  template: { id: string; code: string; title: string; body: string; revision?: number; version: number; updatedAt: string };
+  templates?: Array<{ id: string; code: string; title: string; body: string; revision: number; version: number; updatedAt: string }>;
+  contracts: Array<Omit<ContractItem, "hasSignature" | "hasFace"> & { body: string; templateId: string; faceFileId: string | null; signatureFileId: string | null; pdfFileId: string | null }>;
   features: Array<{ userId: string; featureKey: string; label: string; enabled: boolean }>;
   integrations: AccessSettings["integrations"];
   contractSequence: number;
@@ -54,6 +55,7 @@ export function createInitialPlatform(data: DemoDataset): PlatformState {
     code: "HALA_SERVICE_V1",
     title: DEFAULT_CONTRACT_TITLE,
     body: DEFAULT_CONTRACT_BODY,
+    revision: 1,
     version: 1,
     updatedAt: now,
   };
@@ -104,6 +106,7 @@ export function createInitialPlatform(data: DemoDataset): PlatformState {
       updatedAt: now,
     })),
     template,
+    templates: [template],
     contracts,
     features: data.users.flatMap((user) =>
       PLATFORM_FEATURES.map((feature) => ({
@@ -364,16 +367,52 @@ export function contractOf(platform: PlatformState, actor: Actor, id: string) {
   return row;
 }
 
-export function templateOf(platform: PlatformState, actor: Actor) {
-  assertFeature(platform, actor, "contracts.issue");
-  return platform.template;
+type TemplateRow = NonNullable<PlatformState["templates"]>[number];
+
+export function templateRows(platform: PlatformState): TemplateRow[] {
+  if (!platform.templates?.length) {
+    platform.templates = [{ ...platform.template, revision: platform.template.revision ?? 1 }];
+  }
+  return platform.templates;
 }
 
-export function saveTemplate(platform: PlatformState, actor: Actor, input: { title: string; body: string; expectedVersion: number }) {
+function rememberTemplate(platform: PlatformState, row: TemplateRow) {
+  const rows = templateRows(platform);
+  const index = rows.findIndex((item) => item.id === row.id);
+  if (index >= 0) rows[index] = row;
+  else rows.unshift(row);
+  if (platform.template.id === row.id) platform.template = row;
+  return row;
+}
+
+export function listTemplates(platform: PlatformState, actor: Actor) {
   assertFeature(platform, actor, "contracts.issue");
-  if (platform.template.version !== input.expectedVersion) throw new ClientError("範本已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
-  platform.template = { ...platform.template, title: input.title, body: input.body, version: platform.template.version + 1, updatedAt: new Date().toISOString() };
-  return platform.template;
+  return [...templateRows(platform)].sort((a, b) => a.title.localeCompare(b.title, "zh-Hant") || b.revision - a.revision);
+}
+
+export function createTemplate(platform: PlatformState, actor: Actor, input: { title: string; body: string }) {
+  assertFeature(platform, actor, "contracts.issue");
+  const row: TemplateRow = { id: crypto.randomUUID(), code: `TPL_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, revision: 1, title: input.title, body: input.body, version: 1, updatedAt: new Date().toISOString() };
+  templateRows(platform).unshift(row);
+  return row;
+}
+
+export function createTemplateVersion(platform: PlatformState, actor: Actor, id: string, input: { title: string; body: string }) {
+  assertFeature(platform, actor, "contracts.issue");
+  const current = templateRows(platform).find((item) => item.id === id);
+  if (!current) throw new ClientError("找不到合約範本", { status: 404 });
+  const revision = Math.max(...templateRows(platform).filter((item) => item.code === current.code).map((item) => item.revision)) + 1;
+  const row: TemplateRow = { id: crypto.randomUUID(), code: current.code, revision, title: input.title, body: input.body, version: 1, updatedAt: new Date().toISOString() };
+  templateRows(platform).unshift(row);
+  return row;
+}
+
+export function saveTemplate(platform: PlatformState, actor: Actor, id: string, input: { title: string; body: string; expectedVersion: number }) {
+  assertFeature(platform, actor, "contracts.issue");
+  const current = templateRows(platform).find((item) => item.id === id);
+  if (!current) throw new ClientError("找不到合約範本", { status: 404 });
+  if (current.version !== input.expectedVersion) throw new ClientError("範本已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+  return rememberTemplate(platform, { ...current, title: input.title, body: input.body, version: current.version + 1, updatedAt: new Date().toISOString() });
 }
 
 export function adminContracts(platform: PlatformState, actor: Actor) {
@@ -381,10 +420,11 @@ export function adminContracts(platform: PlatformState, actor: Actor) {
   return platform.contracts.map(strip);
 }
 
-export function issueContract(platform: PlatformState, actor: Actor, data: DemoDataset, organizationId: string) {
+export function issueContract(platform: PlatformState, actor: Actor, data: DemoDataset, organizationId: string, templateId: string) {
   assertFeature(platform, actor, "contracts.issue");
   const organization = data.organizations.find((item) => item.id === organizationId);
-  if (!organization) throw new ClientError("找不到業者", { status: 404 });
+  const template = templateRows(platform).find((item) => item.id === templateId);
+  if (!organization || !template) throw new ClientError("找不到業者或合約範本", { status: 404 });
   const contractNo = formatContractNo(taipeiYear(), platform.contractSequence);
   platform.contractSequence += 1;
   const created: PlatformState["contracts"][number] = {
@@ -392,20 +432,20 @@ export function issueContract(platform: PlatformState, actor: Actor, data: DemoD
     contractNo,
     organizationId: organization.id,
     organizationName: organization.organizationName,
-    title: platform.template.title,
+    title: template.title,
     status: ContractStatus.ISSUED,
     signerName: null,
     signerTitle: null,
     signedAt: null,
     version: 1,
     createdAt: new Date().toISOString(),
-    body: renderContractBody(platform.template.body, {
+    body: renderContractBody(template.body, {
       organizationName: organization.organizationName,
       taxId: organization.taxId,
       contractNo,
       issuedOn: taipeiDateLabel(),
     }),
-    templateId: platform.template.id,
+    templateId: template.id,
     faceFileId: null,
     signatureFileId: null,
     pdfFileId: null,
@@ -414,21 +454,12 @@ export function issueContract(platform: PlatformState, actor: Actor, data: DemoD
   return strip(created);
 }
 
-export function saveContract(platform: PlatformState, actor: Actor, id: string, input: { title: string; body: string; expectedVersion: number }) {
+export function recordRenewal(platform: PlatformState, actor: Actor, id: string, input: { decision: "RENEWED" | "NOT_RENEWED"; expectedVersion: number }) {
+  assertFeature(platform, actor, "contracts.sign");
   const row = contractOf(platform, actor, id);
-  if (row.status !== ContractStatus.ISSUED || row.version !== input.expectedVersion) {
-    throw new ClientError("合約已簽署、已作廢，或內容已被更新", { status: 409, code: "VERSION_CONFLICT" });
-  }
-  row.title = input.title;
-  row.body = input.body;
-  row.version += 1;
-  return detail(row);
-}
-
-export function voidContract(platform: PlatformState, actor: Actor, id: string, expectedVersion: number) {
-  const row = contractOf(platform, actor, id);
-  if (row.status !== ContractStatus.ISSUED || row.version !== expectedVersion) throw new ClientError("這份合約不能作廢", { status: 409, code: "VERSION_CONFLICT" });
-  row.status = ContractStatus.VOID;
+  if (actor.role !== UserRole.APPLICANT || actor.organizationId !== row.organizationId) throw new ClientError("找不到合約", { status: 404 });
+  if (row.status !== ContractStatus.SIGNED || row.version !== input.expectedVersion) throw new ClientError("只有已簽署的合約可以登記續約", { status: 409, code: "VERSION_CONFLICT" });
+  row.status = input.decision === "RENEWED" ? ContractStatus.RENEWED : ContractStatus.NOT_RENEWED;
   row.version += 1;
   return detail(row);
 }
@@ -480,11 +511,20 @@ export async function signContract(
 }
 
 export function contractDocument(platform: PlatformState, actor: Actor, data: DemoDataset, id: string) {
+  return contractFile(platform, actor, data, id, "pdf");
+}
+
+export function contractCapture(platform: PlatformState, actor: Actor, data: DemoDataset, id: string, kind: "signature" | "face") {
+  return contractFile(platform, actor, data, id, kind);
+}
+
+function contractFile(platform: PlatformState, actor: Actor, data: DemoDataset, id: string, kind: "pdf" | "signature" | "face") {
   const row = contractOf(platform, actor, id);
-  const file = row.pdfFileId ? data.files.find((item) => item.id === row.pdfFileId) : undefined;
-  if (!file) throw new ClientError("這份合約還沒有簽署檔", { status: 404 });
+  const fileId = kind === "pdf" ? row.pdfFileId : kind === "signature" ? row.signatureFileId : row.faceFileId;
+  const file = fileId ? data.files.find((item) => item.id === fileId) : undefined;
+  if (!file) throw new ClientError(kind === "pdf" ? "這份合約還沒有簽署檔" : "這份合約還沒有客戶簽名", { status: 404 });
   const binary = Uint8Array.from(atob(file.contentBase64), (char) => char.charCodeAt(0));
-  return { blob: new Blob([binary], { type: "application/pdf" }), name: file.originalName };
+  return { blob: new Blob([binary], { type: file.mimeType }), name: file.originalName };
 }
 
 export function accessSettings(platform: PlatformState, actor: Actor, users: Actor[]) {
@@ -553,6 +593,8 @@ function strip(row: PlatformState["contracts"][number]): ContractItem {
     signerName: row.signerName,
     signerTitle: row.signerTitle,
     signedAt: row.signedAt,
+    hasSignature: Boolean(row.signatureFileId),
+    hasFace: Boolean(row.faceFileId),
     version: row.version,
     createdAt: row.createdAt,
   };

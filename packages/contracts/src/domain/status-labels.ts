@@ -3,6 +3,7 @@ import {
   AttendanceStatus,
   ConfigurationStatus,
   CourseStatus,
+  CourseDelivery,
   EnrollmentStatus,
   ImportBatchStatus,
   ContractStatus,
@@ -45,6 +46,11 @@ export const courseStatusLabels = record<CourseStatus>({
   [CourseStatus.COMPLETED]: { label: "已結束", tone: "neutral" },
 });
 
+export const courseDeliveryLabels = record<CourseDelivery>({
+  [CourseDelivery.ONLINE]: { label: "線上課程", tone: "info" },
+  [CourseDelivery.OFFLINE]: { label: "線下課程", tone: "neutral" },
+});
+
 export const enrollmentStatusLabels = record<EnrollmentStatus>({
   [EnrollmentStatus.CONFIRMED]: { label: "已報名", tone: "success" },
   [EnrollmentStatus.CANCELLED]: { label: "已取消", tone: "neutral" },
@@ -77,6 +83,8 @@ export const importBatchStatusLabels = record<ImportBatchStatus>({
 export const contractStatusLabels = record<ContractStatus>({
   [ContractStatus.ISSUED]: { label: "待簽署", tone: "warning" },
   [ContractStatus.SIGNED]: { label: "已簽署", tone: "success" },
+  [ContractStatus.RENEWED]: { label: "已續約", tone: "success" },
+  [ContractStatus.NOT_RENEWED]: { label: "未續約", tone: "neutral" },
   [ContractStatus.VOID]: { label: "已作廢", tone: "neutral" },
 });
 

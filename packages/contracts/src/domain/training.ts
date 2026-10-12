@@ -1,9 +1,35 @@
 import { AttendanceStatus, CourseStatus, EnrollmentStatus } from "@mf/db/enums";
 import type { CompletionCode } from "./status-labels";
 
+export type CourseDeliveryMode = "ONLINE" | "OFFLINE";
+
+export function onlinePassSeconds(videoDurationSeconds: number): number {
+  if (!Number.isInteger(videoDurationSeconds) || videoDurationSeconds < 1) return Number.POSITIVE_INFINITY;
+  return Math.ceil((videoDurationSeconds * 2) / 3);
+}
+
+/** 只接受不超過實際經過時間的觀看進度，避免直接把播放頭拉到結尾就算看完。 */
+export function acceptWatchProgress(input: {
+  currentSeconds: number;
+  reportedSeconds: number;
+  videoDurationSeconds: number;
+  lastReportedAt: string | null;
+  nowIso: string;
+}): number {
+  const cap = Math.max(0, input.videoDurationSeconds);
+  const current = Math.min(cap, Math.max(0, Math.floor(input.currentSeconds)));
+  const reported = Math.min(cap, Math.max(0, Math.floor(input.reportedSeconds)));
+  if (reported <= current) return current;
+  const elapsed = input.lastReportedAt ? Math.floor((Date.parse(input.nowIso) - Date.parse(input.lastReportedAt)) / 1000) : 0;
+  const allowance = Math.max(0, elapsed) + 2;
+  return Math.min(reported, current + allowance);
+}
+
 export type CourseDraftInput = {
   title: string;
   description: string;
+  delivery: CourseDeliveryMode;
+  hasVideo: boolean;
   location: string;
   startsAt: string;
   endsAt: string;
@@ -18,7 +44,10 @@ export type CourseDraftInput = {
 export function validateCourseDraft(input: CourseDraftInput, confirmedEnrollmentCount = 0): { path: string; message: string }[] {
   const issues: { path: string; message: string }[] = [];
   if (!input.title.trim()) issues.push({ path: "title", message: "請填寫課程名稱" });
-  if (!input.location.trim()) issues.push({ path: "location", message: "請填寫地點" });
+  if (input.delivery === "OFFLINE" && !input.location.trim()) issues.push({ path: "location", message: "線下課程請填寫地點" });
+  if (input.delivery === "ONLINE" && input.status === CourseStatus.PUBLISHED && !input.hasVideo) {
+    issues.push({ path: "video", message: "線上課程要先上傳影片，才能公開" });
+  }
   const starts = Date.parse(input.startsAt);
   const ends = Date.parse(input.endsAt);
   const opens = Date.parse(input.registrationOpensAt);
@@ -83,7 +112,9 @@ export function canCancelEnrollment(input: {
   enrollmentStatus: EnrollmentStatus;
   registrationClosesAt: string;
   nowIso: string;
+  completed?: boolean;
 }): { ok: true } | { ok: false; message: string } {
+  if (input.completed) return { ok: false, message: "已通過不可退選" };
   if (input.enrollmentStatus !== EnrollmentStatus.CONFIRMED) {
     return { ok: false, message: "此報名已取消" };
   }
@@ -119,9 +150,17 @@ export function buildLearningRecord(input: {
   attendanceStatus: AttendanceStatus;
   attendedMinutes: number;
   requiredAttendanceMinutesSnapshot: number;
+  delivery?: CourseDeliveryMode;
+  watchedSeconds?: number;
+  videoDurationSeconds?: number;
 }): { completion: CompletionCode; countsTowardTotal: boolean } {
   if (input.enrollmentStatus === EnrollmentStatus.CANCELLED) {
     return { completion: "CANCELLED", countsTowardTotal: false };
+  }
+  if (input.delivery === "ONLINE") {
+    const needed = onlinePassSeconds(input.videoDurationSeconds ?? 0);
+    if ((input.watchedSeconds ?? 0) >= needed) return { completion: "COMPLETED", countsTowardTotal: true };
+    return { completion: "PENDING", countsTowardTotal: false };
   }
   if (input.attendanceStatus === AttendanceStatus.NOT_RECORDED) {
     return { completion: "PENDING", countsTowardTotal: false };
@@ -133,6 +172,26 @@ export function buildLearningRecord(input: {
     return { completion: "COMPLETED", countsTowardTotal: true };
   }
   return { completion: "NOT_COMPLETED", countsTowardTotal: false };
+}
+
+export function withdrawState(input: {
+  enrollmentStatus: EnrollmentStatus;
+  completed: boolean;
+  registrationClosesAt: string;
+  nowIso: string;
+}): { canCancel: boolean; label: string } {
+  if (input.completed) return { canCancel: false, label: "已通過不可退選" };
+  const decision = canCancelEnrollment(input);
+  if (decision.ok) return { canCancel: true, label: "退選" };
+  if (input.enrollmentStatus !== EnrollmentStatus.CONFIRMED) return { canCancel: false, label: "已取消" };
+  return { canCancel: false, label: "不可退選" };
+}
+
+export function studyStatusLabel(completion: CompletionCode): { label: string; tone: "success" | "danger" | "neutral" } {
+  if (completion === "COMPLETED") return { label: "通過", tone: "success" };
+  if (completion === "CANCELLED") return { label: "已取消", tone: "neutral" };
+  if (completion === "NOT_COMPLETED") return { label: "未完成", tone: "danger" };
+  return { label: "進行中", tone: "danger" };
 }
 
 export function minutesToHourLabel(minutes: number): string {

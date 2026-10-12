@@ -6,7 +6,7 @@ import { certificationValidity, validateCertificationDates } from "./certificati
 import { cat01DefinitionV1 } from "../fixtures/categories";
 import { buildDemoDataset } from "../fixtures/demo-dataset";
 import { sanitizeCsvCell, toCsv } from "./csv";
-import { buildLearningRecord, canEnroll } from "./training";
+import { acceptWatchProgress, buildLearningRecord, canEnroll } from "./training";
 import { CourseStatus } from "@mf/db/enums";
 import { applicationStatusLabels, userRoleLabels } from "./status-labels";
 
@@ -92,6 +92,41 @@ describe("學習紀錄", () => {
         requiredAttendanceMinutesSnapshot: 60,
       }).countsTowardTotal,
     ).toBe(false);
+  });
+
+  it("線上課程要看完影片時間的三分之二才算通過", () => {
+    expect(
+      buildLearningRecord({
+        enrollmentStatus: EnrollmentStatus.CONFIRMED,
+        attendanceStatus: AttendanceStatus.NOT_RECORDED,
+        attendedMinutes: 0,
+        requiredAttendanceMinutesSnapshot: 0,
+        delivery: "ONLINE",
+        watchedSeconds: 39,
+        videoDurationSeconds: 60,
+      }).completion,
+    ).toBe("PENDING");
+    expect(
+      buildLearningRecord({
+        enrollmentStatus: EnrollmentStatus.CONFIRMED,
+        attendanceStatus: AttendanceStatus.NOT_RECORDED,
+        attendedMinutes: 0,
+        requiredAttendanceMinutesSnapshot: 0,
+        delivery: "ONLINE",
+        watchedSeconds: 40,
+        videoDurationSeconds: 60,
+      }).completion,
+    ).toBe("COMPLETED");
+  });
+
+  it("觀看進度不能一次跳到影片結尾", () => {
+    expect(acceptWatchProgress({
+      currentSeconds: 0,
+      reportedSeconds: 60,
+      videoDurationSeconds: 60,
+      lastReportedAt: null,
+      nowIso: "2026-10-12T08:00:00.000Z",
+    })).toBe(2);
   });
 
   it("額滿不可報名", () => {

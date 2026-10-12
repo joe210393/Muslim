@@ -63,6 +63,13 @@ enum CourseStatus {
   @@map("course_status")
 }
 
+enum CourseDelivery {
+  ONLINE
+  OFFLINE
+
+  @@map("course_delivery")
+}
+
 enum EnrollmentStatus {
   CONFIRMED
   CANCELLED
@@ -138,6 +145,8 @@ enum EditorialKind {
 enum ContractStatus {
   ISSUED
   SIGNED
+  RENEWED
+  NOT_RENEWED
   VOID
 
   @@map("contract_status")
@@ -366,6 +375,7 @@ model FileObject {
   siteImages           SiteContent[]           @relation("SiteImage")
   editorialImages      EditorialEntry[]        @relation("EditorialImage")
   courseImages         Course[]                @relation("CourseImage")
+  courseVideos         Course[]                @relation("CourseVideo")
   contractFaces        ContractRecord[]        @relation("ContractFace")
   contractSignatures   ContractRecord[]        @relation("ContractSignature")
   contractDocuments    ContractRecord[]        @relation("ContractPdf")
@@ -390,11 +400,14 @@ model ApplicationAttachment {
 
 model Course {
   id                         String       @id @default(uuid()) @db.Uuid
-  title                      String       @db.VarChar(200)
-  description                String       @db.VarChar(4000)
-  youtubeUrl                 String       @default("") @map("youtube_url") @db.VarChar(200)
-  imageFileId                String?      @unique @map("image_file_id") @db.Uuid
-  location                   String       @db.VarChar(200)
+  title                      String         @db.VarChar(200)
+  description                String         @db.VarChar(4000)
+  delivery                   CourseDelivery @default(OFFLINE)
+  youtubeUrl                 String         @default("") @map("youtube_url") @db.VarChar(200)
+  imageFileId                String?        @unique @map("image_file_id") @db.Uuid
+  videoFileId                String?        @unique @map("video_file_id") @db.Uuid
+  videoDurationSeconds       Int            @default(0) @map("video_duration_seconds")
+  location                   String         @default("") @db.VarChar(200)
   startsAt                   DateTime     @map("starts_at") @db.Timestamptz(6)
   endsAt                     DateTime     @map("ends_at") @db.Timestamptz(6)
   registrationOpensAt        DateTime     @map("registration_opens_at") @db.Timestamptz(6)
@@ -410,6 +423,7 @@ model Course {
 
   createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
   image       FileObject?  @relation("CourseImage", fields: [imageFileId], references: [id], onDelete: Restrict)
+  video       FileObject?  @relation("CourseVideo", fields: [videoFileId], references: [id], onDelete: Restrict)
   enrollments Enrollment[]
 
   @@index([status, registrationOpensAt, registrationClosesAt])
@@ -423,6 +437,8 @@ model Enrollment {
   status                           EnrollmentStatus
   attendanceStatus                 AttendanceStatus @default(NOT_RECORDED) @map("attendance_status")
   attendedMinutes                  Int              @default(0) @map("attended_minutes")
+  watchedSeconds                   Int              @default(0) @map("watched_seconds")
+  watchUpdatedAt                   DateTime?        @map("watch_updated_at") @db.Timestamptz(6)
   requiredAttendanceMinutesSnapshot Int             @map("required_attendance_minutes_snapshot")
   attendanceRecordedById           String?          @map("attendance_recorded_by_id") @db.Uuid
   attendanceRecordedAt             DateTime?        @map("attendance_recorded_at") @db.Timestamptz(6)
@@ -561,7 +577,8 @@ model EditorialEntry {
 
 model ContractTemplate {
   id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique @db.VarChar(64)
+  code        String   @db.VarChar(64)
+  revision    Int      @default(1)
   title       String   @db.VarChar(200)
   body        String
   isActive    Boolean  @default(true) @map("is_active")
@@ -572,6 +589,7 @@ model ContractTemplate {
   updatedBy User?            @relation("TemplateEditor", fields: [updatedById], references: [id], onDelete: SetNull)
   contracts ContractRecord[]
 
+  @@unique([code, revision])
   @@map("contract_templates")
 }
 

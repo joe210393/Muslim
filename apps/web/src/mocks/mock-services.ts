@@ -12,9 +12,13 @@ import {
   PLATFORM_FEATURES,
   roleForAccountFeatures,
   defaultFeatureEnabled,
+  acceptWatchProgress,
   buildDemoDataset,
   buildLearningRecord,
   canCancelEnrollment,
+  detectCourseVideo,
+  onlinePassSeconds,
+  withdrawState,
   canEditApplicationContent,
   canEnroll,
   canViewApplication,
@@ -67,21 +71,23 @@ import {
   ensureEditorial,
   grantAccountFeatures,
   hasFeature,
+  createTemplate,
+  createTemplateVersion,
   issueContract,
+  listTemplates,
   myContracts,
   publicSite,
   rememberFile,
   updateEntry,
-  saveContract,
+  recordRenewal,
   saveSite,
   saveTemplate,
   signContract,
-  templateOf,
   updateFeature,
   updateIntegration,
   uploadEntryImage,
   uploadSiteImage,
-  voidContract,
+  contractCapture,
   type PlatformState,
 } from "./platform";
 
@@ -234,8 +240,11 @@ function courseDto(state: State, course: DemoDataset["courses"][number]) {
     id: course.id,
     title: course.title,
     description: course.description,
+    delivery: course.delivery ?? "OFFLINE",
     youtubeUrl: course.youtubeUrl ?? "",
     imageUrl: courseImage(state, course),
+    hasVideo: Boolean(course.videoFileId),
+    videoDurationSeconds: course.videoDurationSeconds ?? 0,
     location: course.location,
     startsAt: course.startsAt,
     endsAt: course.endsAt,
@@ -256,12 +265,25 @@ function learningOf(state: State, enrollment: DemoDataset["enrollments"][number]
   const course = state.data.courses.find((item) => item.id === enrollment.courseId)!;
   const user = state.data.users.find((item) => item.id === enrollment.userId)!;
   const org = state.data.organizations.find((item) => item.id === user.organizationId);
+  const delivery = course.delivery ?? "OFFLINE";
+  const watchedSeconds = enrollment.watchedSeconds ?? 0;
+  const videoDurationSeconds = course.videoDurationSeconds ?? 0;
   const learning = buildLearningRecord({
     enrollmentStatus: enrollment.status,
     attendanceStatus: enrollment.attendanceStatus,
     attendedMinutes: enrollment.attendedMinutes,
     requiredAttendanceMinutesSnapshot: enrollment.requiredAttendanceMinutesSnapshot,
+    delivery,
+    watchedSeconds,
+    videoDurationSeconds,
   });
+  const withdraw = withdrawState({
+    enrollmentStatus: enrollment.status,
+    completed: learning.completion === "COMPLETED",
+    registrationClosesAt: course.registrationClosesAt,
+    nowIso: new Date().toISOString(),
+  });
+  const passSeconds = delivery === "ONLINE" ? onlinePassSeconds(videoDurationSeconds) : 0;
   return {
     id: enrollment.id,
     courseId: course.id,
@@ -273,10 +295,17 @@ function learningOf(state: State, enrollment: DemoDataset["enrollments"][number]
     status: enrollment.status,
     attendanceStatus: enrollment.attendanceStatus,
     attendedMinutes: enrollment.attendedMinutes,
+    watchedSeconds,
     requiredAttendanceMinutesSnapshot: enrollment.requiredAttendanceMinutesSnapshot,
+    delivery,
+    videoDurationSeconds,
+    passSeconds: Number.isFinite(passSeconds) ? passSeconds : 0,
+    durationMinutes: course.durationMinutes,
+    canCancel: withdraw.canCancel,
+    withdrawLabel: withdraw.label,
     completion: learning.completion,
     countsTowardTotal: learning.countsTowardTotal,
-    attendedHoursLabel: minutesToHourLabel(enrollment.attendedMinutes),
+    attendedHoursLabel: minutesToHourLabel(delivery === "ONLINE" ? Math.floor(watchedSeconds / 60) : enrollment.attendedMinutes),
     version: enrollment.version,
     enrolledAt: enrollment.enrolledAt,
     cancelledAt: enrollment.cancelledAt,
@@ -748,13 +777,13 @@ export async function createMockServices(): Promise<Services> {
       if (id && !current) throw new ClientError("找不到課程", { status: 404 });
       if (current && input.expectedVersion !== undefined && current.version !== input.expectedVersion) throw new ClientError("課程已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
       const confirmed = current ? state.data.enrollments.filter((item) => item.courseId === current.id && item.status === EnrollmentStatus.CONFIRMED).length : 0;
-      const issues = validateCourseDraft(input, confirmed);
+      const issues = validateCourseDraft({ ...input, hasVideo: Boolean(current?.videoFileId), location: input.delivery === "ONLINE" ? "" : input.location }, confirmed);
       if (issues.length) throw new ClientError("課程資料不正確", { fieldErrors: issues });
       const now = new Date().toISOString();
       if (!current) {
-        state.data.courses.push({ id: crypto.randomUUID(), title: input.title, description: input.description, youtubeUrl: input.youtubeUrl, imageFileId: null, location: input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, createdById: actor.id, version: 1, createdAt: now, updatedAt: now });
+        state.data.courses.push({ id: crypto.randomUUID(), title: input.title, description: input.description, delivery: input.delivery, youtubeUrl: input.youtubeUrl, imageFileId: null, videoFileId: null, videoDurationSeconds: 0, location: input.delivery === "ONLINE" ? "" : input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, createdById: actor.id, version: 1, createdAt: now, updatedAt: now });
       } else {
-        Object.assign(current, { title: input.title, description: input.description, youtubeUrl: input.youtubeUrl, location: input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, version: current.version + 1, updatedAt: now });
+        Object.assign(current, { title: input.title, description: input.description, delivery: input.delivery, youtubeUrl: input.youtubeUrl, location: input.delivery === "ONLINE" ? "" : input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, version: current.version + 1, updatedAt: now });
       }
       await save();
       return courseDto(state, (current ?? state.data.courses.at(-1))!);
@@ -777,9 +806,9 @@ export async function createMockServices(): Promise<Services> {
       if (!decision.ok) throw new ClientError(decision.message, { code: decision.code, status: decision.code === "COURSE_FULL" ? 409 : 400 });
       const now = new Date().toISOString();
       if (existing) {
-        Object.assign(existing, { status: EnrollmentStatus.CONFIRMED, cancelledAt: null, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, version: existing.version + 1 });
+        Object.assign(existing, { status: EnrollmentStatus.CONFIRMED, cancelledAt: null, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, watchedSeconds: 0, watchUpdatedAt: null, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, version: existing.version + 1 });
       } else {
-        state.data.enrollments.push({ id: crypto.randomUUID(), courseId, userId: actor.id, status: EnrollmentStatus.CONFIRMED, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, attendanceRecordedById: null, attendanceRecordedAt: null, version: 1, enrolledAt: now, cancelledAt: null });
+        state.data.enrollments.push({ id: crypto.randomUUID(), courseId, userId: actor.id, status: EnrollmentStatus.CONFIRMED, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, watchedSeconds: 0, watchUpdatedAt: null, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, attendanceRecordedById: null, attendanceRecordedAt: null, version: 1, enrolledAt: now, cancelledAt: null });
       }
       await save();
       const row = state.data.enrollments.find((item) => item.courseId === courseId && item.userId === actor.id)!;
@@ -790,7 +819,8 @@ export async function createMockServices(): Promise<Services> {
       const enrollment = state.data.enrollments.find((item) => item.id === id && item.userId === actor.id);
       if (!enrollment) throw new ClientError("找不到報名", { status: 404 });
       const course = state.data.courses.find((item) => item.id === enrollment.courseId)!;
-      const decision = canCancelEnrollment({ enrollmentStatus: enrollment.status, registrationClosesAt: course.registrationClosesAt, nowIso: new Date().toISOString() });
+      const learning = learningOf(state, enrollment);
+      const decision = canCancelEnrollment({ enrollmentStatus: enrollment.status, registrationClosesAt: course.registrationClosesAt, nowIso: new Date().toISOString(), completed: learning.completion === "COMPLETED" });
       if (!decision.ok) throw new ClientError(decision.message);
       enrollment.status = EnrollmentStatus.CANCELLED;
       enrollment.cancelledAt = new Date().toISOString();
@@ -813,6 +843,7 @@ export async function createMockServices(): Promise<Services> {
       if (!enrollment) throw new ClientError("找不到報名", { status: 404 });
       if (enrollment.version !== input.expectedVersion) throw new ClientError("出席資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
       const course = state.data.courses.find((item) => item.id === enrollment.courseId)!;
+      if ((course.delivery ?? "OFFLINE") === "ONLINE") throw new ClientError("線上課程以觀看時間計算通過，不能改出席");
       const issues = validateAttendance({ attendanceStatus: input.attendanceStatus, attendedMinutes: input.attendedMinutes, durationMinutes: course.durationMinutes });
       if (issues.length) throw new ClientError("出席資料不正確", { fieldErrors: issues });
       enrollment.attendanceStatus = input.attendanceStatus;
@@ -1083,6 +1114,65 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return courseDto(state, course);
     },
+    async uploadCourseVideo(id, file, durationSeconds) {
+      const actor = requireActor(state);
+      if (actor.role === UserRole.APPLICANT) throw new ClientError("沒有課程管理權限", { status: 403 });
+      const course = state.data.courses.find((item) => item.id === id);
+      if (!course) throw new ClientError("找不到課程", { status: 404 });
+      if ((course.delivery ?? "OFFLINE") !== "ONLINE") throw new ClientError("只有線上課程可以上傳影片");
+      if (!Number.isInteger(durationSeconds) || durationSeconds < 1) throw new ClientError("無法讀取影片長度");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const mime = detectCourseVideo(bytes);
+      if (!mime) throw new ClientError("課程影片只接受 MP4 或 WebM", { code: "UNSUPPORTED_FILE_TYPE" });
+      const stored = await rememberFile(state.data, actor.id, file.name || "video", mime, bytes);
+      course.videoFileId = stored.id;
+      course.videoDurationSeconds = durationSeconds;
+      course.version += 1;
+      course.updatedAt = new Date().toISOString();
+      await save();
+      return courseDto(state, course);
+    },
+    async recordWatch(id, input) {
+      const actor = requireActor(state);
+      const enrollment = state.data.enrollments.find((item) => item.id === id && item.userId === actor.id);
+      if (!enrollment) throw new ClientError("找不到報名", { status: 404 });
+      if (enrollment.version !== input.expectedVersion) throw new ClientError("觀看進度已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+      const course = state.data.courses.find((item) => item.id === enrollment.courseId)!;
+      if ((course.delivery ?? "OFFLINE") !== "ONLINE") throw new ClientError("這不是線上課程");
+      const now = new Date().toISOString();
+      const watchedSeconds = acceptWatchProgress({
+        currentSeconds: enrollment.watchedSeconds ?? 0,
+        reportedSeconds: input.watchedSeconds,
+        videoDurationSeconds: course.videoDurationSeconds ?? 0,
+        lastReportedAt: enrollment.watchUpdatedAt ?? null,
+        nowIso: now,
+      });
+      if (watchedSeconds !== (enrollment.watchedSeconds ?? 0)) {
+        enrollment.watchedSeconds = watchedSeconds;
+        enrollment.watchUpdatedAt = now;
+        if (watchedSeconds >= onlinePassSeconds(course.videoDurationSeconds ?? 0)) {
+          enrollment.attendanceStatus = AttendanceStatus.PRESENT;
+          enrollment.attendedMinutes = Math.floor(watchedSeconds / 60);
+        }
+        enrollment.version += 1;
+        await save();
+      }
+      return learningOf(state, enrollment);
+    },
+    async courseVideo(id) {
+      const actor = requireActor(state);
+      const enrollment = state.data.enrollments.find((item) => item.id === id);
+      if (!enrollment) throw new ClientError("找不到課程影片", { status: 404 });
+      const staff = actor.role !== UserRole.APPLICANT;
+      if (!staff && enrollment.userId !== actor.id) throw new ClientError("找不到課程影片", { status: 404 });
+      const course = state.data.courses.find((item) => item.id === enrollment.courseId);
+      const file = course?.videoFileId ? state.data.files.find((item) => item.id === course.videoFileId) : undefined;
+      if (!file) throw new ClientError("找不到課程影片", { status: 404 });
+      const binary = atob(file.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      return { blob: new Blob([bytes], { type: file.mimeType }), name: file.originalName };
+    },
     async uploadSiteImage(slot, file) {
       const saved = await uploadSiteImage(state.platform, requireActor(state), state.data, slot, file);
       await save();
@@ -1115,7 +1205,7 @@ export async function createMockServices(): Promise<Services> {
     },
     async contract(id) {
       const row = contractOf(state.platform, requireActor(state), id);
-      return { ...row, body: row.body };
+      return { ...row, body: row.body, hasSignature: Boolean(row.signatureFileId), hasFace: Boolean(row.faceFileId) };
     },
     async signContract(id, input) {
       const saved = await signContract(state.platform, requireActor(state), state.data, id, input);
@@ -1125,29 +1215,40 @@ export async function createMockServices(): Promise<Services> {
     async contractDocument(id) {
       return contractDocument(state.platform, requireActor(state), state.data, id);
     },
-    async contractTemplate() {
-      return templateOf(state.platform, requireActor(state));
+    async contractSignature(id) {
+      return contractCapture(state.platform, requireActor(state), state.data, id, "signature");
     },
-    async saveContractTemplate(input) {
-      const saved = saveTemplate(state.platform, requireActor(state), input);
+    async contractFace(id) {
+      return contractCapture(state.platform, requireActor(state), state.data, id, "face");
+    },
+    async recordRenewal(id, input) {
+      const saved = recordRenewal(state.platform, requireActor(state), id, input);
+      await save();
+      return saved;
+    },
+    async contractTemplates() {
+      return listTemplates(state.platform, requireActor(state));
+    },
+    async createContractTemplate(input) {
+      const saved = createTemplate(state.platform, requireActor(state), input);
+      await save();
+      return saved;
+    },
+    async createContractTemplateVersion(id, input) {
+      const saved = createTemplateVersion(state.platform, requireActor(state), id, input);
+      await save();
+      return saved;
+    },
+    async saveContractTemplate(id, input) {
+      const saved = saveTemplate(state.platform, requireActor(state), id, input);
       await save();
       return saved;
     },
     async adminContracts() {
       return adminContracts(state.platform, requireActor(state));
     },
-    async issueContract(organizationId) {
-      const saved = issueContract(state.platform, requireActor(state), state.data, organizationId);
-      await save();
-      return saved;
-    },
-    async saveContract(id, input) {
-      const saved = saveContract(state.platform, requireActor(state), id, input);
-      await save();
-      return saved;
-    },
-    async voidContract(id, expectedVersion) {
-      const saved = voidContract(state.platform, requireActor(state), id, expectedVersion);
+    async issueContract(organizationId, templateId) {
+      const saved = issueContract(state.platform, requireActor(state), state.data, organizationId, templateId);
       await save();
       return saved;
     },

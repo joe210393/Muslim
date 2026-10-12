@@ -4,6 +4,7 @@ export {
   AttendanceStatus,
   ConfigurationStatus,
   CourseStatus,
+  CourseDelivery,
   EnrollmentStatus,
   ContentSlot,
   EditorialKind,

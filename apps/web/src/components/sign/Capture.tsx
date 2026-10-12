@@ -22,7 +22,7 @@ export function FaceCapture({ onChange }: { onChange: (file: Blob | null) => voi
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch {
-      setCameraError("這台裝置沒有開相機。可以改上傳一張本人正面照片。");
+      setCameraError("無法開啟相機。請允許使用相機後，再按一次開啟相機。不能改上傳照片。");
     }
   }
 
@@ -50,48 +50,62 @@ export function FaceCapture({ onChange }: { onChange: (file: Blob | null) => voi
       <div className="flex flex-wrap gap-3">
         <Button type="button" variant="secondary" onClick={() => void start()}>開啟相機</Button>
         <Button type="button" onClick={shoot}>拍攝人像</Button>
-        <label className="rounded-md border border-[var(--ink)] px-4 py-2 text-sm">
-          改上傳人像
-          <input
-            className="sr-only"
-            type="file"
-            accept="image/jpeg,image/png"
-            onChange={(event) => {
-              const file = event.target.files?.[0] ?? null;
-              if (preview) URL.revokeObjectURL(preview);
-              setPreview(file ? URL.createObjectURL(file) : null);
-              onChange(file);
-            }}
-          />
-        </label>
       </div>
+      <p className="text-sm text-[var(--muted)]">請開啟相機拍攝。這裡不能改上傳照片。</p>
       {cameraError ? <p className="text-sm text-[var(--danger,#7a261c)]">{cameraError}</p> : null}
     </div>
   );
 }
 
+function prepareSignature(canvas: HTMLCanvasElement) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return null;
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(rect.width * ratio));
+  const height = Math.max(1, Math.round(rect.height * ratio));
+  const resized = canvas.width !== width || canvas.height !== height;
+  if (resized) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.lineWidth = 2.4;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#1a1916";
+  return { context, resized };
+}
+
 export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
+  const dirty = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = 720 * ratio;
-    canvas.height = 220 * ratio;
-    context.scale(ratio, ratio);
-    context.lineWidth = 2.4;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.strokeStyle = "#1a1916";
-  }, []);
+    if (!canvas) return;
+    const fit = () => {
+      const prepared = prepareSignature(canvas);
+      if (prepared?.resized && dirty.current) {
+        dirty.current = false;
+        onChange(null);
+      }
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [onChange]);
 
   function point(event: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    return {
+      x: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
+      y: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+    };
   }
 
   function exportInk() {
@@ -114,37 +128,50 @@ export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => vo
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
+    context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
+    prepareSignature(canvas);
     onChange(null);
+  }
+
+  function stop(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current) return;
+    drawing.current = false;
+    if (canvasRef.current?.hasPointerCapture(event.pointerId)) canvasRef.current.releasePointerCapture(event.pointerId);
+    exportInk();
   }
 
   return (
     <div className="space-y-3">
-      <canvas
-        ref={canvasRef}
-        className="h-44 w-full touch-none rounded-md border border-[var(--ink)] bg-white"
-        onPointerDown={(event) => {
-          const context = canvasRef.current?.getContext("2d");
-          if (!context) return;
-          drawing.current = true;
-          canvasRef.current?.setPointerCapture(event.pointerId);
-          const next = point(event);
-          context.beginPath();
-          context.moveTo(next.x, next.y);
-        }}
-        onPointerMove={(event) => {
-          if (!drawing.current) return;
-          const context = canvasRef.current?.getContext("2d");
-          if (!context) return;
-          const next = point(event);
-          context.lineTo(next.x, next.y);
-          context.stroke();
-        }}
-        onPointerUp={() => {
-          drawing.current = false;
-          exportInk();
-        }}
-      />
+      <div className="h-48 w-full max-w-full overflow-hidden rounded-md border border-[var(--ink)] bg-white">
+        <canvas
+          ref={canvasRef}
+          className="block h-full w-full touch-none"
+          style={{ touchAction: "none" }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            const prepared = canvasRef.current ? prepareSignature(canvasRef.current) : null;
+            if (!prepared) return;
+            drawing.current = true;
+            dirty.current = true;
+            canvasRef.current?.setPointerCapture(event.pointerId);
+            const next = point(event);
+            prepared.context.beginPath();
+            prepared.context.moveTo(next.x, next.y);
+          }}
+          onPointerMove={(event) => {
+            if (!drawing.current) return;
+            event.preventDefault();
+            const context = canvasRef.current?.getContext("2d");
+            if (!context) return;
+            const next = point(event);
+            context.lineTo(next.x, next.y);
+            context.stroke();
+          }}
+          onPointerUp={stop}
+          onPointerCancel={stop}
+        />
+      </div>
       <Button type="button" variant="secondary" onClick={clear}>清除簽名</Button>
     </div>
   );
