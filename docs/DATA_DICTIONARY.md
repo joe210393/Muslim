@@ -49,6 +49,8 @@
 | Course | 課程分鐘數 | durationMinutes | duration_minutes | int；正整數分鐘 | 否 | 必填 | 必填 | 低 | 有出席後初版不改門檻 |
 | Course | 完課門檻 | requiredAttendanceMinutes | required_attendance_minutes | int；0 到課程分鐘數；示範規則 | 否 | 必填 | 必填 | 低 | 有出席後初版不改 |
 | Course | 課程狀態 | status | status | CourseStatus；DRAFT / PUBLISHED / CANCELLED / COMPLETED | 否 | 必填 | 必填 | 低 | 管理端可改 |
+| Course | YouTube 連結 | youtubeUrl | youtube_url | string；空字串或 youtube.com、youtu.be 影片網址 | 否 | 否 | 否 | 低 | 管理端可改 |
+| Course | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG。前台顯示為 imageUrl | 是 | 否 | 否 | 低 | 管理端可換圖 |
 | FileObject | 儲存鍵 | storageKey | storage_key | string；不可覆寫；阻擋路徑穿越 | 否 | server 產生 | 不回傳實體路徑 | 高 | 不可改 |
 | ApplicationAttachment | 附件要求代碼 | requirementKey | requirement_key | string；必須存在於該表單版本 | 否 | 上傳必填 | 依類別版本 | 低 | 移除只標 removedAt |
 | SiteContent | 版位 | slot | slot | ContentSlot；同一版位只有一筆 | 否 | 必填 | 必填 | 低 | 管理員可改 |
@@ -60,8 +62,21 @@
 | SiteContent | 主按鈕路徑 | ctaHref | cta_href | string；只允許站內路徑 | 否 | 否 | 否 | 低 | 管理員可改 |
 | SiteContent | 次按鈕文字 | secondaryCtaLabel | secondary_cta_label | string；最多 40 字 | 否 | 否 | 否 | 低 | 管理員可改 |
 | SiteContent | 次按鈕路徑 | secondaryCtaHref | secondary_cta_href | string；只允許站內路徑 | 否 | 否 | 否 | 低 | 管理員可改 |
-| SiteContent | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG | 是 | 否 | 否 | 低 | 管理員可換圖 |
+| SiteContent | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG。每個內容頁都可以換圖 | 是 | 否 | 否 | 低 | 管理員可換圖 |
+| SiteContent | YouTube 連結 | youtubeUrl | youtube_url | string；空字串或 youtube.com、youtu.be 影片網址 | 否 | 否 | 否 | 低 | 管理員可改 |
 | SiteContent | 是否發布 | isPublished | is_published | boolean；未發布時前台不顯示該版位 | 否 | 否 | 否 | 低 | 管理員可改 |
+| EditorialEntry | 種類 | kind | kind | EditorialKind；首頁重點、關於事實、消息、驗證步驟、費用、問答、通知草稿 | 否 | 必填 | 必填 | 低 | 建立後不改種類 |
+| EditorialEntry | 代碼 | slug | slug | string；同種類內唯一；小寫英文、數字與連字號。消息網址用此代碼 | 否 | 必填 | 必填 | 低 | 建立後不改 |
+| EditorialEntry | 分類 | groupLabel | group_label | string；最多 40 字；常見問題的分類 | 否 | 問答必填 | 問答必填 | 低 | 管理員可改 |
+| EditorialEntry | 標題 | title | title | string；1–200 字。問答為問題，費用為項目名稱，關於我們為標籤 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| EditorialEntry | 摘要 | summary | summary | string；最多 500 字。費用為計費方式，通知為寄送時機 | 否 | 消息、費用、通知必填 | 同左 | 低 | 管理員可改 |
+| EditorialEntry | 內文 | body | body | string；1–4000 字。問答為答案，費用為金額，關於我們為內容 | 否 | 必填 | 必填 | 低 | 管理員可改 |
+| EditorialEntry | 備註 | note | note | string；最多 200 字。費用的退費說明放這裡 | 否 | 否 | 否 | 低 | 管理員可改 |
+| EditorialEntry | YouTube 連結 | youtubeUrl | youtube_url | string；最新消息使用。空字串或 YouTube 影片網址 | 否 | 否 | 否 | 低 | 管理員可改 |
+| EditorialEntry | 圖片 | imageFileId | image_file_id | uuid；最新消息使用。JPEG 或 PNG，前台顯示為 imageUrl | 是 | 否 | 否 | 低 | 管理員可換圖 |
+| EditorialEntry | 發布日 | publishedOn | published_on | date；YYYY-MM-DD。首頁消息依此由新到舊取前五則 | 消息以外可空 | 消息必填 | 消息必填 | 低 | 管理員可改 |
+| EditorialEntry | 排序 | sortOrder | sort_order | int；0–9999。同日消息再依此排序 | 否 | 否 | 否 | 低 | 管理員可改 |
+| EditorialEntry | 是否發布 | isPublished | is_published | boolean；未發布時前台與首頁都不列出 | 否 | 否 | 否 | 低 | 管理員可改或刪除 |
 | ContractTemplate | 範本代碼 | code | code | string；唯一 | 否 | 必填 | 必填 | 低 | 不在畫面上改代碼 |
 | ContractTemplate | 範本標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | ContractTemplate | 範本內文 | body | body | string；可用 {{organizationName}} 等代換欄 | 否 | 必填 | 必填 | 低 | 管理員可改，已簽署合約不回寫 |
@@ -74,8 +89,10 @@
 | ContractRecord | 人像檔 | faceFileId | face_file_id | uuid；JPEG 或 PNG，最短邊 120 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
 | ContractRecord | 手寫簽名檔 | signatureFileId | signature_file_id | uuid；PNG，需有筆畫 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
 | ContractRecord | 合約 PDF | pdfFileId | pdf_file_id | uuid；內含簽名與人像 | 是 | 否 | 簽署後產生 | 高 | 簽署時產生 |
-| RoleFeature | 功能鍵 | featureKey | feature_key | string；與角色聯合唯一 | 否 | 必填 | 必填 | 中 | 管理員可改；不可關閉管理員的帳號管理 |
-| RoleFeature | 是否啟用 | enabled | enabled | boolean；關閉後該角色呼叫對應 API 會被拒絕 | 否 | 必填 | 必填 | 中 | 管理員可改 |
+| UserFeature | 功能鍵 | featureKey | feature_key | string；與使用者聯合唯一 | 否 | 必填 | 必填 | 中 | 建立帳號時一併勾選；之後可對該帳號開關 |
+| UserFeature | 是否啟用 | enabled | enabled | boolean；關閉後該帳號呼叫對應 API 會被拒絕 | 否 | 必填 | 必填 | 中 | 不可關閉最後一個帳號管理 |
+| RoleFeature | 功能鍵 | featureKey | feature_key | string；與角色聯合唯一 | 否 | 必填 | 必填 | 中 | 不再用來授權，保留既有資料 |
+| RoleFeature | 是否啟用 | enabled | enabled | boolean；已改由 UserFeature 判斷 | 否 | 必填 | 必填 | 中 | 不再用來授權 |
 | IntegrationSetting | 串接鍵 | key | key | string；主鍵 | 否 | 必填 | 必填 | 低 | 不可改鍵名 |
 | IntegrationSetting | 服務商 | provider | provider | string；1–80 字，不存放金鑰 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | IntegrationSetting | 是否啟用 | enabled | enabled | boolean；關閉後相關上傳或簽署會被拒絕 | 否 | 必填 | 必填 | 低 | 管理員可改 |
@@ -89,8 +106,9 @@
 - Enrollment / Course：課程、報名、出席與學習紀錄
 - Certification：驗證紀錄與核定後人工登錄
 - FileObject / ApplicationAttachment：申請附件
-- SiteContent：首頁 Hero 與 Banner
+- SiteContent / EditorialEntry：首頁、關於我們、最新消息、驗證介紹、常見問題。最新消息是一篇篇文章，圖片與 YouTube 在文章上。首頁消息與課程各顯示前五筆
+- Course：公開列表可切換月曆。課程介紹、圖片與 YouTube 在課程頁
 - ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
-- RoleFeature / IntegrationSetting：角色功能與串接開關
+- UserFeature / IntegrationSetting：帳號功能與串接開關。RoleFeature 只保留舊資料，不再用來授權
 
 環境變數實際值、密碼雜湊與 token 不寫入本檔。密碼雜湊欄位僅標示存在，API 不回傳。

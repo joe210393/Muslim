@@ -159,6 +159,8 @@ export type DemoDataset = {
     durationMinutes: number;
     requiredAttendanceMinutes: number;
     status: CourseStatus;
+    youtubeUrl: string;
+    imageFileId: string | null;
     createdById: string;
     version: number;
     createdAt: string;
@@ -582,7 +584,7 @@ export function buildDemoDataset(): DemoDataset {
     }
   }
 
-  const courses: DemoDataset["courses"] = [
+  const courses: DemoDataset["courses"] = ([
     {
       id: demoUuid(0x501),
       title: "穆斯林友善廚房入門（示範）",
@@ -691,7 +693,7 @@ export function buildDemoDataset(): DemoDataset {
       createdAt: isoDaysBefore(9),
       updatedAt: isoDaysBefore(1),
     },
-  ];
+  ] satisfies Array<Omit<DemoDataset["courses"][number], "youtubeUrl" | "imageFileId">>).map((course) => ({ ...course, youtubeUrl: "", imageFileId: null }));
 
   const enrollments: DemoDataset["enrollments"] = [
     enrollment(0x601, courses[0]!.id, applicants[0]!.id, EnrollmentStatus.CONFIRMED, AttendanceStatus.NOT_RECORDED, 0, 180, null),

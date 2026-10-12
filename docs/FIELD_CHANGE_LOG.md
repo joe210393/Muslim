@@ -6,3 +6,7 @@
 |---|---|---|
 | 2026-09-28 | 初版建立。畫面／API `taxId` 對資料庫 `tax_id`；申請快照為 `taxIdSnapshot`／`tax_id_snapshot` | 見 `schema.prisma` 與 `docs/DATA_DICTIONARY.md` |
 | 2026-10-11 | 新增首頁版位、合約範本與合約、角色功能、串接設定 | migration `20261011000000_site_and_contracts`。合約快照 API 欄位為 `body` |
+| 2026-10-12 | 功能改掛在帳號上 | migration `20261012000000_account_features`。建立帳號時傳 `features`。`role_features` 保留，不再用來授權 |
+| 2026-10-12 | 前台五個頁面改由內容管理儲存 | migration `20261012120000_editorial_content`。版位增加關於我們、最新消息、驗證介紹、常見問題。可重複的文字放 `editorial_entries` |
+| 2026-10-12 | 每個內容頁可放 YouTube 連結 | migration `20261012140000_site_youtube`。`youtube_url` 只接受 YouTube 網址 |
+| 2026-10-12 | 最新消息與課程可放圖片、YouTube | migration `20261012160000_blog_media`。消息文章與課程各有 `youtube_url`、`image_file_id` |

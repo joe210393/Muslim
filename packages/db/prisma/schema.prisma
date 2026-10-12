@@ -114,8 +114,24 @@ enum ImportBatchStatus {
 enum ContentSlot {
   HOME_HERO
   HOME_BANNER
+  ABOUT
+  NEWS_INTRO
+  VERIFICATION
+  FAQ
 
   @@map("content_slot")
+}
+
+enum EditorialKind {
+  HOME_POINT
+  ABOUT_FACT
+  NEWS
+  VERIFICATION_STEP
+  FEE
+  FAQ
+  EMAIL_DRAFT
+
+  @@map("editorial_kind")
 }
 
 enum ContractStatus {
@@ -153,9 +169,11 @@ model User {
   auditLogs               AuditLog[]
   importBatches           ImportBatch[]
   editedSiteContents      SiteContent[]      @relation("SiteContentEditor")
+  editedEditorials        EditorialEntry[]   @relation("EditorialEditor")
   editedContractTemplates ContractTemplate[] @relation("TemplateEditor")
   issuedContracts         ContractRecord[]   @relation("ContractIssuer")
   signedContracts         ContractRecord[]   @relation("ContractSigner")
+  features                UserFeature[]
 
   @@index([organizationId])
   @@index([role, isActive])
@@ -343,6 +361,8 @@ model FileObject {
   uploadedBy           User                    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
   attachments          ApplicationAttachment[]
   siteImages           SiteContent[]           @relation("SiteImage")
+  editorialImages      EditorialEntry[]        @relation("EditorialImage")
+  courseImages         Course[]                @relation("CourseImage")
   contractFaces        ContractRecord[]        @relation("ContractFace")
   contractSignatures   ContractRecord[]        @relation("ContractSignature")
   contractDocuments    ContractRecord[]        @relation("ContractPdf")
@@ -369,6 +389,8 @@ model Course {
   id                         String       @id @default(uuid()) @db.Uuid
   title                      String       @db.VarChar(200)
   description                String       @db.VarChar(4000)
+  youtubeUrl                 String       @default("") @map("youtube_url") @db.VarChar(200)
+  imageFileId                String?      @unique @map("image_file_id") @db.Uuid
   location                   String       @db.VarChar(200)
   startsAt                   DateTime     @map("starts_at") @db.Timestamptz(6)
   endsAt                     DateTime     @map("ends_at") @db.Timestamptz(6)
@@ -384,6 +406,7 @@ model Course {
   updatedAt                  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  image       FileObject?  @relation("CourseImage", fields: [imageFileId], references: [id], onDelete: Restrict)
   enrollments Enrollment[]
 
   @@index([status, registrationOpensAt, registrationClosesAt])
@@ -494,6 +517,7 @@ model SiteContent {
   ctaHref            String      @map("cta_href") @db.VarChar(200)
   secondaryCtaLabel  String      @default("") @map("secondary_cta_label") @db.VarChar(40)
   secondaryCtaHref   String      @default("") @map("secondary_cta_href") @db.VarChar(200)
+  youtubeUrl         String      @default("") @map("youtube_url") @db.VarChar(200)
   imageFileId        String?     @unique @map("image_file_id") @db.Uuid
   isPublished        Boolean     @default(true) @map("is_published")
   updatedById        String?     @map("updated_by_id") @db.Uuid
@@ -504,6 +528,32 @@ model SiteContent {
   updatedBy User?       @relation("SiteContentEditor", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("site_contents")
+}
+
+model EditorialEntry {
+  id          String        @id @default(uuid()) @db.Uuid
+  kind        EditorialKind
+  slug        String        @db.VarChar(80)
+  groupLabel  String        @default("") @map("group_label") @db.VarChar(40)
+  title       String        @db.VarChar(200)
+  summary     String        @default("") @db.VarChar(500)
+  body        String        @db.VarChar(4000)
+  note        String        @default("") @db.VarChar(200)
+  youtubeUrl  String        @default("") @map("youtube_url") @db.VarChar(200)
+  imageFileId String?       @unique @map("image_file_id") @db.Uuid
+  publishedOn DateTime?     @map("published_on") @db.Date
+  sortOrder   Int           @default(0) @map("sort_order")
+  isPublished Boolean       @default(true) @map("is_published")
+  updatedById String?       @map("updated_by_id") @db.Uuid
+  version     Int           @default(1)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  updatedBy User?       @relation("EditorialEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  image     FileObject? @relation("EditorialImage", fields: [imageFileId], references: [id], onDelete: Restrict)
+
+  @@unique([kind, slug])
+  @@index([kind, isPublished, sortOrder])
+  @@map("editorial_entries")
 }
 
 model ContractTemplate {
@@ -552,6 +602,19 @@ model ContractRecord {
 
   @@index([organizationId, status])
   @@map("contracts")
+}
+
+model UserFeature {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  featureKey String   @map("feature_key") @db.VarChar(64)
+  enabled    Boolean
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, featureKey])
+  @@map("user_features")
 }
 
 model RoleFeature {

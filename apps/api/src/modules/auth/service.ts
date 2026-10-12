@@ -2,6 +2,8 @@ import {
   ErrorCodes,
   NotificationType,
   UserRole,
+  PLATFORM_FEATURES,
+  defaultFeatureEnabled,
   sha256Hex,
   type ChangePasswordRequest,
   type ForgotPasswordRequest,
@@ -17,6 +19,7 @@ import type { Env } from "../../config/env";
 import { ApiError } from "../../lib/errors";
 import { rateLimit, type SessionActor } from "../../middleware/auth";
 import { deliverNotification } from "../notifications/mailer";
+import { enabledFeatureKeys } from "../platform/access";
 
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -36,7 +39,7 @@ export function setCsrfCookie(res: Response, env: Env): string {
   return csrfToken;
 }
 
-export function publicUser(user: SessionActor) {
+export async function publicUser(user: SessionActor) {
   return {
     id: user.id,
     email: user.email,
@@ -44,6 +47,7 @@ export function publicUser(user: SessionActor) {
     role: user.role,
     organizationId: user.organizationId,
     isActive: user.isActive,
+    featureKeys: await enabledFeatureKeys(user.id, user.role),
   };
 }
 
@@ -85,6 +89,12 @@ export async function register(env: Env, res: Response, input: RegisterRequest, 
         displayName: input.displayName,
         role: UserRole.APPLICANT,
         organizationId: organization.id,
+        features: {
+          create: PLATFORM_FEATURES.map((feature) => ({
+            featureKey: feature.key,
+            enabled: defaultFeatureEnabled(UserRole.APPLICANT, feature.key),
+          })),
+        },
       },
     });
   });

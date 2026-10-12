@@ -1,3 +1,4 @@
+import type { ContentSlot, EditorialKind } from "@mf/contracts";
 import type {
   ApplicationDetail,
   ApplicationListItem,
@@ -19,7 +20,7 @@ import type {
 export type Page<T> = { items: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number } };
 
 export type SiteSlot = {
-  slot: "HOME_HERO" | "HOME_BANNER";
+  slot: ContentSlot;
   eyebrow: string;
   title: string;
   subtitle: string;
@@ -28,10 +29,37 @@ export type SiteSlot = {
   ctaHref: string;
   secondaryCtaLabel: string;
   secondaryCtaHref: string;
+  youtubeUrl: string;
   imageUrl: string | null;
 };
 
 export type AdminSiteSlot = SiteSlot & { isPublished: boolean; version: number; updatedAt: string };
+export type EditorialEntry = {
+  id: string;
+  kind: EditorialKind;
+  slug: string;
+  groupLabel: string;
+  title: string;
+  summary: string;
+  body: string;
+  note: string;
+  youtubeUrl: string;
+  imageUrl: string | null;
+  publishedOn: string | null;
+  sortOrder: number;
+};
+export type AdminEditorialEntry = EditorialEntry & { isPublished: boolean; version: number; updatedAt: string };
+export type EditorialWrite = Omit<EditorialEntry, "id" | "imageUrl"> & { isPublished: boolean };
+export type EditorialUpdate = Omit<EditorialWrite, "kind" | "slug"> & { expectedVersion: number };
+export type PublicSite = {
+  hero: SiteSlot | null;
+  banner: SiteSlot | null;
+  about: SiteSlot | null;
+  newsIntro: SiteSlot | null;
+  verification: SiteSlot | null;
+  faq: SiteSlot | null;
+  entries: EditorialEntry[];
+};
 export type SiteSlotInput = {
   eyebrow: string;
   title: string;
@@ -41,6 +69,7 @@ export type SiteSlotInput = {
   ctaHref: string;
   secondaryCtaLabel: string;
   secondaryCtaHref: string;
+  youtubeUrl: string;
   isPublished: boolean;
   expectedVersion: number;
 };
@@ -59,7 +88,13 @@ export type ContractItem = {
 };
 export type ContractTemplateItem = { id: string; code: string; title: string; body: string; version: number; updatedAt: string };
 export type AccessSettings = {
-  features: Array<{ role: string; featureKey: string; label: string; enabled: boolean }>;
+  accounts: Array<{
+    id: string;
+    email: string;
+    displayName: string;
+    isActive: boolean;
+    features: Array<{ featureKey: string; label: string; enabled: boolean }>;
+  }>;
   integrations: Array<{ key: string; label: string; provider: string; enabled: boolean; note: string }>;
 };
 
@@ -113,7 +148,7 @@ export type Services = {
   certifications: () => Promise<Certification[]>;
   saveCertification: (applicationId: string, input: { certificateNo: string; issuedOnDate: string; validUntilDate: string }) => Promise<Certification>;
   users: (q?: string) => Promise<Array<{ id: string; email: string; displayName: string; role: string; organizationName: string | null; isActive: boolean }>>;
-  createUser: (input: { email: string; displayName: string; password: string; role: "CASE_OFFICER" | "ADMIN" }) => Promise<void>;
+  createUser: (input: { email: string; displayName: string; password: string; features: string[] }) => Promise<void>;
   updateUser: (id: string, input: { isActive?: boolean; role?: "CASE_OFFICER" | "ADMIN" }) => Promise<void>;
   organizations: (q?: string) => Promise<Organization[]>;
   importTemplate: (type: "ORGANIZATIONS" | "APPLICATION_DRAFTS") => Promise<string>;
@@ -122,10 +157,16 @@ export type Services = {
   exportApplications: () => Promise<string>;
   exportEnrollments: (courseId: string) => Promise<string>;
   audit: () => Promise<AuditLog[]>;
-  publicSite: () => Promise<{ hero: SiteSlot | null; banner: SiteSlot | null }>;
+  publicSite: () => Promise<PublicSite>;
   adminSite: () => Promise<AdminSiteSlot[]>;
-  saveSite: (slot: "HOME_HERO" | "HOME_BANNER", input: SiteSlotInput) => Promise<AdminSiteSlot>;
-  uploadSiteImage: (slot: "HOME_HERO" | "HOME_BANNER", file: File) => Promise<AdminSiteSlot>;
+  saveSite: (slot: ContentSlot, input: SiteSlotInput) => Promise<AdminSiteSlot>;
+  uploadSiteImage: (slot: ContentSlot, file: File) => Promise<AdminSiteSlot>;
+  uploadEntryImage: (id: string, file: File) => Promise<AdminEditorialEntry>;
+  uploadCourseImage: (id: string, file: File) => Promise<Course>;
+  adminEntries: () => Promise<AdminEditorialEntry[]>;
+  createEntry: (input: EditorialWrite) => Promise<AdminEditorialEntry>;
+  updateEntry: (id: string, input: EditorialUpdate) => Promise<AdminEditorialEntry>;
+  deleteEntry: (id: string) => Promise<void>;
   myContracts: () => Promise<ContractItem[]>;
   contract: (id: string) => Promise<ContractItem & { body: string }>;
   signContract: (id: string, input: { signerName: string; signerTitle: string; expectedVersion: number; face: Blob; signature: Blob }) => Promise<ContractItem & { body: string }>;
@@ -137,7 +178,7 @@ export type Services = {
   saveContract: (id: string, input: { title: string; body: string; expectedVersion: number }) => Promise<ContractItem & { body: string }>;
   voidContract: (id: string, expectedVersion: number) => Promise<ContractItem & { body: string }>;
   accessSettings: () => Promise<AccessSettings>;
-  updateFeature: (input: { role: "APPLICANT" | "CASE_OFFICER" | "ADMIN"; featureKey: string; enabled: boolean }) => Promise<void>;
+  updateFeature: (input: { userId: string; featureKey: string; enabled: boolean }) => Promise<void>;
   updateIntegration: (input: { key: string; provider: string; enabled: boolean; note: string }) => Promise<void>;
   resetDemo?: () => Promise<void>;
   demoAccounts?: () => Array<{ email: string; label: string }>;

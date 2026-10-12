@@ -11,5 +11,6 @@ export {
   ImportBatchType,
   ImportBatchStatus,
   ContentSlot,
+  EditorialKind,
   ContractStatus,
 } from "./generated/prisma/enums";

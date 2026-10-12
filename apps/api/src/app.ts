@@ -102,7 +102,7 @@ export function createApp() {
   }));
   api.get("/auth/me", route(async (req, res) => {
     const actor = await requireActor(req);
-    ok(res, req, auth.publicUser(actor));
+    ok(res, req, await auth.publicUser(actor));
   }));
   api.post("/auth/forgot-password", route(async (req, res) => ok(res, req, await auth.forgotPassword(env, forgotPasswordRequestSchema.parse(req.body), req.ip ?? "local"))));
   api.post("/auth/reset-password", route(async (req, res) => ok(res, req, await auth.resetPassword(resetPasswordRequestSchema.parse(req.body)))));
@@ -221,7 +221,7 @@ export function createApp() {
   }));
   api.post("/admin/applications/:id/assign", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "applications.decide");
     const body = assignApplicationSchema.parse(req.body);
     ok(res, req, await applications.assignApplication(actor, String(req.params.id), body.assignedToId, body.expectedVersion, body.requestId));
@@ -234,13 +234,13 @@ export function createApp() {
   }));
   api.post("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "applications.decide");
     ok(res, req, await admin.upsertCertification(actor, String(req.params.id), certificationWriteSchema.parse(req.body)));
   }));
   api.patch("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "applications.decide");
     ok(res, req, await admin.upsertCertification(actor, String(req.params.id), certificationWriteSchema.parse(req.body)));
   }));
@@ -269,6 +269,13 @@ export function createApp() {
     await access.assertFeature(actor, "training.manage");
     ok(res, req, await training.saveCourse(actor, courseWriteSchema.parse(req.body), String(req.params.id)));
   }));
+  api.post("/admin/courses/:id/image", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
+    ok(res, req, await training.uploadCourseImage(actor, storage, String(req.params.id), req.file));
+  }));
   api.get("/admin/courses/:id/enrollments/export", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
@@ -294,7 +301,7 @@ export function createApp() {
 
   api.get("/admin/users", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     const query = paginationQuerySchema.parse(req.query);
     const result = await admin.listUsers(typeof req.query.q === "string" ? req.query.q : undefined, query.page, query.pageSize);
@@ -302,19 +309,19 @@ export function createApp() {
   }));
   api.post("/admin/users", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     ok(res, req, await admin.createStaff(actor, createStaffUserSchema.parse(req.body)));
   }));
   api.patch("/admin/users/:id", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     ok(res, req, await admin.updateStaff(actor, String(req.params.id), updateStaffUserSchema.parse(req.body)));
   }));
   api.get("/admin/organizations", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     const query = paginationQuerySchema.parse(req.query);
     const result = await admin.listOrganizations(typeof req.query.q === "string" ? req.query.q : undefined, query.page, query.pageSize);
@@ -322,7 +329,7 @@ export function createApp() {
   }));
   api.get("/admin/organizations/:id", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     const org = await prisma.organization.findUnique({ where: { id: String(req.params.id) } });
     if (!org) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者");
@@ -330,34 +337,40 @@ export function createApp() {
   }));
   api.get("/admin/imports/template/:type", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     const type = req.params.type === "APPLICATION_DRAFTS" ? "APPLICATION_DRAFTS" : "ORGANIZATIONS";
     res.type("text/csv").send(admin.importTemplate(type));
   }));
   api.post("/admin/imports/preview", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     const type = req.body?.type === "APPLICATION_DRAFTS" ? "APPLICATION_DRAFTS" : "ORGANIZATIONS";
     ok(res, req, await admin.previewImport(actor, type, String(req.body?.csv ?? "")));
   }));
   api.post("/admin/imports/:id/commit", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "users.manage");
     const body = z.object({ requestId: z.string().uuid() }).parse(req.body);
     ok(res, req, await admin.commitImport(actor, String(req.params.id), body.requestId));
   }));
   api.get("/admin/audit-logs", route(async (req, res) => {
     const actor = await requireActor(req);
-    requireRoles(actor, [UserRole.ADMIN]);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "audit.view");
     const query = paginationQuerySchema.parse(req.query);
     const result = await admin.listAudit(query.page, query.pageSize);
     ok(res, req, result.items, result.meta);
   }));
   api.get("/site-content", route(async (req, res) => ok(res, req, await siteContent.publicSite())));
+  api.get("/media/:fileId", route(async (req, res) => {
+    const file = await siteContent.readSiteImage(await loadActor(req), storage, String(req.params.fileId));
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.send(Buffer.from(file.bytes));
+  }));
   api.get("/site-content/media/:fileId", route(async (req, res) => {
     const file = await siteContent.readSiteImage(await loadActor(req), storage, String(req.params.fileId));
     res.setHeader("Content-Type", file.mimeType);
@@ -373,6 +386,14 @@ export function createApp() {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
     const slot = contentSlotSchema.parse(req.params.slot);
     ok(res, req, await siteContent.uploadSiteImage(await requireActor(req), storage, slot, req.file));
+  }));
+  api.get("/admin/editorial", route(async (req, res) => ok(res, req, await siteContent.adminEntries(await requireActor(req)))));
+  api.post("/admin/editorial", route(async (req, res) => ok(res, req, await siteContent.createEntry(await requireActor(req), req.body))));
+  api.patch("/admin/editorial/:id", route(async (req, res) => ok(res, req, await siteContent.updateEntry(await requireActor(req), String(req.params.id), req.body))));
+  api.delete("/admin/editorial/:id", route(async (req, res) => ok(res, req, await siteContent.deleteEntry(await requireActor(req), String(req.params.id)))));
+  api.post("/admin/editorial/:id/image", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    ok(res, req, await siteContent.uploadEntryImage(await requireActor(req), storage, String(req.params.id), req.file));
   }));
 
   api.get("/contracts/mine", route(async (req, res) => ok(res, req, await contracts.listMyContracts(await requireActor(req)))));

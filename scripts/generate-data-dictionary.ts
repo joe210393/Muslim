@@ -24,9 +24,10 @@ const extra = `
 - Enrollment / Course：課程、報名、出席與學習紀錄
 - Certification：驗證紀錄與核定後人工登錄
 - FileObject / ApplicationAttachment：申請附件
-- SiteContent：首頁 Hero 與 Banner
+- SiteContent / EditorialEntry：首頁、關於我們、最新消息、驗證介紹、常見問題。最新消息是一篇篇文章，圖片與 YouTube 在文章上。首頁消息與課程各顯示前五筆
+- Course：公開列表可切換月曆。課程介紹、圖片與 YouTube 在課程頁
 - ContractTemplate / ContractRecord：合約範本、發出、簽署與 PDF
-- RoleFeature / IntegrationSetting：角色功能與串接開關
+- UserFeature / IntegrationSetting：帳號功能與串接開關。RoleFeature 只保留舊資料，不再用來授權
 
 環境變數實際值、密碼雜湊與 token 不寫入本檔。密碼雜湊欄位僅標示存在，API 不回傳。
 `;

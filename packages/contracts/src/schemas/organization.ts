@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nullableText } from "./common";
+import { staffFeatureKeySchema } from "./platform";
 
 export const organizationSchema = z.object({
   id: z.string().uuid(),
@@ -37,7 +38,7 @@ export const createStaffUserSchema = z.object({
   email: z.string().trim().email().max(320),
   displayName: z.string().trim().min(1).max(100),
   password: z.string().min(8).max(72),
-  role: z.enum(["CASE_OFFICER", "ADMIN"]),
+  features: z.array(staffFeatureKeySchema),
 });
 
 export const updateStaffUserSchema = z

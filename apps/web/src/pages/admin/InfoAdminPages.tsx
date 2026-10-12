@@ -1,32 +1,83 @@
+import { EditorialKind, STAFF_FEATURES, type ContentSlot } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useParams } from "react-router";
 import { useServices } from "../../app/session";
 import { siteReviewChecklist, standardReports } from "../../content/site-content";
-import { Button, Card, ErrorText, Field, PageHeader, PendingNote, TextInput } from "../../components/ui";
-import { ClientError, type AdminSiteSlot, type SiteSlotInput } from "../../services/types";
+import { Button, Card, ErrorText, Field, PageHeader, PendingNote, SectionNav, TextArea, TextInput } from "../../components/ui";
+import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type EditorialUpdate, type EditorialWrite, type SiteSlotInput } from "../../services/types";
+
+const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string }>> = {
+  ABOUT: { subtitle: "第一段", body: "第二段" },
+  NEWS_INTRO: { subtitle: "導言", body: "補充" },
+  VERIFICATION: { subtitle: "導言", body: "朝拜時間說明" },
+  FAQ: { subtitle: "導言", body: "補充" },
+};
+
+const CMS_PAGES: Record<string, { title: string; lede: string; part: string }> = {
+  home: { title: "首頁", lede: "這一頁只改首頁。Hero、Banner 與重點分開。最新消息與教育訓練仍各顯示前五筆。", part: "HOME_HERO" },
+  about: { title: "關於我們", lede: "這一頁只改關於我們。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
+  news: { title: "最新消息", lede: "每一則消息是一篇文章。文章可以上傳圖片與 YouTube 連結。", part: "list" },
+  verification: { title: "驗證介紹", lede: "這一頁只改驗證介紹。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
+  faq: { title: "常見問題", lede: "這一頁只改常見問題。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
+};
 
 export function CmsPage() {
+  const { page = "" } = useParams();
+  const config = CMS_PAGES[page];
   const services = useServices();
   const client = useQueryClient();
-  const query = useQuery({ queryKey: ["admin-site"], queryFn: () => services.adminSite() });
+  const slots = useQuery({ queryKey: ["admin-site"], queryFn: () => services.adminSite() });
+  const entries = useQuery({ queryKey: ["admin-editorial"], queryFn: () => services.adminEntries() });
+  const [part, setPart] = useState(config?.part ?? "page");
+  useEffect(() => { setPart(config?.part ?? "page"); }, [page, config?.part]);
+  async function refresh() {
+    await client.invalidateQueries({ queryKey: ["admin-site"] });
+    await client.invalidateQueries({ queryKey: ["admin-editorial"] });
+    await client.invalidateQueries({ queryKey: ["site-content"] });
+  }
+  if (!config) return <p>找不到這個頁面。</p>;
+  const slot = (id: ContentSlot) => slots.data?.find((item) => item.slot === id);
+  const list = entries.data ?? [];
   return (
-    <div className="space-y-8">
-      <PageHeader eyebrow="內部後台" title="內容管理" lede="這裡改的是首頁 Hero 與 Banner，儲存後公開首頁會立刻用這份內容。其他說明頁仍可在內容檔替換。" />
-      {query.isLoading ? <p>載入中…</p> : null}
-      {query.error ? <ErrorText message={query.error instanceof ClientError ? query.error.message : "無法載入內容"} /> : null}
-      {query.data?.map((slot) => (
-        <SlotEditor
-          key={slot.slot}
-          slot={slot}
-          onSaved={async () => client.invalidateQueries({ queryKey: ["admin-site"] })}
-        />
-      ))}
+    <div className="space-y-4">
+      <PageHeader eyebrow="內容管理" title={config.title} lede={config.lede} />
+      {slots.isLoading || entries.isLoading ? <p>載入中…</p> : null}
+      {slots.error || entries.error ? <ErrorText message="無法載入內容" /> : null}
+      {page === "home" ? (
+        <>
+          <SectionNav items={[{ id: "HOME_HERO", label: "Hero" }, { id: "HOME_BANNER", label: "Banner" }, { id: "points", label: "重點" }]} value={part} onChange={setPart} />
+          {part === "points" ? <EntryDesk kind={EditorialKind.HOME_POINT} entries={list} onChanged={refresh} /> : null}
+          {part !== "points" && slot(part as ContentSlot) ? <SlotEditor key={part} slot={slot(part as ContentSlot)!} mode="media" onSaved={refresh} /> : null}
+        </>
+      ) : null}
+      {page === "about" ? <CopyAndList part={part} setPart={setPart} pageSlot={slot("ABOUT")} listLabel="重點" listKind={EditorialKind.ABOUT_FACT} entries={list} onSaved={refresh} /> : null}
+      {page === "news" ? <EntryDesk kind={EditorialKind.NEWS} entries={list} onChanged={refresh} /> : null}
+      {page === "verification" ? (
+        <>
+          <SectionNav items={[{ id: "page", label: "頁首" }, { id: "steps", label: "申請流程" }, { id: "fees", label: "費用" }, { id: "mail", label: "通知草稿" }]} value={part} onChange={setPart} />
+          {part === "page" && slot("VERIFICATION") ? <SlotEditor key="VERIFICATION" slot={slot("VERIFICATION")!} mode="copy" onSaved={refresh} /> : null}
+          {part === "steps" ? <EntryDesk kind={EditorialKind.VERIFICATION_STEP} entries={list} onChanged={refresh} /> : null}
+          {part === "fees" ? <EntryDesk kind={EditorialKind.FEE} entries={list} onChanged={refresh} /> : null}
+          {part === "mail" ? <EntryDesk kind={EditorialKind.EMAIL_DRAFT} entries={list} onChanged={refresh} /> : null}
+        </>
+      ) : null}
+      {page === "faq" ? <CopyAndList part={part} setPart={setPart} pageSlot={slot("FAQ")} listLabel="問答" listKind={EditorialKind.FAQ} entries={list} onSaved={refresh} /> : null}
     </div>
   );
 }
 
-function SlotEditor({ slot, onSaved }: { slot: AdminSiteSlot; onSaved: () => Promise<void> }) {
+function CopyAndList({ part, setPart, pageSlot, listLabel, listKind, entries, onSaved }: { part: string; setPart: (id: string) => void; pageSlot?: AdminSiteSlot; listLabel: string; listKind: EditorialKind; entries: AdminEditorialEntry[]; onSaved: () => Promise<void> }) {
+  return (
+    <>
+      <SectionNav items={[{ id: "page", label: "頁首" }, { id: "list", label: listLabel }]} value={part} onChange={setPart} />
+      {part === "page" && pageSlot ? <SlotEditor key={pageSlot.slot} slot={pageSlot} mode="copy" onSaved={onSaved} /> : null}
+      {part === "list" ? <EntryDesk kind={listKind} entries={entries} onChanged={onSaved} /> : null}
+    </>
+  );
+}
+
+function SlotEditor({ slot, onSaved, mode }: { slot: AdminSiteSlot; onSaved: () => Promise<void>; mode: "media" | "copy" }) {
   const services = useServices();
   const [form, setForm] = useState<SiteSlotInput>({
     eyebrow: slot.eyebrow,
@@ -37,6 +88,7 @@ function SlotEditor({ slot, onSaved }: { slot: AdminSiteSlot; onSaved: () => Pro
     ctaHref: slot.ctaHref,
     secondaryCtaLabel: slot.secondaryCtaLabel,
     secondaryCtaHref: slot.secondaryCtaHref,
+    youtubeUrl: slot.youtubeUrl ?? "",
     isPublished: slot.isPublished,
     expectedVersion: slot.version,
   });
@@ -51,11 +103,13 @@ function SlotEditor({ slot, onSaved }: { slot: AdminSiteSlot; onSaved: () => Pro
       ctaHref: slot.ctaHref,
       secondaryCtaLabel: slot.secondaryCtaLabel,
       secondaryCtaHref: slot.secondaryCtaHref,
+      youtubeUrl: slot.youtubeUrl ?? "",
       isPublished: slot.isPublished,
       expectedVersion: slot.version,
     });
   }, [slot]);
-  const name = slot.slot === "HOME_HERO" ? "首頁 Hero" : "首頁 Banner";
+  const labels = COPY_LABELS[slot.slot] ?? { subtitle: "副標", body: "內文" };
+  const name = slot.slot === "HOME_HERO" ? "首頁 Hero" : slot.slot === "HOME_BANNER" ? "首頁 Banner" : slot.title;
   return (
     <Card>
       <h2 className="text-2xl">{name}</h2>
@@ -74,19 +128,22 @@ function SlotEditor({ slot, onSaved }: { slot: AdminSiteSlot; onSaved: () => Pro
       >
         <Field label="眉題"><TextInput value={form.eyebrow} onChange={(event) => setForm({ ...form, eyebrow: event.target.value })} /></Field>
         <Field label="標題"><TextInput value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field>
-        <Field label="副標"><TextInput value={form.subtitle} onChange={(event) => setForm({ ...form, subtitle: event.target.value })} /></Field>
-        <Field label="內文"><textarea className="min-h-28 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2" value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></Field>
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label="主按鈕文字"><TextInput value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} /></Field>
-          <Field label="主按鈕路徑"><TextInput value={form.ctaHref} onChange={(event) => setForm({ ...form, ctaHref: event.target.value })} /></Field>
-          <Field label="次按鈕文字"><TextInput value={form.secondaryCtaLabel} onChange={(event) => setForm({ ...form, secondaryCtaLabel: event.target.value })} /></Field>
-          <Field label="次按鈕路徑"><TextInput value={form.secondaryCtaHref} onChange={(event) => setForm({ ...form, secondaryCtaHref: event.target.value })} /></Field>
-        </div>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPublished} onChange={(event) => setForm({ ...form, isPublished: event.target.checked })} />發布到首頁</label>
+        <Field label={labels.subtitle}><TextInput value={form.subtitle} onChange={(event) => setForm({ ...form, subtitle: event.target.value })} /></Field>
+        <Field label={labels.body}><TextArea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></Field>
+        {mode === "media" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="主按鈕文字"><TextInput value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} /></Field>
+            <Field label="主按鈕路徑"><TextInput value={form.ctaHref} onChange={(event) => setForm({ ...form, ctaHref: event.target.value })} /></Field>
+            <Field label="次按鈕文字"><TextInput value={form.secondaryCtaLabel} onChange={(event) => setForm({ ...form, secondaryCtaLabel: event.target.value })} /></Field>
+            <Field label="次按鈕路徑"><TextInput value={form.secondaryCtaHref} onChange={(event) => setForm({ ...form, secondaryCtaHref: event.target.value })} /></Field>
+          </div>
+        ) : null}
+        <Field label="YouTube 連結" hint="貼上 youtube.com 或 youtu.be 的影片網址。留白表示這一頁不放影片。"><TextInput value={form.youtubeUrl} placeholder="https://www.youtube.com/watch?v=" onChange={(event) => setForm({ ...form, youtubeUrl: event.target.value })} /></Field>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPublished} onChange={(event) => setForm({ ...form, isPublished: event.target.checked })} />發布</label>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit">儲存文字</Button>
-          <label className="rounded-md border border-[var(--ink)] px-4 py-2 text-sm">
-            更換圖片
+          <Button type="submit">儲存</Button>
+          <label className="btn rounded-md px-4 py-2 text-sm">
+            上傳圖片
             <input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={async (event) => {
               const file = event.target.files?.[0];
               if (!file) return;
@@ -100,9 +157,124 @@ function SlotEditor({ slot, onSaved }: { slot: AdminSiteSlot; onSaved: () => Pro
             }} />
           </label>
         </div>
-        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="mt-3 h-36 w-full rounded-md object-cover" /> : null}
+        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="mt-3 h-36 w-full rounded-md object-cover" /> : <p className="text-sm text-[var(--muted)]">還沒有圖片。</p>}
         {message ? <p className="text-sm">{message}</p> : null}
       </form>
+    </Card>
+  );
+}
+
+const ENTRY_FIELDS: Record<EditorialKind, { title: string; summary?: string; body: string; note?: string; group?: boolean; date?: boolean; slug?: boolean; order?: boolean }> = {
+  HOME_POINT: { title: "標題", body: "說明", order: true },
+  ABOUT_FACT: { title: "標籤", body: "內容", order: true },
+  NEWS: { title: "標題", summary: "摘要", body: "內文", date: true, slug: true },
+  VERIFICATION_STEP: { title: "步驟", body: "說明", order: true },
+  FEE: { title: "項目", summary: "計費", body: "金額", note: "退費", slug: true, order: true },
+  FAQ: { title: "問題", body: "答案", group: true, order: true },
+  EMAIL_DRAFT: { title: "主旨", summary: "寄送時機", body: "內文", order: true },
+};
+
+function EntryDesk({ kind, entries, onChanged }: { kind: EditorialKind; entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
+  const mine = entries.filter((item) => item.kind === kind).sort((a, b) => (b.publishedOn ?? "").localeCompare(a.publishedOn ?? "") || a.sortOrder - b.sortOrder);
+  const [picked, setPicked] = useState<string | "new" | null>(null);
+  const active = picked ?? mine[0]?.id ?? "new";
+  const selected = mine.find((item) => item.id === active) ?? null;
+  return (
+    <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="space-y-2">
+        <button type="button" className={`btn w-full rounded-md px-3 py-2 text-left text-sm ${active === "new" ? "is-selected" : ""}`} aria-pressed={active === "new"} onClick={() => setPicked("new")}>新增</button>
+        <div className="max-h-[28rem] space-y-2 overflow-auto">
+          {mine.map((item) => (
+            <button key={item.id} type="button" className={`btn block w-full rounded-md px-3 py-2 text-left text-sm ${active === item.id ? "is-selected" : ""}`} aria-pressed={active === item.id} onClick={() => setPicked(item.id)}>
+              <span className="block font-medium">{item.title}</span>
+              <span className="block text-[var(--muted)]">{item.publishedOn || item.groupLabel || (item.isPublished ? "發布中" : "未發布")}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <EntryForm key={`${kind}-${active}`} kind={kind} entry={active === "new" ? null : selected} onSaved={async (id) => { setPicked(id); await onChanged(); }} onDeleted={async () => { setPicked("new"); await onChanged(); }} />
+    </div>
+  );
+}
+
+function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; entry: AdminEditorialEntry | null; onSaved: (id: string) => Promise<void>; onDeleted: () => Promise<void> }) {
+  const services = useServices();
+  const fields = ENTRY_FIELDS[kind];
+  const [form, setForm] = useState<EditorialWrite>({
+    kind,
+    slug: entry?.slug ?? "",
+    groupLabel: entry?.groupLabel ?? (kind === EditorialKind.FAQ ? "申請" : ""),
+    title: entry?.title ?? "",
+    summary: entry?.summary ?? "",
+    body: entry?.body ?? "",
+    note: entry?.note ?? "",
+    youtubeUrl: entry?.youtubeUrl ?? "",
+    publishedOn: entry?.publishedOn ?? (fields.date ? new Date().toISOString().slice(0, 10) : null),
+    sortOrder: entry?.sortOrder ?? 1,
+    isPublished: entry?.isPublished ?? true,
+  });
+  const [message, setMessage] = useState("");
+  async function save() {
+    const slug = fields.slug ? form.slug : entry?.slug || `item-${crypto.randomUUID().slice(0, 8)}`;
+    const payload: EditorialWrite = { ...form, kind, slug, publishedOn: fields.date ? form.publishedOn : null, groupLabel: fields.group ? form.groupLabel : "", summary: fields.summary ? form.summary : "", note: fields.note ? form.note : "" };
+    try {
+      if (entry) {
+        const update: EditorialUpdate = { ...payload, expectedVersion: entry.version };
+        const saved = await services.updateEntry(entry.id, update);
+        setMessage("已儲存");
+        await onSaved(saved.id);
+      } else {
+        const saved = await services.createEntry(payload);
+        setMessage("已新增");
+        await onSaved(saved.id);
+      }
+    } catch (error) {
+      setMessage(error instanceof ClientError ? error.message : "儲存失敗");
+    }
+  }
+  return (
+    <Card className="space-y-3">
+      <h2 className="text-xl">{entry ? entry.title : "新增"}</h2>
+      {fields.slug ? <Field label="代碼" hint="小寫英文、數字與連字號。消息的網址會用這個代碼，建立後不能改。"><TextInput value={form.slug} disabled={Boolean(entry)} onChange={(event) => setForm({ ...form, slug: event.target.value })} /></Field> : null}
+      {fields.date ? <Field label="日期"><TextInput type="date" value={form.publishedOn ?? ""} onChange={(event) => setForm({ ...form, publishedOn: event.target.value || null })} /></Field> : null}
+      {fields.group ? <Field label="分類"><TextInput value={form.groupLabel} onChange={(event) => setForm({ ...form, groupLabel: event.target.value })} /></Field> : null}
+      <Field label={fields.title}><TextInput value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field>
+      {fields.summary ? <Field label={fields.summary}><TextInput value={form.summary} onChange={(event) => setForm({ ...form, summary: event.target.value })} /></Field> : null}
+      <Field label={fields.body}><TextArea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></Field>
+      {kind === EditorialKind.NEWS ? (
+        <>
+          <Field label="YouTube 連結" hint="貼上 youtube.com 或 youtu.be 的影片網址。留白表示這篇文章不放影片。">
+            <TextInput value={form.youtubeUrl} placeholder="https://www.youtube.com/watch?v=" onChange={(event) => setForm({ ...form, youtubeUrl: event.target.value })} />
+          </Field>
+          {entry ? (
+            <div>
+              <label className="btn inline-block cursor-pointer rounded-md px-3 py-2 text-sm">上傳圖片
+                <input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  try {
+                    const saved = await services.uploadEntryImage(entry.id, file);
+                    setMessage("已更換圖片");
+                    await onSaved(saved.id);
+                  } catch (error) {
+                    setMessage(error instanceof ClientError ? error.message : "上傳失敗");
+                  }
+                }} />
+              </label>
+              {entry.imageUrl ? <img src={entry.imageUrl} alt="" className="mt-3 h-48 w-full rounded-md object-cover" /> : <p className="mt-2 text-sm text-[var(--muted)]">還沒有圖片。</p>}
+            </div>
+          ) : <p className="text-sm text-[var(--muted)]">先儲存文章，再上傳圖片。</p>}
+        </>
+      ) : null}
+      {fields.note ? <Field label={fields.note}><TextInput value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></Field> : null}
+      {fields.order ? <Field label="排序"><TextInput type="number" value={form.sortOrder} onChange={(event) => setForm({ ...form, sortOrder: Number(event.target.value) })} /></Field> : null}
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPublished} onChange={(event) => setForm({ ...form, isPublished: event.target.checked })} />發布</label>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => void save()}>儲存</Button>
+        {entry ? <Button variant="danger" onClick={async () => { try { await services.deleteEntry(entry.id); await onDeleted(); } catch (error) { setMessage(error instanceof ClientError ? error.message : "刪除失敗"); } }}>刪除</Button> : null}
+      </div>
+      {message ? <p className="text-sm">{message}</p> : null}
     </Card>
   );
 }
@@ -135,6 +307,7 @@ export function ContractAdminPage() {
   const [organizationId, setOrganizationId] = useState("");
   const [selected, setSelected] = useState("");
   const [message, setMessage] = useState("");
+  const [panel, setPanel] = useState<"template" | "issue" | "records">("records");
   useEffect(() => {
     if (!template.data) return;
     setDraft({ title: template.data.title, body: template.data.body, expectedVersion: template.data.version });
@@ -147,9 +320,10 @@ export function ContractAdminPage() {
     setIssuedDraft({ title: detail.data.title, body: detail.data.body, expectedVersion: detail.data.version });
   }, [detail.data]);
   return (
-    <div className="space-y-8">
-      <PageHeader eyebrow="內部後台" title="合約管理" lede="先改範本，再發給業者。待簽署的合約可以改這一份的文字；簽署後的 PDF 保留簽署當下的內容。" />
-      {template.data ? (
+    <div className="space-y-4">
+      <PageHeader eyebrow="內部後台" title="合約管理" lede="用上方切換範本、發出與單份合約。待簽署的可以改這一份；簽署後的 PDF 保留簽署當下的內容。" />
+      <SectionNav items={[{ id: "records", label: "已發出" }, { id: "issue", label: "發給業者" }, { id: "template", label: "合約範本" }]} value={panel} onChange={(id) => setPanel(id as "template" | "issue" | "records")} />
+      {panel === "template" && template.data ? (
         <Card>
           <h2 className="text-2xl">合約範本</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">可用 {"{{organizationName}}"}、{"{{taxId}}"}、{"{{contractNo}}"}、{"{{issuedOn}}"}。正式法律文字之後直接貼上覆蓋。</p>
@@ -169,7 +343,7 @@ export function ContractAdminPage() {
           </form>
         </Card>
       ) : null}
-      <Card>
+      {panel === "issue" ? <Card>
         <h2 className="text-2xl">發給業者</h2>
         <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={async (event) => {
           event.preventDefault();
@@ -189,14 +363,16 @@ export function ContractAdminPage() {
           </Field>
           <Button type="submit">發出合約</Button>
         </form>
-      </Card>
-      <div className="space-y-3">
+      </Card> : null}
+      {panel === "records" ? <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="max-h-[32rem] space-y-2 overflow-auto">
         {contracts.data?.map((item) => (
-          <button key={item.id} type="button" className="block w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] p-4 text-left" onClick={() => setSelected(item.id)}>
-            <span className="font-medium">{item.contractNo}</span>
-            <span className="ml-3 text-sm text-[var(--muted)]">{item.organizationName} · {item.status === "SIGNED" ? "已簽署" : item.status === "VOID" ? "已作廢" : "待簽署"}</span>
+          <button key={item.id} type="button" className={`btn block w-full rounded-lg p-3 text-left ${selected === item.id ? "is-selected" : ""}`} aria-pressed={selected === item.id} onClick={() => setSelected(item.id)}>
+            <span className="block font-medium">{item.contractNo}</span>
+            <span className="block text-sm text-[var(--muted)]">{item.organizationName} · {item.status === "SIGNED" ? "已簽署" : item.status === "VOID" ? "已作廢" : "待簽署"}</span>
           </button>
         ))}
+        {(contracts.data?.length ?? 0) === 0 ? <p className="text-sm text-[var(--muted)]">還沒有發出的合約。</p> : null}
       </div>
       {current && detail.data ? (
         <Card>
@@ -232,7 +408,8 @@ export function ContractAdminPage() {
           ) : <pre className="mt-4 whitespace-pre-wrap text-sm leading-7">{detail.data.body}</pre>}
           {detail.data.status === "SIGNED" ? <Button className="mt-4" onClick={async () => downloadBlob(await services.contractDocument(detail.data.id))}>下載已簽名 PDF</Button> : null}
         </Card>
-      ) : null}
+      ) : <p className="text-sm text-[var(--muted)]">{selected ? "載入合約中…" : "從左邊選一份合約。"}</p>}
+      </div> : null}
       {message ? <p className="text-sm">{message}</p> : null}
     </div>
   );
@@ -265,86 +442,154 @@ export function ReportsPage() {
   );
 }
 
+function FeatureChecks({ selected, onChange }: { selected: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {STAFF_FEATURES.map((feature) => {
+        const checked = selected.includes(feature.key);
+        return (
+          <label key={feature.key} className={`btn flex items-center gap-2 rounded-md px-3 py-2 text-sm ${checked ? "is-selected" : ""}`}>
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(event) => onChange(event.target.checked ? [...selected, feature.key] : selected.filter((key) => key !== feature.key))}
+            />
+            {feature.label}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PermissionsPage() {
   const services = useServices();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["access"], queryFn: () => services.accessSettings() });
   const [message, setMessage] = useState("");
-  const roles = ["APPLICANT", "CASE_OFFICER", "ADMIN"] as const;
-  const roleName = { APPLICANT: "業者", CASE_OFFICER: "承辦", ADMIN: "管理員" };
-  const features = [...new Set(query.data?.features.map((item) => item.featureKey) ?? [])];
+  const [tab, setTab] = useState("staff");
+  const [keyword, setKeyword] = useState("");
+  const [selectedId, setSelectedId] = useState<string | "new">("new");
+  const [integrationKey, setIntegrationKey] = useState("");
+  const [form, setForm] = useState({ email: "", displayName: "", password: "", features: [] as string[] });
+  const accounts = (query.data?.accounts ?? []).filter((account) => `${account.displayName} ${account.email}`.toLowerCase().includes(keyword.trim().toLowerCase()));
+  const selected = accounts.find((account) => account.id === selectedId) ?? query.data?.accounts.find((account) => account.id === selectedId);
+  const integration = query.data?.integrations.find((item) => item.key === integrationKey) ?? query.data?.integrations[0];
   return (
-    <div className="space-y-8">
-      <PageHeader eyebrow="內部後台" title="權限與串接" lede="勾選會立刻寫入並影響對應 API。金流沒有服務商金鑰時不會扣款。管理員的帳號管理不能關閉。" />
+    <div className="space-y-4">
+      <PageHeader eyebrow="內部後台" title="員工" lede="這裡只管理公司員工。建立帳號時一併勾選這個人能用的功能。業者請用前台註冊，功能固定，不會出現在這份名單。" />
+      <SectionNav items={[{ id: "staff", label: "員工與權限" }, { id: "integrations", label: "串接" }]} value={tab} onChange={setTab} />
       {query.isLoading ? <p>載入中…</p> : null}
       {query.error ? <ErrorText message={query.error instanceof ClientError ? query.error.message : "無法載入設定"} /> : null}
-      {query.data ? (
-        <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-[var(--line)] text-[var(--muted)]">
-              <tr><th className="p-3 font-medium">功能</th>{roles.map((role) => <th key={role} className="p-3 font-medium">{roleName[role]}</th>)}</tr>
-            </thead>
-            <tbody>
-              {features.map((featureKey) => (
-                <tr key={featureKey} className="border-t border-[var(--line)]">
-                  <td className="p-3">{query.data.features.find((item) => item.featureKey === featureKey)?.label}</td>
-                  {roles.map((role) => {
-                    const cell = query.data.features.find((item) => item.featureKey === featureKey && item.role === role);
-                    return (
-                      <td key={role} className="p-3">
-                        <input
-                          type="checkbox"
-                          checked={cell?.enabled ?? false}
-                          aria-label={`${roleName[role]} ${cell?.label ?? featureKey}`}
-                          onChange={async (event) => {
-                            try {
-                              await services.updateFeature({ role, featureKey, enabled: event.target.checked });
-                              setMessage("權限已更新");
-                              await client.invalidateQueries({ queryKey: ["access"] });
-                            } catch (error) {
-                              setMessage(error instanceof ClientError ? error.message : "更新失敗");
-                            }
-                          }}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
+      {tab === "staff" && query.data ? (
+        <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="space-y-2 lg:sticky lg:top-4">
+            <TextInput placeholder="搜尋姓名或 Email" value={keyword} onChange={(event) => setKeyword(event.target.value)} aria-label="搜尋員工" />
+            <button type="button" className={`btn w-full rounded-md px-3 py-2 text-left text-sm ${selectedId === "new" ? "is-selected" : ""}`} aria-pressed={selectedId === "new"} onClick={() => setSelectedId("new")}>新增員工</button>
+            <div className="max-h-[28rem] space-y-2 overflow-auto">
+              {accounts.map((account) => (
+                <button key={account.id} type="button" className={`btn block w-full rounded-md px-3 py-2 text-left text-sm ${selectedId === account.id ? "is-selected" : ""}`} aria-pressed={selectedId === account.id} onClick={() => setSelectedId(account.id)}>
+                  <span className="block font-medium">{account.displayName}</span>
+                  <span className="block text-[var(--muted)]">{account.email}</span>
+                </button>
               ))}
-            </tbody>
-          </table>
+              {accounts.length === 0 ? <p className="text-sm text-[var(--muted)]">沒有符合的員工。</p> : null}
+            </div>
+          </div>
+          {selectedId === "new" ? (
+            <Card className="space-y-3">
+              <h2 className="text-xl">建立員工帳號</h2>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Field label="Email"><TextInput value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
+                <Field label="名稱"><TextInput value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></Field>
+                <Field label="密碼"><TextInput type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></Field>
+              </div>
+              <FeatureChecks selected={form.features} onChange={(features) => setForm({ ...form, features })} />
+              <Button onClick={async () => {
+                try {
+                  await services.createUser(form);
+                  setForm({ email: "", displayName: "", password: "", features: [] });
+                  setMessage("已建立員工帳號，並套用勾選的功能");
+                  await client.invalidateQueries({ queryKey: ["access"] });
+                  await client.invalidateQueries({ queryKey: ["users"] });
+                } catch (error) {
+                  setMessage(error instanceof ClientError ? error.message : "建立失敗");
+                }
+              }}>建立帳號</Button>
+            </Card>
+          ) : selected ? (
+            <Card className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl">{selected.displayName}</h2>
+                  <p className="text-sm text-[var(--muted)]">{selected.email} · {selected.isActive ? "啟用" : "停用"}</p>
+                </div>
+                <Button variant="secondary" onClick={async () => {
+                  try {
+                    await services.updateUser(selected.id, { isActive: !selected.isActive });
+                    setMessage(selected.isActive ? "已停用這個員工" : "已重新啟用");
+                    await client.invalidateQueries({ queryKey: ["access"] });
+                    await client.invalidateQueries({ queryKey: ["users"] });
+                  } catch (error) {
+                    setMessage(error instanceof ClientError ? error.message : "更新失敗");
+                  }
+                }}>{selected.isActive ? "停用" : "啟用"}</Button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {selected.features.map((feature) => (
+                  <label key={feature.featureKey} className={`btn flex items-center gap-2 rounded-md px-3 py-2 text-sm ${feature.enabled ? "is-selected" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={feature.enabled}
+                      aria-label={`${selected.email} ${feature.label}`}
+                      onChange={async (event) => {
+                        try {
+                          await services.updateFeature({ userId: selected.id, featureKey: feature.featureKey, enabled: event.target.checked });
+                          setMessage(`已更新 ${selected.email} 的功能`);
+                          await client.invalidateQueries({ queryKey: ["access"] });
+                          await client.invalidateQueries({ queryKey: ["me"] });
+                        } catch (error) {
+                          setMessage(error instanceof ClientError ? error.message : "更新失敗");
+                        }
+                      }}
+                    />
+                    {feature.label}
+                  </label>
+                ))}
+              </div>
+            </Card>
+          ) : <p className="text-sm text-[var(--muted)]">從左邊選擇員工，或新增一位。</p>}
         </div>
       ) : null}
-      <div className="space-y-4">
-        {query.data?.integrations.map((item) => (
-          <Card key={`${item.key}-${item.enabled}-${item.provider}-${item.note}`}>
-            <h2 className="text-xl">{item.label}</h2>
-            <form className="mt-3 space-y-3" onSubmit={async (event) => {
-              event.preventDefault();
-              const form = new FormData(event.currentTarget);
-              try {
-                await services.updateIntegration({
-                  key: item.key,
-                  provider: String(form.get("provider") ?? ""),
-                  note: String(form.get("note") ?? ""),
-                  enabled: form.get("enabled") === "on",
-                });
-                setMessage("串接設定已更新");
-                await client.invalidateQueries({ queryKey: ["access"] });
-              } catch (error) {
-                setMessage(error instanceof ClientError ? error.message : "更新失敗");
-              }
-            }}>
-              <Field label="服務方式"><TextInput name="provider" defaultValue={item.provider} /></Field>
-              <Field label="說明"><TextInput name="note" defaultValue={item.note} /></Field>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="enabled" defaultChecked={item.enabled} />啟用</label>
-              <Button type="submit">儲存這項串接</Button>
-            </form>
-          </Card>
-        ))}
-      </div>
+      {tab === "integrations" && integration ? (
+        <Card key={`${integration.key}-${integration.enabled}-${integration.provider}-${integration.note}`}>
+          <SectionNav items={(query.data?.integrations ?? []).map((item) => ({ id: item.key, label: item.label }))} value={integration.key} onChange={setIntegrationKey} />
+          <form className="mt-4 space-y-3" onSubmit={async (event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            try {
+              await services.updateIntegration({
+                key: integration.key,
+                provider: String(data.get("provider") ?? ""),
+                note: String(data.get("note") ?? ""),
+                enabled: data.get("enabled") === "on",
+              });
+              setMessage("串接設定已更新");
+              await client.invalidateQueries({ queryKey: ["access"] });
+            } catch (error) {
+              setMessage(error instanceof ClientError ? error.message : "更新失敗");
+            }
+          }}>
+            <h2 className="text-xl">{integration.label}</h2>
+            <Field label="服務方式"><TextInput name="provider" defaultValue={integration.provider} /></Field>
+            <Field label="說明"><TextInput name="note" defaultValue={integration.note} /></Field>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="enabled" defaultChecked={integration.enabled} />啟用</label>
+            <p className="text-sm text-[var(--muted)]">金流沒有服務商金鑰時不會扣款。</p>
+            <Button type="submit">儲存這項串接</Button>
+          </form>
+        </Card>
+      ) : null}
       {message ? <p className="text-sm">{message}</p> : null}
-      <Link to="/admin/users">建立內部帳號</Link>
     </div>
   );
 }

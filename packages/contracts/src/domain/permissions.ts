@@ -61,7 +61,8 @@ export function canViewApplication(actor: Actor, application: ApplicationAccess)
   if (actor.role === UserRole.APPLICANT) {
     return actor.organizationId !== null && actor.organizationId === application.organizationId;
   }
-  return application.assignedToId === actor.id;
+  if (application.assignedToId === actor.id) return true;
+  return application.assignedToId === null && application.status !== ApplicationStatus.DRAFT;
 }
 
 export function canEditApplicationContent(actor: Actor, application: ApplicationAccess): boolean {

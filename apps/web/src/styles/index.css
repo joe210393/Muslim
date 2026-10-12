@@ -1,21 +1,23 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f4f1ea;
-  --surface: #fffcf7;
-  --ink: #1a1916;
-  --muted: #3f3c36;
-  --line: #d4cfc4;
-  --accent: #1c332c;
-  --link: #14352c;
+  --bg: #d4dfe6;
+  --surface: #f4f8fb;
+  --panel: #cadbe9;
+  --ink: #102033;
+  --muted: #24384c;
+  --line: #8ec0e4;
+  --accent: #6aafe6;
+  --accent-deep: #1f6eae;
+  --link: #0c4f86;
   --danger: #7a261c;
   --danger-bg: #f8e8e4;
   --ok: #163526;
   --ok-bg: #e5f0e8;
   --warn: #4a3410;
   --warn-bg: #f6edd8;
-  --info: #163044;
-  --info-bg: #e6eef3;
+  --info: #102033;
+  --info-bg: #8ec0e4;
   --font-sans: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
   --font-serif: "Iowan Old Style", "Palatino Linotype", "PMingLiU", "Songti TC", serif;
   color: var(--ink);
@@ -51,8 +53,69 @@ a {
 }
 
 ::selection {
-  background: #d9e4de;
+  background: #8ec0e4;
   color: var(--ink);
+}
+
+.btn {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 3px 0 #8ec0e4;
+  transform: translateY(0);
+  transition: transform 80ms ease, box-shadow 80ms ease, background-color 80ms ease, color 80ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: #cadbe9;
+}
+
+.btn:active:not(:disabled),
+.btn[aria-pressed="true"],
+.btn.is-selected {
+  transform: translateY(3px);
+  background: #6aafe6;
+  box-shadow: inset 0 2px 0 rgba(16, 32, 51, 0.28);
+}
+
+.btn-primary {
+  border-color: var(--accent-deep);
+  background: #6aafe6;
+  box-shadow: 0 3px 0 var(--accent-deep);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #8ec0e4;
+}
+
+.btn-primary:active:not(:disabled),
+.btn-primary[aria-pressed="true"],
+.btn-primary.is-selected {
+  background: var(--accent-deep);
+  color: #f4f8fb;
+  box-shadow: inset 0 2px 0 rgba(16, 32, 51, 0.35);
+}
+
+.btn-danger {
+  border-color: #641f17;
+  background: var(--danger);
+  color: #fff8f6;
+  box-shadow: 0 3px 0 #641f17;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #641f17;
+}
+
+.btn-danger:active:not(:disabled) {
+  background: #4e1711;
+  color: #fff8f6;
+  box-shadow: inset 0 2px 0 rgba(16, 32, 51, 0.35);
+}
+
+.btn:disabled {
+  transform: none;
+  box-shadow: none;
 }
 
 @media print {

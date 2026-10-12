@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { Guard, Shell } from "../components/shell/Shell";
 import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, CourseListPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
 import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
@@ -47,7 +47,8 @@ export const router = createBrowserRouter([
   { element: <Shell area="admin" />, children: [
     { element: <Guard allow={["ADMIN", "CASE_OFFICER"]} />, children: [
       { path: "/admin", element: <AdminHome /> },
-      { path: "/admin/cms", element: <CmsPage /> },
+      { path: "/admin/cms", element: <Navigate to="/admin/cms/home" replace /> },
+      { path: "/admin/cms/:page", element: <CmsPage /> },
       { path: "/admin/applications", element: <AdminApplicationList /> },
       { path: "/admin/site-reviews", element: <SiteReviewPage /> },
       { path: "/admin/contracts", element: <ContractAdminPage /> },

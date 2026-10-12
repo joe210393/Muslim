@@ -17,15 +17,19 @@ import {
   sha256Hex,
   taipeiYear,
   type DashboardCounts,
+  roleForAccountFeatures,
+  PLATFORM_FEATURES,
 } from "@mf/contracts";
-import { prisma } from "@mf/db/server";
+import { prisma, type Prisma } from "@mf/db/server";
 import bcrypt from "bcryptjs";
 import { createHash } from "node:crypto";
 import { ApiError } from "../../lib/errors";
 import { fieldFailure } from "../../lib/http";
 import type { SessionActor } from "../../middleware/auth";
+import { officerCaseWhere } from "../applications/service";
+import { assertFeature } from "../platform/access";
 
-async function countStatus(where: { organizationId?: string; assignedToId?: string }) {
+async function countStatus(where: Prisma.ApplicationWhereInput) {
   const grouped = await prisma.application.groupBy({ by: ["status"], where, _count: { _all: true } });
   const map = new Map(grouped.map((item) => [item.status, item._count._all]));
   const pick = (status: ApplicationStatus) => map.get(status) ?? 0;
@@ -56,7 +60,7 @@ async function countStatus(where: { organizationId?: string; assignedToId?: stri
 
 export function summaryFor(actor: SessionActor) {
   if (actor.role === UserRole.APPLICANT) return countStatus({ organizationId: actor.organizationId ?? undefined });
-  if (actor.role === UserRole.CASE_OFFICER) return countStatus({ assignedToId: actor.id });
+  if (actor.role === UserRole.CASE_OFFICER) return countStatus(officerCaseWhere(actor.id));
   return countStatus({});
 }
 
@@ -83,15 +87,26 @@ export async function listUsers(query: string | undefined, page: number, pageSiz
   };
 }
 
-export async function createStaff(actor: SessionActor, input: { email: string; displayName: string; password: string; role: "CASE_OFFICER" | "ADMIN" }) {
+export async function createStaff(actor: SessionActor, input: { email: string; displayName: string; password: string; features: string[] }) {
+  await assertFeature(actor, "users.manage");
   const email = input.email.trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "Email 已存在");
+  const role = roleForAccountFeatures(UserRole.CASE_OFFICER, input.features);
+  const enabled = new Set(input.features);
   const user = await prisma.user.create({
-    data: { email, displayName: input.displayName, passwordHash: await bcrypt.hash(input.password, 10), role: input.role },
+    data: {
+      email,
+      displayName: input.displayName,
+      passwordHash: await bcrypt.hash(input.password, 10),
+      role,
+      features: {
+        create: PLATFORM_FEATURES.map((feature) => ({ featureKey: feature.key, enabled: enabled.has(feature.key) })),
+      },
+    },
   });
   await prisma.auditLog.create({
-    data: { actorId: actor.id, action: "USER_CREATE", entityType: "User", entityId: user.id, requestId: user.id, safeChanges: { role: user.role, email } },
+    data: { actorId: actor.id, action: "USER_CREATE", entityType: "User", entityId: user.id, requestId: user.id, safeChanges: { email, features: input.features } },
   });
   return { id: user.id, email: user.email, role: user.role };
 }
@@ -311,7 +326,7 @@ export async function commitImport(actor: SessionActor, id: string, requestId: s
 }
 
 export async function exportApplications(actor: SessionActor) {
-  const where = actor.role === UserRole.ADMIN ? {} : { assignedToId: actor.id };
+  const where = actor.role === UserRole.ADMIN ? {} : officerCaseWhere(actor.id);
   const rows = await prisma.application.findMany({ where, include: { organization: true, category: true }, orderBy: { applicationNo: "asc" }, take: 5000 });
   await prisma.auditLog.create({
     data: { actorId: actor.id, action: "EXPORT_APPLICATIONS", entityType: "Application", requestId: await sha256Hex(`${actor.id}:${rows.length}`), safeChanges: { count: rows.length } },

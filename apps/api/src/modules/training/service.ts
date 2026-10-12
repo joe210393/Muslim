@@ -7,22 +7,30 @@ import {
   buildLearningRecord,
   canCancelEnrollment,
   canEnroll,
+  detectFileSignature,
+  extensionForMime,
   minutesToHourLabel,
   pageMeta,
   remainingSeats,
+  sha256Hex,
   validateAttendance,
   validateCourseDraft,
   type CourseWrite,
 } from "@mf/contracts";
 import { prisma, type Prisma } from "@mf/db/server";
+import { randomUUID } from "node:crypto";
 import { ApiError } from "../../lib/errors";
 import { fieldFailure } from "../../lib/http";
 import type { SessionActor } from "../../middleware/auth";
+import type { StorageAdapter } from "../../storage/storage";
+import { assertIntegration } from "../platform/access";
 
 function courseDto(course: {
   id: string;
   title: string;
   description: string;
+  youtubeUrl: string;
+  imageFileId: string | null;
   location: string;
   startsAt: Date;
   endsAt: Date;
@@ -38,6 +46,8 @@ function courseDto(course: {
     id: course.id,
     title: course.title,
     description: course.description,
+    youtubeUrl: course.youtubeUrl,
+    imageUrl: course.imageFileId ? `/api/v1/media/${course.imageFileId}` : null,
     location: course.location,
     startsAt: course.startsAt.toISOString(),
     endsAt: course.endsAt.toISOString(),
@@ -101,6 +111,7 @@ export async function saveCourse(actor: SessionActor, input: CourseWrite, id?: s
   const data = {
     title: input.title,
     description: input.description,
+    youtubeUrl: input.youtubeUrl,
     location: input.location,
     startsAt: new Date(input.startsAt),
     endsAt: new Date(input.endsAt),
@@ -118,6 +129,39 @@ export async function saveCourse(actor: SessionActor, input: CourseWrite, id?: s
     data: { actorId: actor.id, action: current ? "COURSE_UPDATE" : "COURSE_CREATE", entityType: "Course", entityId: saved.id, requestId: saved.id, safeChanges: { status: saved.status, capacity: saved.capacity } },
   });
   return courseDto(saved, count);
+}
+
+export async function uploadCourseImage(actor: SessionActor, storage: StorageAdapter, id: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }) {
+  if (actor.role === UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有課程管理權限");
+  await assertIntegration("media");
+  const current = await prisma.course.findUnique({ where: { id } });
+  if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到課程");
+  const bytes = new Uint8Array(file.buffer);
+  const mime = detectFileSignature(bytes);
+  if (!mime || mime === "application/pdf" || mime !== file.mimetype) {
+    throw new ApiError(400, ErrorCodes.UNSUPPORTED_FILE_TYPE, "圖片只接受 JPEG 或 PNG");
+  }
+  const fileId = randomUUID();
+  const storageKey = `courses/${id}/${fileId}.${extensionForMime(mime)}`;
+  await storage.save(storageKey, bytes);
+  try {
+    await prisma.fileObject.create({
+      data: {
+        id: fileId,
+        uploadedById: actor.id,
+        storageKey,
+        originalName: file.originalname.slice(0, 180) || "image",
+        mimeType: mime,
+        sizeBytes: bytes.byteLength,
+        sha256: await sha256Hex(bytes),
+      },
+    });
+    await prisma.course.update({ where: { id }, data: { imageFileId: fileId, version: { increment: 1 } } });
+  } catch (error) {
+    await storage.delete(storageKey).catch(() => undefined);
+    throw error;
+  }
+  return courseDto((await prisma.course.findUnique({ where: { id } }))!, await confirmedCount(id));
 }
 
 export async function enroll(actor: SessionActor, courseId: string) {

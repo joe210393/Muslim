@@ -6,6 +6,7 @@ export {
   CourseStatus,
   EnrollmentStatus,
   ContentSlot,
+  EditorialKind,
   ContractStatus,
   ImportBatchStatus,
   ImportBatchType,

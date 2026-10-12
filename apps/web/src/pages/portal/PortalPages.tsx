@@ -95,7 +95,7 @@ export function ApplicationListPage() {
   const query = useQuery({ queryKey: ["applications", q, status], queryFn: () => services.applications({ q, status, page: 1 }) });
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">驗證申請</h1><Link to="/portal/applications/new" className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white">新增申請</Link></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">驗證申請</h1><Link to="/portal/applications/new" className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline">新增申請</Link></div>
       <div className="flex flex-wrap gap-2">
         <TextInput className="max-w-xs" placeholder="搜尋案件編號" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋" />
         <SelectInput className="max-w-xs" value={status} onChange={(event) => setStatus(event.target.value)} aria-label="狀態">
@@ -199,7 +199,7 @@ export function ApplicationEditPage() {
   }
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">{steps.map((label, index) => <button key={label} className={`rounded-full px-3 py-1 text-sm ${index === step ? "bg-[var(--accent)] text-white" : "bg-white"}`} type="button" onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>
+      <div className="flex flex-wrap gap-2">{steps.map((label, index) => <button key={label} className={`btn rounded-full px-3 py-1 text-sm ${index === step ? "is-selected" : ""}`} type="button" aria-pressed={index === step} onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>
       <p className="text-sm text-[var(--muted)]">案件 {draft.applicationNo} · 版本 {draft.version} · {draft.configurationStatus === "DEMO" ? "此類別為示範設定" : "類別已確認"}</p>
       {step === 0 ? (
         <Field label="類別" hint="只有未送件草稿可以改類別，不相容的額外欄位會被清掉。">

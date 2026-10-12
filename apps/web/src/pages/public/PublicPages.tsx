@@ -1,52 +1,89 @@
-import { loginRequestSchema, registerRequestSchema, courseStatusLabels } from "@mf/contracts";
+import { EditorialKind, loginRequestSchema, registerRequestSchema, courseStatusLabels } from "@mf/contracts";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
-import { Badge, Button, Card, ErrorText, Field, PageHeader, TextInput } from "../../components/ui";
-import { homeContent } from "../../content/site-content";
+import { CourseCalendar } from "../../components/CourseCalendar";
+import { Badge, Button, Card, ErrorText, Field, PageHeader, PageMedia, TextInput } from "../../components/ui";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError, type SiteSlot } from "../../services/types";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+
+const PREVIEW_LIMIT = 5;
 
 export function HomePage() {
   const services = useServices();
   const content = useQuery({ queryKey: ["site-content", services.mode], queryFn: () => services.publicSite() });
+  const courses = useQuery({ queryKey: ["courses", "public"], queryFn: () => services.courses("public") });
+  const points = (content.data?.entries ?? []).filter((item) => item.kind === EditorialKind.HOME_POINT).sort((a, b) => a.sortOrder - b.sortOrder);
+  const news = (content.data?.entries ?? []).filter((item) => item.kind === EditorialKind.NEWS).sort((a, b) => (b.publishedOn ?? "").localeCompare(a.publishedOn ?? "") || a.sortOrder - b.sortOrder);
+  const courseItems = courses.data ?? [];
   return (
     <div className="space-y-12">
       {content.isLoading ? <p>載入中…</p> : null}
       {content.error ? <ErrorText message="無法載入首頁內容" /> : null}
       {content.data?.hero ? <Hero slot={content.data.hero} /> : null}
+      {content.data?.hero?.youtubeUrl ? <PageMedia youtubeUrl={content.data.hero.youtubeUrl} /> : null}
       {content.data?.banner ? <Banner slot={content.data.banner} /> : null}
+      {content.data?.banner?.youtubeUrl ? <PageMedia youtubeUrl={content.data.banner.youtubeUrl} /> : null}
       <div className="grid gap-8 border-t border-[var(--line)] pt-10 md:grid-cols-3">
-        {homeContent.points.map((point, index) => (
-          <section key={point.title}>
+        {points.map((point, index) => (
+          <section key={point.id}>
             <p className="text-sm text-[var(--muted)]">0{index + 1}</p>
             <h2 className="mt-2 text-2xl">{point.title}</h2>
             <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{point.body}</p>
           </section>
         ))}
       </div>
+      <div className="grid gap-10 md:grid-cols-2">
+        <PreviewList title="最新消息" count={news.length} empty="目前沒有消息。" more={news.length > PREVIEW_LIMIT ? "/news" : null}>
+          {news.slice(0, PREVIEW_LIMIT).map((item) => (
+            <Link key={item.id} to={`/news/${item.slug}`} className="block border-t border-[var(--line)] py-4">
+              <p className="text-sm text-[var(--muted)]">{item.publishedOn}</p>
+              <h3 className="mt-1 text-xl">{item.title}</h3>
+              <p className="mt-2 text-sm leading-7 text-[var(--muted)]">{item.summary}</p>
+            </Link>
+          ))}
+        </PreviewList>
+        <PreviewList title="教育訓練" count={courseItems.length} empty="目前沒有課程。" more={courseItems.length > PREVIEW_LIMIT ? "/courses" : null}>
+          {courseItems.slice(0, PREVIEW_LIMIT).map((course) => (
+            <Link key={course.id} to={`/courses/${course.id}`} className="block border-t border-[var(--line)] py-4">
+              <p className="text-sm text-[var(--muted)]">{formatTaipei(course.startsAt)} · {course.location}</p>
+              <h3 className="mt-1 text-xl">{course.title}</h3>
+            </Link>
+          ))}
+        </PreviewList>
+      </div>
     </div>
+  );
+}
+
+function PreviewList({ title, count, empty, more, children }: { title: string; count: number; empty: string; more: string | null; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="text-3xl">{title}</h2>
+      {count === 0 ? <p className="mt-4 text-sm text-[var(--muted)]">{empty}</p> : <div className="mt-4">{children}</div>}
+      {more ? <Link to={more} className="btn mt-4 inline-block rounded-md px-4 py-2 text-sm no-underline">更多</Link> : null}
+    </section>
   );
 }
 
 function Hero({ slot }: { slot: SiteSlot }) {
   return (
-    <section className="overflow-hidden rounded-lg bg-[#1c332c] text-[#f7f4ee]">
+    <section className="overflow-hidden rounded-lg border border-[var(--line)] bg-[#6aafe6] text-[var(--ink)]">
       <div className="grid md:grid-cols-[1.4fr_0.9fr]">
         <div className="px-6 py-12 md:px-12 md:py-16">
           <p className="text-sm tracking-wide">{slot.eyebrow}</p>
-          <h1 className="mt-4 max-w-3xl text-4xl leading-tight text-[#f7f4ee] md:text-5xl">{slot.title}</h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-[#f7f4ee]">{slot.subtitle}</p>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-[#e4ddd2]">{slot.body}</p>
+          <h1 className="mt-4 max-w-3xl text-4xl leading-tight text-[var(--ink)] md:text-5xl">{slot.title}</h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-[var(--ink)]">{slot.subtitle}</p>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--ink)]">{slot.body}</p>
           <div className="mt-8 flex flex-wrap gap-3">
             <SiteLink href={slot.ctaHref} label={slot.ctaLabel} primary />
             <SiteLink href={slot.secondaryCtaHref} label={slot.secondaryCtaLabel} />
           </div>
         </div>
-        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-full min-h-64 w-full object-cover" /> : <div className="hidden min-h-64 border-l border-[#34584c] md:block" />}
+        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-full min-h-64 w-full object-cover" /> : <div className="hidden min-h-64 border-l border-[#8ec0e4] bg-[#cadbe9] md:block" />}
       </div>
     </section>
   );
@@ -55,30 +92,26 @@ function Hero({ slot }: { slot: SiteSlot }) {
 function Banner({ slot }: { slot: SiteSlot }) {
   return (
     <section className="grid items-center gap-8 border-y border-[var(--line)] py-10 md:grid-cols-[280px_1fr]">
-      {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-48 w-full rounded-md object-cover" /> : <div className="h-48 rounded-md bg-[#e7e1d6]" />}
+      {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-48 w-full rounded-md object-cover" /> : <div className="h-48 rounded-md bg-[#cadbe9]" />}
       <div>
         <p className="text-sm text-[var(--muted)]">{slot.eyebrow}</p>
         <h2 className="mt-2 text-3xl">{slot.title}</h2>
         <p className="mt-4 leading-8">{slot.subtitle}</p>
         <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{slot.body}</p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <SiteLink href={slot.ctaHref} label={slot.ctaLabel} primary dark />
-          <SiteLink href={slot.secondaryCtaHref} label={slot.secondaryCtaLabel} dark />
+          <SiteLink href={slot.ctaHref} label={slot.ctaLabel} primary />
+          <SiteLink href={slot.secondaryCtaHref} label={slot.secondaryCtaLabel} />
         </div>
       </div>
     </section>
   );
 }
 
-function SiteLink({ href, label, primary, dark }: { href: string; label: string; primary?: boolean; dark?: boolean }) {
+function SiteLink({ href, label, primary }: { href: string; label: string; primary?: boolean }) {
   if (!label || !href.startsWith("/")) return null;
   const className = primary
-    ? dark
-      ? "rounded-md bg-[#1c332c] px-4 py-2 text-sm text-[#f7f4ee] no-underline"
-      : "rounded-md bg-[#f7f4ee] px-4 py-2 text-sm text-[#1c332c] no-underline"
-    : dark
-      ? "rounded-md border border-[var(--ink)] px-4 py-2 text-sm text-[var(--ink)] no-underline"
-      : "rounded-md border border-[#f7f4ee] px-4 py-2 text-sm text-[#f7f4ee] no-underline";
+    ? "btn btn-primary rounded-md px-4 py-2 text-sm no-underline"
+    : "btn rounded-md px-4 py-2 text-sm no-underline";
   return <Link to={href} className={className}>{label}</Link>;
 }
 
@@ -107,25 +140,40 @@ export function GuidePage() {
 export function CoursesPage() {
   const services = useServices();
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"list" | "calendar">("list");
   const courses = useQuery({ queryKey: ["courses", "public"], queryFn: () => services.courses("public") });
-  const filtered = (courses.data ?? []).filter((course) => course.title.includes(q) || course.location.includes(q));
+  const filtered = (courses.data ?? []).filter((course) => course.title.includes(q) || course.location.includes(q) || course.description.includes(q));
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="教育訓練" title="課程列表" lede="可先看梯次與名額。月曆、題庫、及格分數與正式教材待甲方提供後替換。" />
-      <TextInput placeholder="搜尋課程或地點" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋課程" />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <PageHeader eyebrow="教育訓練" title="課程" lede="每一梯次有介紹、圖片與影片。可切換列表或月曆。" />
+        <div className="flex gap-2">
+          <button type="button" className={`btn rounded-md px-3 py-2 text-sm ${view === "list" ? "is-selected" : ""}`} aria-pressed={view === "list"} onClick={() => setView("list")}>列表</button>
+          <button type="button" className={`btn rounded-md px-3 py-2 text-sm ${view === "calendar" ? "is-selected" : ""}`} aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>月曆</button>
+        </div>
+      </div>
+      <TextInput placeholder="搜尋課程、介紹或地點" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋課程" />
       {courses.isLoading ? <p>載入中…</p> : null}
       {filtered.length === 0 && !courses.isLoading ? <p className="text-sm text-[var(--muted)]">沒有符合的課程。</p> : null}
-      <div className="grid gap-3">
-        {filtered.map((course) => (
-          <Card key={course.id}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Link to={`/courses/${course.id}`} className="font-medium text-[var(--link)]">{course.title}</Link>
-              <Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge>
-            </div>
-            <p className="mt-2 text-sm text-[var(--muted)]">{formatTaipei(course.startsAt)} · {course.location} · 剩餘 {course.remainingSeats} / {course.capacity}</p>
-          </Card>
-        ))}
-      </div>
+      {view === "calendar" ? <CourseCalendar courses={filtered} /> : (
+        <div className="grid gap-6 md:grid-cols-2">
+          {filtered.map((course) => (
+            <article key={course.id} className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+              <Link to={`/courses/${course.id}`} className="block text-[var(--ink)] no-underline">
+                {course.imageUrl ? <img src={course.imageUrl} alt="" className="h-48 w-full object-cover" /> : <div className="h-24 bg-[var(--panel)]" />}
+                <div className="space-y-2 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-2xl">{course.title}</h2>
+                    <Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge>
+                  </div>
+                  <p className="line-clamp-3 text-sm leading-6 text-[var(--muted)]">{course.description}</p>
+                  <p className="text-sm text-[var(--muted)]">{formatTaipei(course.startsAt)} · {course.location}</p>
+                </div>
+              </Link>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -141,9 +189,9 @@ export function CourseDetailPage() {
   const item = course.data;
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練" title={item.title} />
+      <PageHeader eyebrow="教育訓練" title={item.title} lede={item.description} />
+      <PageMedia imageUrl={item.imageUrl} youtubeUrl={item.youtubeUrl} />
       {item.isDemo ? <Badge tone="warning">示範課程</Badge> : null}
-      <p className="text-sm leading-6 text-[var(--muted)]">{item.description}</p>
       <Card>
         <p>時間：{formatTaipei(item.startsAt)} 至 {formatTaipei(item.endsAt)}</p>
         <p>地點：{item.location}</p>

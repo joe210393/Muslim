@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { youtubeVideoId } from "../domain/platform-defaults";
 import { attendanceStatusSchema, courseStatusSchema, enrollmentStatusSchema } from "./common";
 import { completionLabels } from "../domain/status-labels";
 
@@ -6,6 +7,8 @@ export const courseSchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  youtubeUrl: z.string(),
+  imageUrl: z.string().nullable(),
   location: z.string(),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
@@ -24,6 +27,7 @@ export const courseSchema = z.object({
 export const courseWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(4000).default(""),
+  youtubeUrl: z.string().trim().max(200).default("").refine((value) => value === "" || youtubeVideoId(value) !== null, "請貼 YouTube 影片連結"),
   location: z.string().trim().min(1).max(200),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),

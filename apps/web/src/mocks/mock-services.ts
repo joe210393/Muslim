@@ -9,6 +9,9 @@ import {
   EnrollmentStatus,
   FILE_POLICY,
   UserRole,
+  PLATFORM_FEATURES,
+  roleForAccountFeatures,
+  defaultFeatureEnabled,
   buildDemoDataset,
   buildLearningRecord,
   canCancelEnrollment,
@@ -45,9 +48,18 @@ import {
   contractDocument,
   contractOf,
   createInitialPlatform,
+  adminEntries,
+  createEntry,
+  deleteEntry,
+  ensureAccountFeatures,
+  ensureEditorial,
+  grantAccountFeatures,
+  hasFeature,
   issueContract,
   myContracts,
   publicSite,
+  rememberFile,
+  updateEntry,
   saveContract,
   saveSite,
   saveTemplate,
@@ -55,6 +67,7 @@ import {
   templateOf,
   updateFeature,
   updateIntegration,
+  uploadEntryImage,
   uploadSiteImage,
   voidContract,
   type PlatformState,
@@ -111,8 +124,16 @@ function requireActor(state: State) {
   return actor;
 }
 
-function publicUser(user: DemoDataset["users"][number]) {
-  return { id: user.id, email: user.email, displayName: user.displayName, role: user.role, organizationId: user.organizationId, isActive: user.isActive };
+function publicUser(state: State, user: DemoDataset["users"][number]) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    organizationId: user.organizationId,
+    isActive: user.isActive,
+    featureKeys: state.platform.features.filter((item) => item.userId === user.id && item.enabled).map((item) => item.featureKey),
+  };
 }
 
 function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]) {
@@ -189,12 +210,19 @@ function content(app: DemoDataset["applications"][number]) {
   };
 }
 
+function courseImage(state: State, course: DemoDataset["courses"][number]) {
+  const file = course.imageFileId ? state.data.files.find((item) => item.id === course.imageFileId) : undefined;
+  return file ? `data:${file.mimeType};base64,${file.contentBase64}` : null;
+}
+
 function courseDto(state: State, course: DemoDataset["courses"][number]) {
   const confirmedCount = state.data.enrollments.filter((item) => item.courseId === course.id && item.status === EnrollmentStatus.CONFIRMED).length;
   return {
     id: course.id,
     title: course.title,
     description: course.description,
+    youtubeUrl: course.youtubeUrl ?? "",
+    imageUrl: courseImage(state, course),
     location: course.location,
     startsAt: course.startsAt,
     endsAt: course.endsAt,
@@ -260,6 +288,12 @@ export async function createMockServices(): Promise<Services> {
   };
   let state = (await idbGet()) ?? blank();
   state.platform ??= createInitialPlatform(state.data);
+  ensureAccountFeatures(state.platform, state.data.users);
+  ensureEditorial(state.platform);
+  for (const course of state.data.courses) {
+    course.youtubeUrl ??= "";
+    course.imageFileId ??= null;
+  }
   const save = () => idbSet(state);
 
   const services: Services = {
@@ -282,7 +316,7 @@ export async function createMockServices(): Promise<Services> {
       if (!user || state.digests[user.id] !== incoming) throw new ClientError("帳號或密碼不正確", { status: 401, code: "UNAUTHENTICATED" });
       if (!user.isActive) throw new ClientError("帳號已停用", { status: 403, code: "FORBIDDEN" });
       sessionStorage.setItem("mf-demo-user", user.id);
-      return publicUser(user);
+      return publicUser(state, user);
     },
     async register(input) {
       if (input.password !== input.confirmPassword) throw new ClientError("兩次密碼不一致", { fieldErrors: [{ path: "confirmPassword", message: "兩次密碼不一致" }] });
@@ -296,17 +330,18 @@ export async function createMockServices(): Promise<Services> {
       const userId = crypto.randomUUID();
       state.data.organizations.push({ id: orgId, organizationName: input.organizationName, taxId: input.taxId, contactName: input.displayName, contactPhone: "", contactEmail: email, address: "", createdAt: now, updatedAt: now });
       state.data.users.push({ id: userId, email, displayName: input.displayName, role: UserRole.APPLICANT, organizationId: orgId, isActive: true, createdAt: now, updatedAt: now });
+      grantAccountFeatures(state.platform, { id: userId, role: UserRole.APPLICANT }, PLATFORM_FEATURES.filter((feature) => defaultFeatureEnabled(UserRole.APPLICANT, feature.key)).map((feature) => feature.key));
       state.digests[userId] = await sha256Hex(input.password);
       sessionStorage.setItem("mf-demo-user", userId);
       await save();
-      return publicUser(state.data.users.at(-1)!);
+      return publicUser(state, state.data.users.at(-1)!);
     },
     async logout() {
       sessionStorage.removeItem("mf-demo-user");
     },
     async me() {
       const actor = actorOf(state);
-      return actor ? publicUser(actor) : null;
+      return actor ? publicUser(state, actor) : null;
     },
     async forgot(email) {
       const user = state.data.users.find((item) => item.email === email.trim().toLowerCase());
@@ -460,7 +495,7 @@ export async function createMockServices(): Promise<Services> {
     },
     async assign(id, assignedToId, expectedVersion, requestId) {
       const actor = requireActor(state);
-      if (actor.role !== UserRole.ADMIN) throw new ClientError("只有管理員可以派案", { status: 403 });
+      if (!hasFeature(state.platform, actor.id, "applications.decide")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const app = state.data.applications.find((item) => item.id === id);
       const assignee = state.data.users.find((item) => item.id === assignedToId);
       if (!app || !assignee) throw new ClientError("找不到案件或承辦人", { status: 404 });
@@ -576,7 +611,10 @@ export async function createMockServices(): Promise<Services> {
       };
     },
     async courses(scope) {
-      return state.data.courses.filter((course) => scope === "manage" || course.status !== CourseStatus.DRAFT).map((course) => courseDto(state, course));
+      return state.data.courses
+        .filter((course) => scope === "manage" || course.status !== CourseStatus.DRAFT)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+        .map((course) => courseDto(state, course));
     },
     async course(id) {
       const course = state.data.courses.find((item) => item.id === id);
@@ -596,9 +634,9 @@ export async function createMockServices(): Promise<Services> {
       if (issues.length) throw new ClientError("課程資料不正確", { fieldErrors: issues });
       const now = new Date().toISOString();
       if (!current) {
-        state.data.courses.push({ id: crypto.randomUUID(), ...input, description: input.description, createdById: actor.id, version: 1, createdAt: now, updatedAt: now });
+        state.data.courses.push({ id: crypto.randomUUID(), title: input.title, description: input.description, youtubeUrl: input.youtubeUrl, imageFileId: null, location: input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, createdById: actor.id, version: 1, createdAt: now, updatedAt: now });
       } else {
-        Object.assign(current, input, { version: current.version + 1, updatedAt: now });
+        Object.assign(current, { title: input.title, description: input.description, youtubeUrl: input.youtubeUrl, location: input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, version: current.version + 1, updatedAt: now });
       }
       await save();
       return courseDto(state, (current ?? state.data.courses.at(-1))!);
@@ -681,7 +719,7 @@ export async function createMockServices(): Promise<Services> {
     },
     async saveCertification(applicationId, input) {
       const actor = requireActor(state);
-      if (actor.role !== UserRole.ADMIN) throw new ClientError("只有管理員可以登錄證書", { status: 403 });
+      if (!hasFeature(state.platform, actor.id, "applications.decide")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const issues = validateCertificationDates(input.issuedOnDate, input.validUntilDate);
       if (issues.length) throw new ClientError("證書日期不正確", { fieldErrors: issues });
       const app = state.data.applications.find((item) => item.id === applicationId);
@@ -695,23 +733,25 @@ export async function createMockServices(): Promise<Services> {
       return (await services.certifications()).find((item) => item.applicationId === applicationId)!;
     },
     async users(q) {
-      if (requireActor(state).role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       return state.data.users
         .filter((user) => !q || user.email.includes(q) || user.displayName.includes(q))
         .map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, role: user.role, organizationName: state.data.organizations.find((org) => org.id === user.organizationId)?.organizationName ?? null, isActive: user.isActive }));
     },
     async createUser(input) {
       const actor = requireActor(state);
-      if (actor.role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      if (!hasFeature(state.platform, actor.id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      state.data.users.push({ id, email: input.email.toLowerCase(), displayName: input.displayName, role: input.role, organizationId: null, isActive: true, createdAt: now, updatedAt: now });
+      const role = roleForAccountFeatures(UserRole.CASE_OFFICER, input.features);
+      state.data.users.push({ id, email: input.email.toLowerCase(), displayName: input.displayName, role, organizationId: null, isActive: true, createdAt: now, updatedAt: now });
+      grantAccountFeatures(state.platform, { id, role }, input.features);
       state.digests[id] = await sha256Hex(input.password);
       await save();
     },
     async updateUser(id, input) {
       const actor = requireActor(state);
-      if (actor.role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      if (!hasFeature(state.platform, actor.id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const user = state.data.users.find((item) => item.id === id);
       if (!user || user.role === UserRole.APPLICANT) throw new ClientError("找不到內部帳號", { status: 404 });
       const admins = state.data.users.filter((item) => item.role === UserRole.ADMIN && item.isActive && item.id !== id);
@@ -723,15 +763,16 @@ export async function createMockServices(): Promise<Services> {
       await save();
     },
     async organizations(q) {
-      if (requireActor(state).role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       return state.data.organizations.filter((org) => !q || org.organizationName.includes(q) || org.taxId.includes(q));
     },
     async importTemplate(type) {
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const headers = type === "ORGANIZATIONS" ? ["organizationName", "taxId", "contactName", "contactPhone", "contactEmail", "address"] : ["taxId", "categoryCode", "siteName", "siteAddress", "applicationDescription", "sourceRecordKey"];
       return toCsv(headers, []);
     },
     async importPreview(type, csv) {
-      if (requireActor(state).role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const parsed = rowsToObjects(parseCsv(csv));
       const rows = parsed.records.map((record, index) => {
         const messages: string[] = [];
@@ -745,7 +786,7 @@ export async function createMockServices(): Promise<Services> {
       return batch;
     },
     async importCommit(id, requestId) {
-      if (requireActor(state).role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const batch = state.imports.find((item) => item.id === id);
       if (!batch) throw new ClientError("找不到匯入批次", { status: 404 });
       if (batch.status === "COMMITTED" && batch.commitKey === requestId) return { committed: batch.committed };
@@ -826,9 +867,7 @@ export async function createMockServices(): Promise<Services> {
     },
     async audit() {
       const actor = requireActor(state);
-      if (actor.role !== UserRole.ADMIN) throw new ClientError("沒有權限", { status: 403 });
-      const allowed = state.platform.features.find((item) => item.role === actor.role && item.featureKey === "audit.view");
-      if (!allowed?.enabled) throw new ClientError("這個角色目前沒有此功能", { status: 403, code: "FORBIDDEN" });
+      if (!hasFeature(state.platform, actor.id, "audit.view")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
       return state.data.auditLogs.map((log) => ({ ...log, actorName: state.data.users.find((user) => user.id === log.actorId)?.displayName ?? null }));
     },
     async publicSite() {
@@ -842,10 +881,47 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return saved;
     },
+    async uploadCourseImage(id, file) {
+      const actor = requireActor(state);
+      if (actor.role === UserRole.APPLICANT) throw new ClientError("沒有課程管理權限", { status: 403 });
+      const course = state.data.courses.find((item) => item.id === id);
+      if (!course) throw new ClientError("找不到課程", { status: 404 });
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const mime = detectFileSignature(bytes);
+      if (!mime || mime === "application/pdf") throw new ClientError("圖片只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
+      const stored = await rememberFile(state.data, actor.id, file.name || "image", mime, bytes);
+      course.imageFileId = stored.id;
+      course.version += 1;
+      course.updatedAt = new Date().toISOString();
+      await save();
+      return courseDto(state, course);
+    },
     async uploadSiteImage(slot, file) {
       const saved = await uploadSiteImage(state.platform, requireActor(state), state.data, slot, file);
       await save();
       return saved;
+    },
+    async adminEntries() {
+      return adminEntries(state.platform, requireActor(state), state.data.files);
+    },
+    async uploadEntryImage(id, file) {
+      const saved = await uploadEntryImage(state.platform, requireActor(state), state.data, id, file);
+      await save();
+      return saved;
+    },
+    async createEntry(input) {
+      const saved = createEntry(state.platform, requireActor(state), input);
+      await save();
+      return saved;
+    },
+    async updateEntry(id, input) {
+      const saved = updateEntry(state.platform, requireActor(state), id, input);
+      await save();
+      return saved;
+    },
+    async deleteEntry(id) {
+      deleteEntry(state.platform, requireActor(state), id);
+      await save();
     },
     async myContracts() {
       return myContracts(state.platform, requireActor(state));
@@ -889,10 +965,10 @@ export async function createMockServices(): Promise<Services> {
       return saved;
     },
     async accessSettings() {
-      return accessSettings(state.platform, requireActor(state));
+      return accessSettings(state.platform, requireActor(state), state.data.users);
     },
     async updateFeature(input) {
-      updateFeature(state.platform, requireActor(state), input);
+      updateFeature(state.platform, requireActor(state), state.data.users, input);
       await save();
     },
     async updateIntegration(input) {
@@ -915,7 +991,7 @@ export async function createMockServices(): Promise<Services> {
       const user = state.data.users.find((item) => item.email === email);
       if (!user) throw new ClientError("找不到展示帳號");
       sessionStorage.setItem("mf-demo-user", user.id);
-      return publicUser(user);
+      return publicUser(state, user);
     },
   };
 

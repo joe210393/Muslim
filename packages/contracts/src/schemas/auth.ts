@@ -53,6 +53,7 @@ export const publicUserSchema = z.object({
   role: userRoleSchema,
   organizationId: z.string().uuid().nullable(),
   isActive: z.boolean(),
+  featureKeys: z.array(z.string()),
 });
 
 export const authResponseSchema = z.object({

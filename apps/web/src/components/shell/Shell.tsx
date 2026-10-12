@@ -1,5 +1,6 @@
-import { homePathForRole, type UserRole } from "@mf/contracts";
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { homePathForRole, userRoleLabels, type UserRole } from "@mf/contracts";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useServices, useSession } from "../../app/session";
 import { brand } from "../../content/site-content";
 
@@ -13,46 +14,63 @@ const publicNav = [
   ["/contact", "聯絡我們"],
 ];
 
-const portalNav = [
-  ["/portal", "工作總覽"],
-  ["/portal/applications", "驗證申請"],
-  ["/portal/supplements", "補件"],
-  ["/portal/enrollments", "教育訓練"],
-  ["/portal/contracts", "合約"],
-  ["/portal/certifications", "電子證書"],
-  ["/portal/renewals", "續約"],
-  ["/portal/resources", "授權資源"],
-  ["/portal/profile", "業者資料"],
+const portalNav: Array<{ href: string; label: string; anyOf?: string[] }> = [
+  { href: "/portal", label: "工作總覽" },
+  { href: "/portal/applications", label: "驗證申請", anyOf: ["applications.create"] },
+  { href: "/portal/supplements", label: "補件", anyOf: ["applications.create"] },
+  { href: "/portal/enrollments", label: "教育訓練" },
+  { href: "/portal/contracts", label: "合約", anyOf: ["contracts.sign"] },
+  { href: "/portal/certifications", label: "電子證書" },
+  { href: "/portal/renewals", label: "續約" },
+  { href: "/portal/resources", label: "授權資源" },
+  { href: "/portal/profile", label: "業者資料" },
 ];
 
-const adminNav = [
-  ["/admin", "工作總覽"],
-  ["/admin/cms", "內容管理"],
-  ["/admin/applications", "案件審查"],
-  ["/admin/site-reviews", "現場複審"],
-  ["/admin/organizations", "會員管理"],
-  ["/admin/contracts", "合約管理"],
-  ["/admin/courses", "教育訓練管理"],
-  ["/admin/reports", "報表"],
-  ["/admin/permissions", "權限管理"],
-  ["/admin/audit-logs", "操作紀錄"],
+const cmsPages = [
+  { href: "/admin/cms/home", label: "首頁" },
+  { href: "/admin/cms/about", label: "關於我們" },
+  { href: "/admin/cms/news", label: "最新消息" },
+  { href: "/admin/cms/verification", label: "驗證介紹" },
+  { href: "/admin/cms/faq", label: "常見問題" },
 ];
 
-const officerHidden = ["/admin/cms", "/admin/users", "/admin/permissions", "/admin/organizations", "/admin/contracts", "/admin/reports", "/admin/audit-logs"];
+const adminNav: Array<{ href: string; label: string; anyOf?: string[]; children?: Array<{ href: string; label: string }> }> = [
+  { href: "/admin", label: "工作總覽" },
+  { href: "/admin/cms", label: "內容管理", anyOf: ["cms.edit"], children: cmsPages },
+  { href: "/admin/applications", label: "案件審查", anyOf: ["applications.review", "applications.decide"] },
+  { href: "/admin/site-reviews", label: "現場複審", anyOf: ["applications.review", "applications.decide"] },
+  { href: "/admin/organizations", label: "會員管理", anyOf: ["users.manage"] },
+  { href: "/admin/contracts", label: "合約管理", anyOf: ["contracts.issue"] },
+  { href: "/admin/courses", label: "教育訓練管理", anyOf: ["training.manage"] },
+  { href: "/admin/reports", label: "報表", anyOf: ["reports.export"] },
+  { href: "/admin/permissions", label: "員工", anyOf: ["users.manage"] },
+  { href: "/admin/audit-logs", label: "操作紀錄", anyOf: ["audit.view"] },
+];
 
 export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
   const services = useServices();
   const session = useSession();
   const navigate = useNavigate();
-  const links = area === "portal" ? portalNav : area === "admin" ? adminNav.filter((item) => session.user?.role === "ADMIN" || !officerHidden.includes(item[0]!)) : publicNav;
+  const location = useLocation();
+  const [cmsOpen, setCmsOpen] = useState(() => location.pathname.startsWith("/admin/cms"));
+  const allowed = new Set(session.user?.featureKeys ?? []);
+  const visible = (items: Array<{ href: string; label: string; anyOf?: string[]; children?: Array<{ href: string; label: string }> }>) => items.filter((item) => !item.anyOf || item.anyOf.some((key) => allowed.has(key)));
+  useEffect(() => {
+    if (location.pathname.startsWith("/admin/cms")) setCmsOpen(true);
+  }, [location.pathname]);
+  const links = area === "portal" ? visible(portalNav) : area === "admin" ? visible(adminNav) : publicNav.map(([href, label]) => ({ href: href ?? "/", label: label ?? "" }));
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)]">
       <header className="border-b border-[var(--line)] bg-[var(--surface)]">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-4">
-          <Link to="/" className="serif text-xl text-[var(--ink)] no-underline">{brand.name}</Link>
+          <Link to={session.user ? homePathForRole(session.user.role as UserRole) : "/"} className="text-[var(--ink)] no-underline">
+            <span className="serif block text-xl">{brand.name}</span>
+            <span className="mt-1 block text-sm font-medium">{session.user ? session.user.email : "尚未登入"}</span>
+            {session.user ? <span className="block text-xs text-[var(--muted)]">{userRoleLabels[session.user.role as UserRole].label}</span> : null}
+          </Link>
           <nav className="flex flex-wrap items-center gap-4 text-sm">
-            {area === "public" ? links.map(([href, label]) => (
-              <NavLink key={href} to={href ?? "/"} end={href === "/"} className={({ isActive }) => `no-underline ${isActive ? "text-[var(--ink)] underline decoration-[var(--line)] underline-offset-4" : "text-[var(--muted)]"}`}>{label}</NavLink>
+            {area === "public" ? links.map((item) => (
+              <NavLink key={item.href} to={item.href} end={item.href === "/"} className={({ isActive }) => `btn rounded-md px-3 py-2 no-underline ${isActive ? "is-selected" : ""}`}>{item.label}</NavLink>
             )) : <span className="text-sm text-[var(--muted)]">{area === "portal" ? "業者會員區" : "內部後台"}</span>}
             {session.user ? <Link className="no-underline text-[var(--ink)]" to={homePathForRole(session.user.role as UserRole)}>進入作業</Link> : <Link className="no-underline text-[var(--ink)]" to="/login">註冊／登入</Link>}
           </nav>
@@ -64,12 +82,33 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
           <aside className="no-print">
             <p className="mb-3 text-sm text-[var(--muted)]">{area === "portal" ? "業者會員區" : "內部後台"}</p>
             <div className="flex gap-2 overflow-auto md:flex-col">
-              {links.map(([href, label]) => (
-                <NavLink key={href} to={href ?? "/"} end={href === "/portal" || href === "/admin"} className={({ isActive }) => `rounded-md px-3 py-2 text-sm no-underline ${isActive ? "bg-[var(--accent)] text-[#fffcf7]" : "text-[var(--ink)]"}`}>
-                  {label}
+              {links.map((item) => {
+                const children = "children" in item && Array.isArray(item.children) ? item.children as Array<{ href: string; label: string }> : [];
+                return children.length ? (
+                <div key={item.href} className="space-y-2">
+                  <button
+                    className={`btn w-full rounded-md px-3 py-2 text-left text-sm ${location.pathname.startsWith(item.href) ? "is-selected" : ""}`}
+                    type="button"
+                    aria-expanded={cmsOpen}
+                    onClick={() => {
+                      const next = !cmsOpen;
+                      setCmsOpen(next);
+                      if (next && !location.pathname.startsWith("/admin/cms")) navigate("/admin/cms/home");
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                  {cmsOpen ? children.map((child) => (
+                    <NavLink key={child.href} to={child.href} className={({ isActive }) => `btn block rounded-md px-3 py-2 text-left text-sm no-underline md:ml-3 ${isActive ? "is-selected" : ""}`}>{child.label}</NavLink>
+                  )) : null}
+                </div>
+              ) : (
+                <NavLink key={item.href} to={item.href} end={item.href === "/portal" || item.href === "/admin"} className={({ isActive }) => `btn rounded-md px-3 py-2 text-left text-sm no-underline ${isActive ? "is-selected" : ""}`}>
+                  {item.label}
                 </NavLink>
-              ))}
-              <button className="rounded-md px-3 py-2 text-left text-sm text-[var(--ink)]" type="button" onClick={async () => { await services.logout(); await session.setUser(null); navigate("/"); }}>登出</button>
+              );
+              })}
+              <button className="btn rounded-md px-3 py-2 text-left text-sm" type="button" onClick={async () => { await services.logout(); await session.setUser(null); navigate("/"); }}>登出</button>
             </div>
           </aside>
         ) : null}
@@ -94,7 +133,8 @@ function DemoBar() {
         {services.demoAccounts().map((account) => (
           <button
             key={account.email}
-            className="rounded-md border border-[var(--line)] bg-[var(--bg)] px-2 py-1"
+            className={`btn rounded-md px-2 py-1 ${session.user?.email === account.email ? "is-selected" : ""}`}
+            aria-pressed={session.user?.email === account.email}
             type="button"
             onClick={async () => {
               const user = await services.switchDemoUser!(account.email);
@@ -105,7 +145,7 @@ function DemoBar() {
             {account.label}
           </button>
         ))}
-        <button className="rounded-md border border-[var(--line)] px-2 py-1" type="button" onClick={async () => { await services.resetDemo?.(); sessionStorage.removeItem("mf-demo-user"); await session.setUser(null); location.reload(); }}>
+        <button className="btn rounded-md px-2 py-1" type="button" onClick={async () => { await services.resetDemo?.(); sessionStorage.removeItem("mf-demo-user"); await session.setUser(null); location.reload(); }}>
           重設展示資料
         </button>
       </div>

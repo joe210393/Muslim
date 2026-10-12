@@ -1,7 +1,7 @@
 import { clsx } from "clsx";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { toneClass } from "../lib/format";
-import type { StatusTone } from "@mf/contracts";
+import { youtubeVideoId, type StatusTone } from "@mf/contracts";
 import { contentStatus } from "../content/site-content";
 
 export function cx(...values: Array<string | false | undefined>) {
@@ -14,10 +14,10 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" | "secondary" }) {
   const styles = {
-    primary: "bg-[var(--accent)] text-[#fffcf7] hover:bg-[#142820]",
-    secondary: "bg-[var(--surface)] text-[var(--ink)] border border-[var(--ink)]",
-    ghost: "bg-transparent text-[var(--ink)] hover:bg-[#ebe6dc]",
-    danger: "bg-[var(--danger)] text-[#fffcf7] hover:bg-[#641f17]",
+    primary: "btn btn-primary",
+    secondary: "btn",
+    ghost: "btn border-transparent bg-transparent shadow-[0_3px_0_transparent] hover:bg-[var(--panel)]",
+    danger: "btn btn-danger",
   }[variant];
   return (
     <button
@@ -87,6 +87,18 @@ export function ErrorText({ message }: { message: string }) {
   return <p className="rounded-md border border-[#e4c4bc] bg-[var(--danger-bg)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">{message}</p>;
 }
 
+export function SectionNav({ items, value, onChange }: { items: Array<{ id: string; label: string }>; value: string; onChange: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2" role="tablist">
+      {items.map((item) => (
+        <button key={item.id} type="button" role="tab" aria-selected={value === item.id} className={cx("btn rounded-md px-3 py-2 text-sm", value === item.id && "is-selected")} onClick={() => onChange(item.id)}>
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function PageHeader({ eyebrow, title, lede }: { eyebrow?: string; title: string; lede?: string }) {
   return (
     <header className="max-w-3xl">
@@ -94,6 +106,25 @@ export function PageHeader({ eyebrow, title, lede }: { eyebrow?: string; title: 
       <h1 className="mt-2 text-4xl leading-tight text-[var(--ink)]">{title}</h1>
       {lede ? <p className="mt-4 text-base leading-7 text-[var(--muted)]">{lede}</p> : null}
     </header>
+  );
+}
+
+export function PageMedia({ imageUrl, youtubeUrl }: { imageUrl?: string | null; youtubeUrl?: string }) {
+  const videoId = youtubeVideoId(youtubeUrl ?? "");
+  if (!imageUrl && !videoId) return null;
+  return (
+    <div className={`grid gap-4 ${imageUrl && videoId ? "md:grid-cols-2" : ""}`}>
+      {imageUrl ? <img src={imageUrl} alt="" className="h-64 w-full rounded-md object-cover" /> : null}
+      {videoId ? (
+        <iframe
+          className="aspect-video w-full rounded-md"
+          src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+          title="YouTube 影片"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      ) : null}
+    </div>
   );
 }
 

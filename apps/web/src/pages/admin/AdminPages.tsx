@@ -1,9 +1,10 @@
-import { applicationStatusLabels, courseStatusLabels, userRoleLabels, type CourseStatus, type UserRole } from "@mf/contracts";
+import { applicationStatusLabels, courseStatusLabels, type CourseStatus } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
-import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { PermissionsPage } from "./InfoAdminPages";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
 
@@ -38,7 +39,7 @@ export function AdminApplicationList() {
         <TextInput placeholder="編號或業者" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋案件" />
         <SelectInput value={status} onChange={(event) => setStatus(event.target.value)} aria-label="狀態篩選"><option value="">全部</option>{Object.entries(applicationStatusLabels).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}</SelectInput>
       </div>
-      {(query.data?.items.length ?? 0) === 0 ? <Empty title="沒有符合的案件" body="調整篩選，或確認你只能看到指派給自己的案件。" /> : null}
+      {(query.data?.items.length ?? 0) === 0 ? <Empty title="沒有符合的案件" body="剛送出、尚未派案的案件會出現在這裡。已經派給其他承辦的案件不會列出。" /> : null}
       <div className="overflow-x-auto rounded-xl bg-white">
         <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">承辦</th><th className="p-3">狀態</th></tr></thead>
           <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/applications/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
@@ -55,15 +56,17 @@ export function AdminApplicationDetail() {
   const application = useQuery({ queryKey: ["application", applicationId], queryFn: () => services.application(applicationId) });
   const events = useQuery({ queryKey: ["events", applicationId], queryFn: () => services.events(applicationId) });
   const session = useSession();
-  const users = useQuery({ queryKey: ["staff-options"], queryFn: () => services.users(), enabled: session.user?.role === "ADMIN" });
+  const users = useQuery({ queryKey: ["staff-options"], queryFn: () => services.users(), enabled: Boolean(session.user?.featureKeys?.includes("users.manage")) });
   const [comment, setComment] = useState("");
   const [note, setNote] = useState("");
   const [assignee, setAssignee] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [section, setSection] = useState("review");
   if (!application.data) return application.isLoading ? <p>載入中…</p> : <ErrorText message="找不到案件" />;
   const item = application.data;
-  const actions = availableActions(item.status, session.user?.role ?? "");
+  const canDecide = session.user?.featureKeys?.includes("applications.decide") ?? false;
+  const actions = availableActions(item.status, canDecide);
   async function run(action: string) {
     try {
       await services.review(item.id, { action, expectedVersion: item.version, requestId: crypto.randomUUID(), publicComment: comment, internalNote: note });
@@ -77,43 +80,46 @@ export function AdminApplicationDetail() {
   }
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
-      <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
-      <Card className="text-sm"><p>業者 {item.organizationName} · 統編 {item.taxId}</p><p>場所 {item.siteName} / {item.siteAddress}</p><p>{item.applicationDescription}</p><p>表單版本 {item.formVersion} · {item.configurationStatus === "DEMO" ? "示範設定" : "已確認"}</p></Card>
-      <Card>
-        <h2 className="font-medium">附件</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
+        <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
+      </div>
+      <SectionNav items={[{ id: "summary", label: "案件內容" }, { id: "review", label: "審查" }, { id: "history", label: "歷程" }]} value={section} onChange={setSection} />
+      {section === "summary" ? <Card className="text-sm"><p>業者 {item.organizationName} · 統編 {item.taxId}</p><p>場所 {item.siteName} / {item.siteAddress}</p><p>{item.applicationDescription}</p><p>表單版本 {item.formVersion} · {item.configurationStatus === "DEMO" ? "示範設定" : "已確認"}</p>
+        <h2 className="mt-4 font-medium">附件</h2>
         {item.attachments.map((file) => <button key={file.id} className="mt-1 block text-sm text-[var(--link)]" type="button" onClick={async () => { const downloaded = await services.download(file.fileId); const url = URL.createObjectURL(downloaded.blob); const link = document.createElement("a"); link.href = url; link.download = downloaded.name; link.click(); }}>{file.originalName}</button>)}
         {item.attachments.length === 0 ? <p className="text-sm text-[var(--muted)]">沒有附件。</p> : null}
-      </Card>
-      <Card className="space-y-2">
+      </Card> : null}
+      {section === "review" ? <Card className="space-y-2">
         <h2 className="font-medium">派案與審查</h2>
         <p className="text-xs text-[var(--muted)]">不能用下拉直接改狀態。郵件若為模擬，不會顯示成已寄出。</p>
-        {session.user?.role === "ADMIN" ? (
+        {!item.assignedToId && session.user?.role === "CASE_OFFICER" ? <p className="text-sm text-[var(--ink)]">這件已送出，但還沒派給承辦。請用管理員帳號指派後，承辦才能開始審查。</p> : null}
+        {canDecide ? (
           <>
             <Field label="指派承辦"><SelectInput value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="">選擇</option>{(users.data ?? []).filter((user) => user.role !== "APPLICANT" && user.isActive).map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}</SelectInput></Field>
             <Button variant="secondary" onClick={async () => { try { await services.assign(item.id, assignee, item.version, crypto.randomUUID()); await client.invalidateQueries({ queryKey: ["application", applicationId] }); } catch (reason) { setError(reason instanceof ClientError ? reason.message : "派案失敗"); } }}>指派承辦</Button>
           </>
-        ) : <p className="text-sm text-[var(--muted)]">派案、核定與退件由管理員執行。承辦可提出審查意見。</p>}
+        ) : <p className="text-sm text-[var(--muted)]">這個帳號沒有派案與核定。有審查功能的人仍可提出審查意見。</p>}
         <Field label="公開意見"><TextArea value={comment} onChange={(event) => setComment(event.target.value)} /></Field>
         <Field label="內部註記"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
-        <div className="flex flex-wrap gap-2">{actions.map((action) => <Button key={action.code} onClick={() => setPending(action.code)}>{action.label}</Button>)}</div>
+        <div className="flex flex-wrap gap-2">{(session.user?.role === "CASE_OFFICER" && !canDecide && item.assignedToId !== session.user.id ? [] : actions).map((action) => <Button key={action.code} onClick={() => setPending(action.code)}>{action.label}</Button>)}</div>
         {item.status === "APPROVED" ? <CertificationForm applicationId={item.id} /> : null}
-      </Card>
-      <Card><h2 className="font-medium">歷程</h2>{events.data?.map((event) => <p key={event.id} className="mt-2 text-sm">{formatTaipei(event.createdAt)} {event.actorName} {event.action} {event.publicComment ?? ""} {event.internalNote ? `（內部：${event.internalNote}）` : ""}</p>)}</Card>
+      </Card> : null}
+      {section === "history" ? <Card><h2 className="font-medium">歷程</h2>{events.data?.map((event) => <p key={event.id} className="mt-2 text-sm">{formatTaipei(event.createdAt)} {event.actorName} {event.action} {event.publicComment ?? ""} {event.internalNote ? `（內部：${event.internalNote}）` : ""}</p>)}</Card> : null}
       {error ? <ErrorText message={error} /> : null}
       {pending ? <Modal title="確認審查動作" onClose={() => setPending(null)}><p className="text-sm">將執行 {pending}。若版本已變，系統會拒絕覆蓋。</p><Button className="mt-3" onClick={() => void run(pending)}>確認執行</Button></Modal> : null}
     </div>
   );
 }
 
-function availableActions(status: string, role: string) {
-  const adminOnly = new Set(["APPROVE", "REJECT"]);
+function availableActions(status: string, canDecide: boolean) {
+  const decideOnly = new Set(["APPROVE", "REJECT"]);
   const actions = status === "SUBMITTED" ? [{ code: "START_REVIEW", label: "開始初審" }]
     : status === "INITIAL_REVIEW" ? [{ code: "PASS_INITIAL", label: "初審通過" }, { code: "REQUEST_SUPPLEMENT", label: "要求補件" }, { code: "REJECT", label: "退件" }]
     : status === "SECOND_REVIEW" ? [{ code: "PASS_SECOND", label: "複審通過" }, { code: "REQUEST_SUPPLEMENT", label: "要求補件" }, { code: "REJECT", label: "退件" }]
     : status === "FINAL_REVIEW" ? [{ code: "APPROVE", label: "核定" }, { code: "REQUEST_SUPPLEMENT", label: "要求補件" }, { code: "REJECT", label: "退件" }]
     : [];
-  return role === "ADMIN" ? actions : actions.filter((action) => !adminOnly.has(action.code) && status !== "FINAL_REVIEW");
+  return canDecide ? actions : actions.filter((action) => !decideOnly.has(action.code) && status !== "FINAL_REVIEW");
 }
 
 function CertificationForm({ applicationId }: { applicationId: string }) {
@@ -137,7 +143,7 @@ export function CourseListPage() {
   const courses = useQuery({ queryKey: ["courses", "manage"], queryFn: () => services.courses("manage") });
   return (
     <div className="space-y-3">
-      <div className="flex justify-between"><h1 className="text-2xl font-semibold">教育訓練管理</h1><Link className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white" to="/admin/courses/new">新增課程</Link></div>
+      <div className="flex justify-between"><h1 className="text-2xl font-semibold">教育訓練管理</h1><Link className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline" to="/admin/courses/new">新增課程</Link></div>
       {courses.data?.map((course) => <Card key={course.id}><div className="flex justify-between"><Link className="font-medium text-[var(--link)]" to={`/admin/courses/${course.id}/edit`}>{course.title}</Link><Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge></div><p className="text-sm">名額 {course.confirmedCount}/{course.capacity}</p><Link className="text-sm" to={`/admin/courses/${course.id}/enrollments`}>報名名單</Link></Card>)}
     </div>
   );
@@ -150,13 +156,31 @@ export function CourseFormPage() {
   const existing = useQuery({ queryKey: ["course", courseId], queryFn: () => services.course(courseId ?? "", "manage"), enabled: Boolean(courseId) });
   const [error, setError] = useState<string | null>(null);
   const course = existing.data;
-  const [form, setForm] = useState<{ title: string; description: string; location: string; startsAt: string; endsAt: string; registrationOpensAt: string; registrationClosesAt: string; capacity: number; durationMinutes: number; requiredAttendanceMinutes: number; status: CourseStatus }>({ title: "", description: "", location: "", startsAt: "", endsAt: "", registrationOpensAt: "", registrationClosesAt: "", capacity: 20, durationMinutes: 180, requiredAttendanceMinutes: 120, status: "DRAFT" });
-  const value = course ? { title: course.title, description: course.description, location: course.location, startsAt: toLocal(course.startsAt), endsAt: toLocal(course.endsAt), registrationOpensAt: toLocal(course.registrationOpensAt), registrationClosesAt: toLocal(course.registrationClosesAt), capacity: course.capacity, durationMinutes: course.durationMinutes, requiredAttendanceMinutes: course.requiredAttendanceMinutes, status: course.status } : form;
+  const [form, setForm] = useState<{ title: string; description: string; youtubeUrl: string; location: string; startsAt: string; endsAt: string; registrationOpensAt: string; registrationClosesAt: string; capacity: number; durationMinutes: number; requiredAttendanceMinutes: number; status: CourseStatus }>({ title: "", description: "", youtubeUrl: "", location: "", startsAt: "", endsAt: "", registrationOpensAt: "", registrationClosesAt: "", capacity: 20, durationMinutes: 180, requiredAttendanceMinutes: 120, status: "DRAFT" });
+  const value = course ? { title: course.title, description: course.description, youtubeUrl: course.youtubeUrl ?? "", location: course.location, startsAt: toLocal(course.startsAt), endsAt: toLocal(course.endsAt), registrationOpensAt: toLocal(course.registrationOpensAt), registrationClosesAt: toLocal(course.registrationClosesAt), capacity: course.capacity, durationMinutes: course.durationMinutes, requiredAttendanceMinutes: course.requiredAttendanceMinutes, status: course.status } : form;
+  useEffect(() => {
+    if (!course) return;
+    setForm({ title: course.title, description: course.description, youtubeUrl: course.youtubeUrl ?? "", location: course.location, startsAt: toLocal(course.startsAt), endsAt: toLocal(course.endsAt), registrationOpensAt: toLocal(course.registrationOpensAt), registrationClosesAt: toLocal(course.registrationClosesAt), capacity: course.capacity, durationMinutes: course.durationMinutes, requiredAttendanceMinutes: course.requiredAttendanceMinutes, status: course.status });
+  }, [course]);
   return (
     <Card className="space-y-3">
-      <h1 className="text-xl font-semibold">{courseId ? "編輯課程" : "新增課程"}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">{courseId ? "編輯課程" : "新增課程"}</h1>
+        <Button onClick={async () => {
+          const source = form.title ? form : value;
+          const payload = { ...source, startsAt: new Date(source.startsAt).toISOString(), endsAt: new Date(source.endsAt).toISOString(), registrationOpensAt: new Date(source.registrationOpensAt).toISOString(), registrationClosesAt: new Date(source.registrationClosesAt).toISOString(), expectedVersion: course?.version };
+          try {
+            const saved = await services.saveCourse(payload, courseId);
+            navigate(`/admin/courses/${saved.id}/edit`);
+          } catch (reason) {
+            setError(reason instanceof ClientError ? reason.message : "儲存失敗");
+          }
+        }}>儲存課程</Button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
       {(["title", "location"] as const).map((key) => <Field key={key} label={key === "title" ? "名稱" : "地點"}><TextInput value={course ? value[key] : form[key]} onChange={(event) => setForm({ ...value, [key]: event.target.value })} /></Field>)}
-      <Field label="說明"><TextArea value={course ? value.description : form.description} onChange={(event) => setForm({ ...value, description: event.target.value })} /></Field>
+      <Field label="介紹"><TextArea value={course ? value.description : form.description} onChange={(event) => setForm({ ...value, description: event.target.value })} /></Field>
+      <Field label="YouTube 連結" hint="貼上 youtube.com 或 youtu.be 的影片網址。留白表示這一梯次不放影片。"><TextInput value={form.youtubeUrl || value.youtubeUrl} onChange={(event) => setForm({ ...value, youtubeUrl: event.target.value })} placeholder="https://www.youtube.com/watch?v=" /></Field>
       <Field label="開始"><TextInput type="datetime-local" value={course && !form.startsAt ? value.startsAt : form.startsAt || value.startsAt} onChange={(event) => setForm({ ...value, startsAt: event.target.value })} /></Field>
       <Field label="結束"><TextInput type="datetime-local" value={form.endsAt || value.endsAt} onChange={(event) => setForm({ ...value, endsAt: event.target.value })} /></Field>
       <Field label="報名開始"><TextInput type="datetime-local" value={form.registrationOpensAt || value.registrationOpensAt} onChange={(event) => setForm({ ...value, registrationOpensAt: event.target.value })} /></Field>
@@ -164,17 +188,28 @@ export function CourseFormPage() {
       <Field label="名額"><TextInput type="number" value={form.capacity || value.capacity} onChange={(event) => setForm({ ...value, capacity: Number(event.target.value) })} /></Field>
       <Field label="課程分鐘"><TextInput type="number" value={form.durationMinutes || value.durationMinutes} onChange={(event) => setForm({ ...value, durationMinutes: Number(event.target.value) })} /></Field>
       <Field label="完課分鐘" hint="已有出席紀錄時，初版不允許改門檻。"><TextInput type="number" value={form.requiredAttendanceMinutes || value.requiredAttendanceMinutes} onChange={(event) => setForm({ ...value, requiredAttendanceMinutes: Number(event.target.value) })} /></Field>
+      </div>
       <Field label="狀態"><SelectInput value={form.status || value.status} onChange={(event) => setForm({ ...value, status: event.target.value as CourseStatus })}>{Object.entries(courseStatusLabels).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</SelectInput></Field>
+      {courseId ? (
+        <div>
+          <label className="btn inline-block cursor-pointer rounded-md px-3 py-2 text-sm">上傳圖片
+            <input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file || !courseId) return;
+              try {
+                await services.uploadCourseImage(courseId, file);
+                await existing.refetch();
+                setError(null);
+              } catch (reason) {
+                setError(reason instanceof ClientError ? reason.message : "上傳失敗");
+              }
+            }} />
+          </label>
+          {course?.imageUrl ? <img src={course.imageUrl} alt="" className="mt-3 h-48 w-full rounded-md object-cover" /> : <p className="mt-2 text-sm text-[var(--muted)]">還沒有圖片。</p>}
+        </div>
+      ) : <p className="text-sm text-[var(--muted)]">先儲存課程，再上傳圖片。</p>}
       {error ? <ErrorText message={error} /> : null}
-      <Button onClick={async () => {
-        const payload = { ...(course ? value : form), ...form, startsAt: new Date(form.startsAt || value.startsAt).toISOString(), endsAt: new Date(form.endsAt || value.endsAt).toISOString(), registrationOpensAt: new Date(form.registrationOpensAt || value.registrationOpensAt).toISOString(), registrationClosesAt: new Date(form.registrationClosesAt || value.registrationClosesAt).toISOString(), expectedVersion: course?.version };
-        try {
-          const saved = await services.saveCourse(payload, courseId);
-          navigate(`/admin/courses/${saved.id}/edit`);
-        } catch (reason) {
-          setError(reason instanceof ClientError ? reason.message : "儲存失敗");
-        }
-      }}>儲存課程</Button>
     </Card>
   );
 }
@@ -219,30 +254,7 @@ function AttendanceRow({ row, onSaved }: { row: Awaited<ReturnType<ReturnType<ty
 }
 
 export function UsersPage() {
-  const services = useServices();
-  const client = useQueryClient();
-  const users = useQuery({ queryKey: ["users"], queryFn: () => services.users() });
-  const [form, setForm] = useState({ email: "", displayName: "", password: "", role: "CASE_OFFICER" as const });
-  const [message, setMessage] = useState<string | null>(null);
-  return (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-semibold">會員與帳號</h1>
-      <Card className="grid gap-2 md:grid-cols-2">
-        <Field label="Email"><TextInput value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
-        <Field label="名稱"><TextInput value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></Field>
-        <Field label="密碼"><TextInput type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></Field>
-        <Field label="角色"><SelectInput value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as "CASE_OFFICER" })}><option value="CASE_OFFICER">承辦人</option><option value="ADMIN">管理員</option></SelectInput></Field>
-        <Button onClick={async () => { await services.createUser(form); setMessage("已建立內部帳號"); await client.invalidateQueries({ queryKey: ["users"] }); }}>新增內部帳號</Button>
-      </Card>
-      {message ? <p className="text-sm">{message}</p> : null}
-      {users.data?.map((user) => (
-        <Card key={user.id} className="flex flex-wrap items-center justify-between gap-2">
-          <div><p>{user.displayName}</p><p className="text-sm text-[var(--muted)]">{user.email} · {user.organizationName ?? "無組織"} · {userRoleLabels[user.role as UserRole]?.label ?? user.role}</p></div>
-          {user.role !== "APPLICANT" ? <Button variant="secondary" onClick={async () => { await services.updateUser(user.id, { isActive: !user.isActive }); await client.invalidateQueries({ queryKey: ["users"] }); }}>{user.isActive ? "停用" : "啟用"}</Button> : <Badge tone={user.isActive ? "success" : "neutral"}>{user.isActive ? "啟用" : "停用"}</Badge>}
-        </Card>
-      ))}
-    </div>
-  );
+  return <PermissionsPage />;
 }
 
 export function OrganizationsPage() {
@@ -253,7 +265,12 @@ export function OrganizationsPage() {
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">業者資料</h1>
       <TextInput placeholder="搜尋名稱或統編" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋業者" />
-      {rows.data?.map((org) => <Card key={org.id}><p className="font-medium">{org.organizationName}</p><p className="text-sm">統編 {org.taxId} · {org.contactName} · {org.contactPhone}</p></Card>)}
+      <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">業者</th><th className="p-3 font-medium">統編</th><th className="p-3 font-medium">聯絡人</th><th className="p-3 font-medium">電話</th></tr></thead>
+          <tbody>{rows.data?.map((org) => <tr key={org.id} className="border-t border-[var(--line)]"><td className="p-3">{org.organizationName}</td><td className="p-3">{org.taxId}</td><td className="p-3">{org.contactName}</td><td className="p-3">{org.contactPhone}</td></tr>)}</tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -284,7 +301,12 @@ export function AuditPage() {
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">操作紀錄</h1>
-      {rows.data?.map((row) => <Card key={row.id}><p className="text-sm">{formatTaipei(row.createdAt)} · {row.actorName ?? "系統"} · {row.action} · {row.entityType}</p></Card>)}
+      <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">時間</th><th className="p-3 font-medium">人員</th><th className="p-3 font-medium">動作</th><th className="p-3 font-medium">對象</th></tr></thead>
+          <tbody>{rows.data?.map((row) => <tr key={row.id} className="border-t border-[var(--line)]"><td className="p-3">{formatTaipei(row.createdAt)}</td><td className="p-3">{row.actorName ?? "系統"}</td><td className="p-3">{row.action}</td><td className="p-3">{row.entityType}</td></tr>)}</tbody>
+        </table>
+      </div>
       {(rows.data?.length ?? 0) === 0 ? <Empty title="尚無紀錄" body="登入、送件、派案與出席更正會記在這裡。" /> : null}
     </div>
   );

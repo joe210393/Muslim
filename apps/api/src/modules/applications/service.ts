@@ -96,10 +96,19 @@ async function nextApplicationNo(tx: Tx): Promise<string> {
   return formatApplicationNo(taipeiYear(), sequence);
 }
 
+export function officerCaseWhere(actorId: string): Prisma.ApplicationWhereInput {
+  return {
+    OR: [
+      { assignedToId: actorId },
+      { assignedToId: null, status: { not: ApplicationStatus.DRAFT } },
+    ],
+  };
+}
+
 function scopeWhere(actor: Actor): Prisma.ApplicationWhereInput {
   if (actor.role === UserRole.ADMIN) return {};
   if (actor.role === UserRole.APPLICANT) return { organizationId: actor.organizationId ?? "00000000-0000-0000-0000-000000000000" };
-  return { assignedToId: actor.id };
+  return officerCaseWhere(actor.id);
 }
 
 export async function listApplications(actor: Actor, query: { q?: string; status?: string; categoryId?: string; assignedToId?: string; page: number; pageSize: number }) {

@@ -237,6 +237,28 @@ export function createHttpServices(): Services {
       form.set("file", file);
       return (await request("POST", `/admin/site-content/${slot}/image`, form)).data as Awaited<ReturnType<Services["uploadSiteImage"]>>;
     },
+    async uploadEntryImage(id, file) {
+      const form = new FormData();
+      form.set("file", file);
+      return (await request("POST", `/admin/editorial/${id}/image`, form)).data as Awaited<ReturnType<Services["uploadEntryImage"]>>;
+    },
+    async uploadCourseImage(id, file) {
+      const form = new FormData();
+      form.set("file", file);
+      return (await request("POST", `/admin/courses/${id}/image`, form)).data as Awaited<ReturnType<Services["uploadCourseImage"]>>;
+    },
+    async adminEntries() {
+      return (await request("GET", "/admin/editorial")).data as Awaited<ReturnType<Services["adminEntries"]>>;
+    },
+    async createEntry(input) {
+      return (await request("POST", "/admin/editorial", input)).data as Awaited<ReturnType<Services["createEntry"]>>;
+    },
+    async updateEntry(id, input) {
+      return (await request("PATCH", `/admin/editorial/${id}`, input)).data as Awaited<ReturnType<Services["updateEntry"]>>;
+    },
+    async deleteEntry(id) {
+      await request("DELETE", `/admin/editorial/${id}`);
+    },
     async myContracts() {
       return (await request("GET", "/contracts/mine")).data as Awaited<ReturnType<Services["myContracts"]>>;
     },

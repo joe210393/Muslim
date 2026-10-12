@@ -1,8 +1,8 @@
 import { applicationStatusLabels, attendanceStatusLabels, completionLabels, courseStatusLabels, enrollmentStatusLabels, userRoleLabels, type StatusTone } from "@mf/contracts";
 
 const tones: Record<StatusTone, string> = {
-  neutral: "bg-[#ebe6dc] text-[#1a1916]",
-  info: "bg-[#e6eef3] text-[#163044]",
+  neutral: "bg-[#cadbe9] text-[#102033]",
+  info: "bg-[#8ec0e4] text-[#102033]",
   warning: "bg-[#f6edd8] text-[#4a3410]",
   success: "bg-[#e5f0e8] text-[#163526]",
   danger: "bg-[#f8e8e4] text-[#7a261c]",
