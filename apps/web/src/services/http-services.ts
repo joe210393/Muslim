@@ -158,7 +158,8 @@ export function createHttpServices(): Services {
     },
     async summary() {
       const me = await this.me();
-      const path = me?.role === "APPLICANT" ? "/portal/summary" : "/admin/summary";
+      if (!me) throw new ClientError("請先登入", { status: 401 });
+      const path = me.role === "APPLICANT" ? "/portal/summary" : "/admin/summary";
       return (await request("GET", path)).data as Awaited<ReturnType<Services["summary"]>>;
     },
     async courses(scope) {

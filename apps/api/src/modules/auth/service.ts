@@ -102,7 +102,7 @@ export async function register(env: Env, res: Response, input: RegisterRequest, 
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "REGISTER", entityType: "User", entityId: user.id, requestId: randomBytes(8).toString("hex"), safeChanges: { role: user.role } },
   });
-  return { user: publicUser(user), csrfToken };
+  return { user: await publicUser(user), csrfToken };
 }
 
 export async function login(env: Env, res: Response, input: LoginRequest, ip: string) {
@@ -121,7 +121,7 @@ export async function login(env: Env, res: Response, input: LoginRequest, ip: st
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "LOGIN_SUCCESS", entityType: "User", entityId: user.id, requestId: randomBytes(8).toString("hex"), safeChanges: { result: "success" } },
   });
-  return { user: publicUser(user), csrfToken };
+  return { user: await publicUser(user), csrfToken };
 }
 
 export async function logout(res: Response, token: string | undefined) {

@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
 import { CourseCalendar } from "../../components/CourseCalendar";
-import { Badge, Button, Card, ErrorText, Field, PageHeader, PageMedia, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ContentImage, ErrorText, Field, PageHeader, PageMedia, TextInput } from "../../components/ui";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError, type SiteSlot } from "../../services/types";
 import { useState, type ReactNode } from "react";
@@ -83,7 +83,7 @@ function Hero({ slot }: { slot: SiteSlot }) {
             <SiteLink href={slot.secondaryCtaHref} label={slot.secondaryCtaLabel} />
           </div>
         </div>
-        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-full min-h-64 w-full object-cover" /> : <div className="hidden min-h-64 border-l border-[#8ec0e4] bg-[#cadbe9] md:block" />}
+        <ContentImage src={slot.imageUrl} className="h-full min-h-64 w-full object-cover" fallback={<div className="hidden min-h-64 border-l border-[#8ec0e4] bg-[#cadbe9] md:block" />} />
       </div>
     </section>
   );
@@ -92,7 +92,7 @@ function Hero({ slot }: { slot: SiteSlot }) {
 function Banner({ slot }: { slot: SiteSlot }) {
   return (
     <section className="grid items-center gap-8 border-y border-[var(--line)] py-10 md:grid-cols-[280px_1fr]">
-      {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="h-48 w-full rounded-md object-cover" /> : <div className="h-48 rounded-md bg-[#cadbe9]" />}
+      <ContentImage src={slot.imageUrl} className="h-48 w-full rounded-md object-cover" fallback={<div className="h-48 rounded-md bg-[#cadbe9]" />} />
       <div>
         <p className="text-sm text-[var(--muted)]">{slot.eyebrow}</p>
         <h2 className="mt-2 text-3xl">{slot.title}</h2>

@@ -66,7 +66,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
           <Link to={session.user ? homePathForRole(session.user.role as UserRole) : "/"} className="text-[var(--ink)] no-underline">
             <span className="serif block text-xl">{brand.name}</span>
             <span className="mt-1 block text-sm font-medium">{session.user ? session.user.email : "尚未登入"}</span>
-            {session.user ? <span className="block text-xs text-[var(--muted)]">{userRoleLabels[session.user.role as UserRole].label}</span> : null}
+            {session.user ? <span className="block text-xs text-[var(--muted)]">{userRoleLabels[session.user.role as UserRole]?.label ?? "請重新登入"}</span> : null}
           </Link>
           <nav className="flex flex-wrap items-center gap-4 text-sm">
             {area === "public" ? links.map((item) => (

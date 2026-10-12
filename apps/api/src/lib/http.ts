@@ -42,6 +42,14 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
     });
     return;
   }
+  if (error instanceof Error && "code" in error && (error as { code?: string }).code === "ENOENT") {
+    res.status(404).json({
+      success: false,
+      error: { code: ErrorCodes.NOT_FOUND, message: "找不到檔案" },
+      requestId,
+    });
+    return;
+  }
   const databaseMessage = databaseErrorMessage(error);
   console.error(safeErrorText(error));
   res.status(databaseMessage ? 503 : 500).json({

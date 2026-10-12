@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { toneClass } from "../lib/format";
 import { youtubeVideoId, type StatusTone } from "@mf/contracts";
 import { contentStatus } from "../content/site-content";
@@ -109,12 +109,20 @@ export function PageHeader({ eyebrow, title, lede }: { eyebrow?: string; title: 
   );
 }
 
+export function ContentImage({ src, className, fallback = null }: { src?: string | null; className: string; fallback?: ReactNode }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return fallback;
+  return <img src={src} alt="" className={className} onError={() => setFailed(true)} />;
+}
+
 export function PageMedia({ imageUrl, youtubeUrl }: { imageUrl?: string | null; youtubeUrl?: string }) {
   const videoId = youtubeVideoId(youtubeUrl ?? "");
-  if (!imageUrl && !videoId) return null;
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = Boolean(imageUrl) && !imageFailed;
+  if (!showImage && !videoId) return null;
   return (
-    <div className={`grid gap-4 ${imageUrl && videoId ? "md:grid-cols-2" : ""}`}>
-      {imageUrl ? <img src={imageUrl} alt="" className="h-64 w-full rounded-md object-cover" /> : null}
+    <div className={`grid gap-4 ${showImage && videoId ? "md:grid-cols-2" : ""}`}>
+      {showImage ? <img src={imageUrl ?? ""} alt="" className="h-64 w-full rounded-md object-cover" onError={() => setImageFailed(true)} /> : null}
       {videoId ? (
         <iframe
           className="aspect-video w-full rounded-md"
