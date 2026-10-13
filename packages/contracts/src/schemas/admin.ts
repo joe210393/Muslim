@@ -21,6 +21,12 @@ export const dashboardCountsSchema = z.object({
   ),
 });
 
+export const auditListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(100),
+  category: z.enum(["AUTH", "APPLICATION", "CONTRACT", "TRAINING", "CONTENT", "REPORT", "DATA", "PAYMENT", "SYSTEM"]).optional(),
+});
+
 export const auditLogSchema = z.object({
   id: z.string().uuid(),
   actorId: z.string().uuid().nullable(),

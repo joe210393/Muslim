@@ -11,6 +11,7 @@ export const PLATFORM_FEATURES = [
   { key: "users.manage", label: "管理帳號與權限" },
   { key: "reports.export", label: "匯出報表" },
   { key: "audit.view", label: "查看操作紀錄" },
+  { key: "payments.manage", label: "管理方案與付款" },
   { key: "integrations.edit", label: "調整串接設定" },
 ] as const;
 
@@ -45,7 +46,7 @@ export const INTEGRATION_DEFAULTS = [
     label: "第三方金流",
     provider: "unconfigured",
     enabled: false,
-    note: "尚未設定金流服務商與金鑰，系統不會扣款。",
+    note: "結帳使用綠界全方位金流。未換成甲方商店前，非正式環境使用綠界文件上的測試商店。",
   },
   {
     key: "media",
@@ -222,7 +223,7 @@ export const DEFAULT_EDITORIAL: EditorialSeed[] = [
   editorial({ kind: EditorialKind.FEE, slug: "fee-renew", groupLabel: "", title: "續約", summary: "到期前辦理", body: "待填", note: "是否需重新現場複審，待確認", publishedOn: null, sortOrder: 5 }),
   editorial({ kind: EditorialKind.FAQ, slug: "who-registers", groupLabel: "申請", title: "誰可以註冊？", summary: "", body: "前台只開放業者自行註冊。承辦、驗證人員與管理員由管理員在後台建立。", note: "", publishedOn: null, sortOrder: 1 }),
   editorial({ kind: EditorialKind.FAQ, slug: "draft-partial", groupLabel: "申請", title: "草稿可以先不填完嗎？", summary: "", body: "可以。缺資料時不能送件，已填內容會保留。", note: "", publishedOn: null, sortOrder: 2 }),
-  editorial({ kind: EditorialKind.FAQ, slug: "pay-online", groupLabel: "費用", title: "現在可以線上付款嗎？", summary: "", body: "不可以。金流服務商、金額與退款規則都還沒有。", note: "", publishedOn: null, sortOrder: 3 }),
+  editorial({ kind: EditorialKind.FAQ, slug: "pay-online", groupLabel: "費用", title: "現在可以線上付款嗎？", summary: "", body: "內部後台可以建立方案、金額與第三方付款網址。打開網址是前往該付款頁，系統本身不會扣款，也不會自動標成已付款。", note: "", publishedOn: null, sortOrder: 3 }),
   editorial({ kind: EditorialKind.FAQ, slug: "training-required", groupLabel: "訓練", title: "上完課才可以送件嗎？", summary: "", body: "初版不會用時數擋住申請。是否列為資格，待甲方確認。", note: "", publishedOn: null, sortOrder: 4 }),
   editorial({ kind: EditorialKind.FAQ, slug: "auto-certificate", groupLabel: "證書", title: "核定後會自動拿到證書嗎？", summary: "", body: "不會。編號、版型與效期由管理員人工登錄。", note: "", publishedOn: null, sortOrder: 5 }),
   editorial({ kind: EditorialKind.EMAIL_DRAFT, slug: "submitted", groupLabel: "", title: "已收到驗證申請", summary: "送件完成", body: "案件編號與下一步說明。正式寄件名稱與內文待核定。", note: "", publishedOn: null, sortOrder: 1 }),

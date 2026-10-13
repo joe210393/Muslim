@@ -107,6 +107,23 @@
 | SavedReport | 欄位組合 | selections | selections | json；可同時包含案件、業者、訓練報名、合約；每個來源的欄位必須在白名單內 | 否 | 必填 | 必填 | 中 | 可改 |
 | SavedReport | 顯示方式 | chartKind | chart_kind | string；table / bar / pie | 否 | 否 | 否 | 低 | 可改 |
 | SavedReport | 統計欄位 | chartField | chart_field | string；來源.欄位，必須是已勾選欄位 | 否 | 否 | 否 | 低 | 可改 |
+| ServicePlan | 方案名稱 | name | name | string；1–80 字 | 否 | 必填 | 必填 | 低 | 可改 |
+| ServicePlan | 金額 | amount | amount | int；新台幣整數元，0–9999999 | 否 | 必填 | 必填 | 低 | 可改；已登錄付款沿用當時金額 |
+| ServicePlan | 方案內容 | description | description | string；最多 4000 字。業者付款頁看到的方案說明 | 否 | 否 | 否 | 低 | 可改 |
+| ServicePlan | 付款連結 | paymentUrl | payment_url | string；空字串或 http/https 網址，最多 500 字。不代扣款 | 否 | 否 | 否 | 中 | 可改 |
+| ServicePlan | 是否開放 | isActive | is_active | boolean；關閉後業者付款頁看不到這個方案 | 否 | 否 | 否 | 低 | 可改 |
+| ServicePlan | 編輯版本 | version | version | int；不符回 409 | 否 | 是 | 每次更新比對 | 低 | server 遞增 |
+| PaymentRecord | 業者 | organizationId | organization_id | uuid；必須是既有業者 | 否 | 登錄必填 | 必填 | 中 | 登錄後不改 |
+| PaymentRecord | 業者名稱快照 | organizationName | organization_name | string；最多 200 字 | 否 | 登錄時寫入 | 必填 | 中 | 登錄後不改 |
+| PaymentRecord | 方案 | planId | plan_id | uuid；必須是既有方案 | 否 | 登錄必填 | 必填 | 低 | 登錄後不改 |
+| PaymentRecord | 方案名稱快照 | planName | plan_name | string；最多 80 字 | 否 | 登錄時寫入 | 必填 | 低 | 登錄後不改 |
+| PaymentRecord | 付款金額 | amount | amount | int；新台幣整數元 | 否 | 登錄時寫入 | 必填 | 低 | 登錄後不改 |
+| PaymentRecord | 付款狀態 | status | status | PaymentStatus；PENDING 待付款 / PAID 已付款。模擬付款不改狀態 | 否 | 是 | 綠界通知或人工登錄 | 低 | 只由綠界通知或人工登錄改成已付款 |
+| PaymentRecord | 特店訂單編號 | merchantTradeNo | merchant_trade_no | string；最多 20 碼英數，唯一 | 是 | 綠界訂單必填 | 人工登錄可空 | 低 | 建立後不改 |
+| PaymentRecord | 綠界交易編號 | ecpayTradeNo | ecpay_trade_no | string；最多 20 字 | 是 | 否 | 付款通知寫入 | 低 | 通知時寫入 |
+| PaymentRecord | 付款方式 | paymentMethod | payment_method | string；綠界 PaymentType，最多 20 字 | 否 | 否 | 付款通知寫入 | 低 | 通知時寫入 |
+| PaymentRecord | 付款時間 | paidAt | paid_at | timestamptz；本月統計用 Asia/Taipei，只算已付款 | 待付款可空 | server 寫入 | 已付款必填 | 低 | 變成已付款時寫入 |
+| PaymentRecord | 備註 | note | note | string；最多 200 字 | 否 | 否 | 否 | 低 | 登錄後不改 |
 
 
 ## 使用頁面

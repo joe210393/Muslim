@@ -14,4 +14,5 @@ export {
   ContentSlot,
   EditorialKind,
   ContractStatus,
+  PaymentStatus,
 } from "./generated/prisma/enums";

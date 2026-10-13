@@ -78,5 +78,13 @@
 | `POST /admin/imports/preview` | 管理員 | 只預覽，不寫入業務資料 |
 | `POST /admin/imports/:id/commit` | 管理員 | 整批成功或整批不寫；相同 requestId 不重複 |
 | `GET /admin/audit-logs` | 管理員 | 稽核，不含密碼與 token |
+| `GET /admin/payments` | 有方案與付款功能的後台 | 本月成交筆數、付款金額、方案與業者 |
+| `POST /admin/plans` | 有方案與付款功能的後台 | 建立方案、金額與付款網址 |
+| `PATCH /admin/plans/:id` | 有方案與付款功能的後台 | 修改方案，比對 expectedVersion |
+| `POST /admin/payments` | 有方案與付款功能的後台 | 登錄已收到的款項，不向第三方扣款 |
+| `GET /payments` | 業者 | 自己業者的付款紀錄，以及開放中的方案 |
+| `POST /payments/checkout` | 業者 | 建立綠界訂單，回傳要導轉的表單。不回傳金鑰 |
+| `POST /payments/ecpay/notify` | 綠界伺服器 | 付款結果通知。檢查碼正確才入帳，回應 `1|OK` |
+| `POST /payments/ecpay/result` | 綠界把瀏覽器導回 | 與通知同一套檢查，再回到業者付款頁 |
 
 常見錯誤碼：`VALIDATION_ERROR`、`UNAUTHENTICATED`、`FORBIDDEN`、`NOT_FOUND`、`VERSION_CONFLICT`、`CATEGORY_NOT_CONFIRMED`、`INTERNAL`。

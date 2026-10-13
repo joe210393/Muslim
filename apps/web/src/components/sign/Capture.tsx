@@ -58,16 +58,19 @@ export function FaceCapture({ onChange }: { onChange: (file: Blob | null) => voi
 }
 
 function prepareSignature(canvas: HTMLCanvasElement) {
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width < 2 || rect.height < 2) return null;
+  const parent = canvas.parentElement;
+  if (!parent) return null;
+  const cssWidth = parent.clientWidth;
+  const cssHeight = parent.clientHeight;
+  if (cssWidth < 2 || cssHeight < 2) return null;
   const ratio = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.round(rect.width * ratio));
-  const height = Math.max(1, Math.round(rect.height * ratio));
+  const width = Math.round(cssWidth * ratio);
+  const height = Math.round(cssHeight * ratio);
   const resized = canvas.width !== width || canvas.height !== height;
-  if (resized) {
-    canvas.width = width;
-    canvas.height = height;
-  }
+  if (resized) canvas.width = width;
+  if (resized) canvas.height = height;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -75,7 +78,7 @@ function prepareSignature(canvas: HTMLCanvasElement) {
   context.lineCap = "round";
   context.lineJoin = "round";
   context.strokeStyle = "#1a1916";
-  return { context, resized };
+  return { context, resized, cssWidth, cssHeight };
 }
 
 export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => void }) {
@@ -94,17 +97,20 @@ export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => vo
       }
     };
     fit();
+    const parent = canvas.parentElement;
     const observer = new ResizeObserver(fit);
-    observer.observe(canvas);
+    if (parent) observer.observe(parent);
     return () => observer.disconnect();
   }, [onChange]);
 
   function point(event: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
+    const width = canvas.clientWidth || rect.width;
+    const height = canvas.clientHeight || rect.height;
     return {
-      x: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
-      y: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+      x: Math.min(Math.max(event.clientX - rect.left, 0), Math.max(width - 1, 0)),
+      y: Math.min(Math.max(event.clientY - rect.top, 0), Math.max(height - 1, 0)),
     };
   }
 
@@ -134,19 +140,18 @@ export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => vo
     onChange(null);
   }
 
-  function stop(event: React.PointerEvent<HTMLCanvasElement>) {
+  function stop() {
     if (!drawing.current) return;
     drawing.current = false;
-    if (canvasRef.current?.hasPointerCapture(event.pointerId)) canvasRef.current.releasePointerCapture(event.pointerId);
     exportInk();
   }
 
   return (
     <div className="space-y-3">
-      <div className="h-48 w-full max-w-full overflow-hidden rounded-md border border-[var(--ink)] bg-white">
+      <div className="relative h-64 w-full max-w-full overflow-hidden rounded-md border border-[var(--ink)] bg-white" style={{ touchAction: "none" }}>
         <canvas
           ref={canvasRef}
-          className="block h-full w-full touch-none"
+          className="absolute left-0 top-0 block touch-none"
           style={{ touchAction: "none" }}
           onPointerDown={(event) => {
             event.preventDefault();
@@ -154,7 +159,6 @@ export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => vo
             if (!prepared) return;
             drawing.current = true;
             dirty.current = true;
-            canvasRef.current?.setPointerCapture(event.pointerId);
             const next = point(event);
             prepared.context.beginPath();
             prepared.context.moveTo(next.x, next.y);
@@ -170,8 +174,10 @@ export function SignaturePad({ onChange }: { onChange: (file: Blob | null) => vo
           }}
           onPointerUp={stop}
           onPointerCancel={stop}
+          onPointerLeave={stop}
         />
       </div>
+      <p className="text-sm text-[var(--muted)]">請在框內寫完姓名，包含最後一個字。框線裡面都可以簽。</p>
       <Button type="button" variant="secondary" onClick={clear}>清除簽名</Button>
     </div>
   );

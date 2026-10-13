@@ -16,8 +16,16 @@ import type {
   PublicConfig,
   PublicUser,
   ReportPreview,
+  MyPayments,
+  EcpayCheckout,
+  PaymentDesk,
+  PaymentItem,
+  PaymentRecordWrite,
   SavedReport,
   SavedReportWrite,
+  ServicePlanItem,
+  ServicePlanUpdate,
+  ServicePlanWrite,
 } from "@mf/contracts";
 
 export type Page<T> = { items: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number } };
@@ -157,6 +165,12 @@ export type Services = {
   createUser: (input: { email: string; displayName: string; password: string; features: string[] }) => Promise<void>;
   updateUser: (id: string, input: { isActive?: boolean; role?: "CASE_OFFICER" | "ADMIN" }) => Promise<void>;
   organizations: (q?: string) => Promise<Organization[]>;
+  paymentDesk: () => Promise<PaymentDesk>;
+  createPlan: (input: ServicePlanWrite) => Promise<ServicePlanItem>;
+  updatePlan: (id: string, input: ServicePlanUpdate) => Promise<ServicePlanItem>;
+  recordPayment: (input: PaymentRecordWrite) => Promise<PaymentItem>;
+  myPayments: () => Promise<MyPayments>;
+  startCheckout: (planId: string) => Promise<EcpayCheckout>;
   importTemplate: (type: "ORGANIZATIONS" | "APPLICATION_DRAFTS") => Promise<string>;
   importPreview: (type: "ORGANIZATIONS" | "APPLICATION_DRAFTS", csv: string) => Promise<ImportPreview>;
   importCommit: (id: string, requestId: string) => Promise<{ committed?: number }>;
@@ -167,7 +181,7 @@ export type Services = {
   deleteReport: (id: string) => Promise<void>;
   exportReport: (id: string) => Promise<string>;
   exportEnrollments: (courseId: string) => Promise<string>;
-  audit: () => Promise<AuditLog[]>;
+  audit: (query?: { page?: number; category?: string }) => Promise<{ items: AuditLog[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }>;
   publicSite: () => Promise<PublicSite>;
   adminSite: () => Promise<AdminSiteSlot[]>;
   saveSite: (slot: ContentSlot, input: SiteSlotInput) => Promise<AdminSiteSlot>;

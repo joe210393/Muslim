@@ -17,3 +17,7 @@
 | 2026-10-12 | 課程分線上與線下 | migration `20261012220000_course_delivery`。`delivery`、`video_file_id`、`video_duration_seconds`、`watched_seconds`。線下才用地點；線上通過門檻是影片秒數的三分之二 |
 | 2026-10-12 | 合約範本可多版 | migration `20261012230000_contract_template_revisions`。`code` 不再單獨唯一，改與 `revision` 聯合唯一。既有範本為第 1 版。發出合約時選定 `templateId` |
 | 2026-10-12 | 合約增加續約狀態 | migration `20261012240000_contract_renewal_status`。`contract_status` 增加 `RENEWED`、`NOT_RENEWED`。已發出的內文不再由管理員修改 |
+| 2026-10-12 | 操作紀錄只留 30 天 | 沒有新增欄位。查詢時刪除 `created_at` 早於 30 天的 `audit_logs`。分類由既有 `action` 對照，不另存 |
+| 2026-10-13 | 方案與付款 | migration `20261013000000_service_plans`。`service_plans` 存方案、金額與付款網址。`payment_records` 存已登錄收款與當時的業者、方案、金額 |
+| 2026-10-13 | 綠界訂單 | migration `20261013010000_ecpay_payments`。`payment_records` 增加 `status`、`merchant_trade_no`、`ecpay_trade_no`、`payment_method`。待付款的 `paid_at` 可空。金鑰不入庫 |
+| 2026-10-13 | 方案內容加長 | migration `20261013020000_plan_description`。`service_plans.description` 由 500 字改為 4000 字。沒有新增欄位 |

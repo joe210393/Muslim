@@ -1,8 +1,8 @@
-import { applicationStatusLabels, courseDeliveryLabels, courseStatusLabels, type CourseStatus } from "@mf/contracts";
+import { AUDIT_CATEGORIES, applicationStatusLabels, auditActionLabel, auditCategoryDetail, auditCategoryOf, auditEntityLabel, courseDeliveryLabels, courseStatusLabels, formatTwd, type CourseStatus } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { useServices } from "../../app/session";
+import { useServices, useSession } from "../../app/session";
 import { ApplicationReview } from "./ApplicationReview";
 import { Badge, Button, Card, Empty, ErrorText, Field, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { PermissionsPage } from "./InfoAdminPages";
@@ -11,7 +11,10 @@ import { ClientError } from "../../services/types";
 
 export function AdminHome() {
   const services = useServices();
+  const session = useSession();
+  const canPay = session.user?.featureKeys.includes("payments.manage") ?? false;
   const summary = useQuery({ queryKey: ["admin-summary"], queryFn: () => services.summary() });
+  const payments = useQuery({ queryKey: ["payment-desk"], queryFn: () => services.paymentDesk(), enabled: canPay });
   if (summary.isLoading) return <p>載入中…</p>;
   if (!summary.data) return <ErrorText message="無法載入工作總覽" />;
   const data = summary.data;
@@ -26,6 +29,12 @@ export function AdminHome() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">工作總覽</h1>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{cards.map((card) => <Card key={card.label}><Link className="text-sm text-[var(--muted)]" to={card.href}>{card.label}</Link><p className="text-2xl font-semibold">{card.count}</p></Card>)}</div>
+      {payments.data ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Card><Link className="text-sm text-[var(--muted)]" to="/admin/payments">{payments.data.monthLabel}成交</Link><p className="text-2xl font-semibold">{payments.data.dealCount} 筆</p></Card>
+          <Card><Link className="text-sm text-[var(--muted)]" to="/admin/payments">{payments.data.monthLabel}付款</Link><p className="text-2xl font-semibold">{formatTwd(payments.data.paidAmount)}</p></Card>
+        </div>
+      ) : null}
       <Card><h2 className="font-medium">近期課程</h2>{data.upcoming.map((course) => <p key={course.id} className="text-sm">{course.title} · {formatTaipei(course.startsAt)}</p>)}</Card>
     </div>
   );
@@ -335,17 +344,49 @@ export function ImportsPage() {
 
 export function AuditPage() {
   const services = useServices();
-  const rows = useQuery({ queryKey: ["audit"], queryFn: () => services.audit() });
+  const [params, setParams] = useSearchParams();
+  const category = AUDIT_CATEGORIES.some((item) => item.key === params.get("category")) ? params.get("category")! : "ALL";
+  const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
+  const rows = useQuery({ queryKey: ["audit", category, page], queryFn: () => services.audit({ page, category }) });
+  const choose = (nextCategory: string) => {
+    const next = new URLSearchParams(params);
+    if (nextCategory === "ALL") next.delete("category");
+    else next.set("category", nextCategory);
+    next.delete("page");
+    setParams(next);
+  };
+  const turn = (nextPage: number) => {
+    const next = new URLSearchParams(params);
+    if (nextPage <= 1) next.delete("page");
+    else next.set("page", String(nextPage));
+    setParams(next);
+  };
+  const items = rows.data?.items ?? [];
+  const meta = rows.data?.meta;
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">操作紀錄</h1>
+      <p className="text-sm text-[var(--muted)]">只保留最近 30 天。一頁最多 100 筆。</p>
+      <SectionNav
+        value={category}
+        onChange={choose}
+        items={[{ id: "ALL", label: "全部" }, ...AUDIT_CATEGORIES.map((item) => ({ id: item.key, label: item.label }))]}
+      />
+      <p className="text-sm text-[var(--muted)]">{auditCategoryDetail(category)}</p>
       <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">時間</th><th className="p-3 font-medium">人員</th><th className="p-3 font-medium">動作</th><th className="p-3 font-medium">對象</th></tr></thead>
-          <tbody>{rows.data?.map((row) => <tr key={row.id} className="border-t border-[var(--line)]"><td className="p-3">{formatTaipei(row.createdAt)}</td><td className="p-3">{row.actorName ?? "系統"}</td><td className="p-3">{row.action}</td><td className="p-3">{row.entityType}</td></tr>)}</tbody>
+          <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">時間</th><th className="p-3 font-medium">人員</th><th className="p-3 font-medium">分類</th><th className="p-3 font-medium">動作</th><th className="p-3 font-medium">對象</th></tr></thead>
+          <tbody>{items.map((row) => <tr key={row.id} className="border-t border-[var(--line)]"><td className="p-3">{formatTaipei(row.createdAt)}</td><td className="p-3">{row.actorName ?? "系統"}</td><td className="p-3">{AUDIT_CATEGORIES.find((item) => item.key === auditCategoryOf(row.action))?.label}</td><td className="p-3">{auditActionLabel(row.action)}</td><td className="p-3">{auditEntityLabel(row.entityType)}</td></tr>)}</tbody>
         </table>
       </div>
-      {(rows.data?.length ?? 0) === 0 ? <Empty title="尚無紀錄" body="登入、送件、派案與出席更正會記在這裡。" /> : null}
+      {items.length === 0 ? <Empty title="尚無紀錄" body="這個分類在最近 30 天沒有操作。" /> : null}
+      {meta && meta.totalPages > 1 ? (
+        <div className="flex items-center gap-2 text-sm">
+          <Button variant="secondary" disabled={page <= 1} onClick={() => turn(page - 1)}>上一頁</Button>
+          <span>第 {meta.page} / {meta.totalPages} 頁，共 {meta.total} 筆</span>
+          <Button variant="secondary" disabled={page >= meta.totalPages} onClick={() => turn(page + 1)}>下一頁</Button>
+        </div>
+      ) : meta ? <p className="text-sm text-[var(--muted)]">共 {meta.total} 筆</p> : null}
     </div>
   );
 }

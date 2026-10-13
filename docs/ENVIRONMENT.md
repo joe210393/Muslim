@@ -18,5 +18,11 @@
 | `VITE_DATA_MODE` | `mock` 或 `api` | build 必須 `api` |
 | `VITE_API_BASE_URL` | 前端 API 前綴 | `/api/v1` |
 | `WEB_DEV_ORIGIN` | 本機 CORS 來源 | 正式環境改用 `APP_BASE_URL` |
+| `ECPAY_ENV` | `stage` 或 `production` | 甲方正式商店用 `production` |
+| `ECPAY_MERCHANT_ID` | 綠界特店編號 | 正式環境必填 |
+| `ECPAY_HASH_KEY` | 綠界串接金鑰 | 正式環境必填，不寫進文件 |
+| `ECPAY_HASH_IV` | 綠界串接金鑰 | 正式環境必填，不寫進文件 |
+
+未填商店代號時，`local` 與 `staging` 使用[綠界測試介接資訊](https://developers.ecpay.com.tw/2856/)的測試商店，付款頁是 `payment-stage.ecpay.com.tw`。`APP_ENV=production` 不使用測試商店。甲方註冊後，把上面四個變數換成正式後台的介接資訊。
 
 `APP_ENV=production` 時，程式拒絕 `DEMO_MODE=true`、`MAIL_DRIVER=console`，以及過短的 `SESSION_SECRET`。

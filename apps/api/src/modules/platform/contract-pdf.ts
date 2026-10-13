@@ -41,7 +41,10 @@ export async function renderSignedPdf(
       context.fillText(text, x, y);
     },
     drawSignature(x, y, width, height) {
-      context.drawImage(signature, x, y, width, height);
+      const scale = Math.min(width / signature.width, height / signature.height);
+      const drawnWidth = signature.width * scale;
+      const drawnHeight = signature.height * scale;
+      context.drawImage(signature, x, y + (height - drawnHeight) / 2, drawnWidth, drawnHeight);
     },
     drawFace(x, y, width, height) {
       context.drawImage(face, x, y, width, height);

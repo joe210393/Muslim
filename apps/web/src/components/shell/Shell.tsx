@@ -22,6 +22,7 @@ const portalNav: Array<{ href: string; label: string; anyOf?: string[] }> = [
   { href: "/portal/contracts", label: "合約", anyOf: ["contracts.sign"] },
   { href: "/portal/certifications", label: "電子證書" },
   { href: "/portal/renewals", label: "續約" },
+  { href: "/portal/payments", label: "已付款" },
   { href: "/portal/resources", label: "授權資源" },
   { href: "/portal/profile", label: "業者資料" },
 ];
@@ -40,6 +41,12 @@ const contractPages = [
   { href: "/admin/contracts/templates", label: "合約範本" },
 ];
 
+const paymentPages = [
+  { href: "/admin/payments/plans", label: "方案內容" },
+  { href: "/admin/payments", label: "本月成交" },
+  { href: "/admin/payments/record", label: "登錄付款" },
+];
+
 const adminNav: Array<{ href: string; label: string; anyOf?: string[]; children?: Array<{ href: string; label: string }> }> = [
   { href: "/admin", label: "工作總覽" },
   { href: "/admin/cms", label: "內容管理", anyOf: ["cms.edit"], children: cmsPages },
@@ -47,6 +54,7 @@ const adminNav: Array<{ href: string; label: string; anyOf?: string[]; children?
   { href: "/admin/site-reviews", label: "現場複審", anyOf: ["applications.review", "applications.decide"] },
   { href: "/admin/organizations", label: "會員管理", anyOf: ["users.manage"] },
   { href: "/admin/contracts", label: "合約管理", anyOf: ["contracts.issue"], children: contractPages },
+  { href: "/admin/payments", label: "方案與付款", anyOf: ["payments.manage"], children: paymentPages },
   { href: "/admin/courses", label: "教育訓練管理", anyOf: ["training.manage"] },
   { href: "/admin/reports", label: "報表", anyOf: ["reports.export"] },
   { href: "/admin/permissions", label: "員工", anyOf: ["users.manage"] },
@@ -61,6 +69,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => ({
     "/admin/cms": location.pathname.startsWith("/admin/cms"),
     "/admin/contracts": location.pathname.startsWith("/admin/contracts"),
+    "/admin/payments": location.pathname.startsWith("/admin/payments"),
   }));
   const allowed = new Set(session.user?.featureKeys ?? []);
   const visible = (items: Array<{ href: string; label: string; anyOf?: string[]; children?: Array<{ href: string; label: string }> }>) => items.filter((item) => !item.anyOf || item.anyOf.some((key) => allowed.has(key)));
@@ -69,6 +78,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
       ...current,
       ...(location.pathname.startsWith("/admin/cms") ? { "/admin/cms": true } : {}),
       ...(location.pathname.startsWith("/admin/contracts") ? { "/admin/contracts": true } : {}),
+      ...(location.pathname.startsWith("/admin/payments") ? { "/admin/payments": true } : {}),
     }));
   }, [location.pathname]);
   const links = area === "portal" ? visible(portalNav) : area === "admin" ? visible(adminNav) : publicNav.map(([href, label]) => ({ href: href ?? "/", label: label ?? "" }));
@@ -118,7 +128,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
                     {item.label}
                   </button>
                   {openGroups[item.href] ? children.map((child) => (
-                    <NavLink key={child.href} to={child.href} className={({ isActive }) => `btn block rounded-md px-3 py-2 text-left text-sm no-underline md:ml-3 ${isActive ? "is-selected" : ""}`}>{child.label}</NavLink>
+                    <NavLink key={child.href} to={child.href} end={child.href === "/admin/payments"} className={({ isActive }) => `btn block rounded-md px-3 py-2 text-left text-sm no-underline md:ml-3 ${isActive ? "is-selected" : ""}`}>{child.label}</NavLink>
                   )) : null}
                 </div>
               ) : (

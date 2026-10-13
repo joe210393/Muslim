@@ -37,14 +37,17 @@ async function writeDefaults() {
 }
 
 export async function ensureUserFeatures(userId: string, role: UserRole) {
-  const count = await prisma.userFeature.count({ where: { userId } });
-  if (count > 0) return;
+  const existing = await prisma.userFeature.findMany({ where: { userId }, select: { featureKey: true } });
+  const have = new Set(existing.map((row) => row.featureKey));
+  const missing = PLATFORM_FEATURES.filter((feature) => !have.has(feature.key));
+  if (missing.length === 0) return;
   await prisma.userFeature.createMany({
-    data: PLATFORM_FEATURES.map((feature) => ({
+    data: missing.map((feature) => ({
       userId,
       featureKey: feature.key,
       enabled: defaultFeatureEnabled(role, feature.key),
     })),
+    skipDuplicates: true,
   });
 }
 

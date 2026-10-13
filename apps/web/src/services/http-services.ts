@@ -205,6 +205,24 @@ export function createHttpServices(): Services {
     async updateUser(id, input) {
       await request("PATCH", `/admin/users/${id}`, input);
     },
+    async paymentDesk() {
+      return (await request("GET", "/admin/payments")).data as Awaited<ReturnType<Services["paymentDesk"]>>;
+    },
+    async createPlan(input) {
+      return (await request("POST", "/admin/plans", input)).data as Awaited<ReturnType<Services["createPlan"]>>;
+    },
+    async updatePlan(id, input) {
+      return (await request("PATCH", `/admin/plans/${id}`, input)).data as Awaited<ReturnType<Services["updatePlan"]>>;
+    },
+    async recordPayment(input) {
+      return (await request("POST", "/admin/payments", input)).data as Awaited<ReturnType<Services["recordPayment"]>>;
+    },
+    async myPayments() {
+      return (await request("GET", "/payments")).data as Awaited<ReturnType<Services["myPayments"]>>;
+    },
+    async startCheckout(planId) {
+      return (await request("POST", "/payments/checkout", { planId })).data as Awaited<ReturnType<Services["startCheckout"]>>;
+    },
     async organizations(q) {
       return page(await request("GET", `/admin/organizations?pageSize=50${q ? `&q=${encodeURIComponent(q)}` : ""}`)).items as Awaited<ReturnType<Services["organizations"]>>;
     },
@@ -239,8 +257,10 @@ export function createHttpServices(): Services {
     async exportEnrollments(courseId) {
       return await ((await request("GET", `/admin/courses/${courseId}/enrollments/export`)).data as Blob).text();
     },
-    async audit() {
-      return page(await request("GET", "/admin/audit-logs?pageSize=50")).items as Awaited<ReturnType<Services["audit"]>>;
+    async audit(query) {
+      const params = new URLSearchParams({ page: String(query?.page ?? 1), pageSize: "100" });
+      if (query?.category && query.category !== "ALL") params.set("category", query.category);
+      return page(await request("GET", `/admin/audit-logs?${params}`)) as Awaited<ReturnType<Services["audit"]>>;
     },
     async publicSite() {
       return (await request("GET", "/site-content")).data as Awaited<ReturnType<Services["publicSite"]>>;

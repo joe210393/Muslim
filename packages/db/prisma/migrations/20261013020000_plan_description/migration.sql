@@ -1,0 +1,1 @@
+ALTER TABLE "service_plans" ALTER COLUMN "description" SET DATA TYPE VARCHAR(4000);

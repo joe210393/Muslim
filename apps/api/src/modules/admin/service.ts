@@ -7,6 +7,10 @@ import {
   UserRole,
   certificationValidity,
   pageMeta,
+  auditActionsIn,
+  auditActionsOutsideSystem,
+  auditRetentionCutoff,
+  type AuditCategory,
   parseCsv,
   rowsToObjects,
   toCsv,
@@ -337,10 +341,13 @@ export async function exportApplications(actor: SessionActor) {
   );
 }
 
-export async function listAudit(page: number, pageSize: number) {
+export async function listAudit(page: number, pageSize: number, category?: string) {
+  const cutoff = auditRetentionCutoff();
+  await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+  const where = auditWhere(category, cutoff);
   const [total, rows] = await prisma.$transaction([
-    prisma.auditLog.count(),
-    prisma.auditLog.findMany({ include: { actor: true }, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({ where, include: { actor: true }, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize }),
   ]);
   return {
     items: rows.map((row) => ({
@@ -356,4 +363,11 @@ export async function listAudit(page: number, pageSize: number) {
     })),
     meta: pageMeta(page, pageSize, total),
   };
+}
+
+function auditWhere(category: string | undefined, cutoff: Date): Prisma.AuditLogWhereInput {
+  const createdAt = { gte: cutoff };
+  if (!category) return { createdAt };
+  if (category === "SYSTEM") return { createdAt, action: { notIn: auditActionsOutsideSystem() } };
+  return { createdAt, action: { in: auditActionsIn(category as AuditCategory) } };
 }

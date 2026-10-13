@@ -19,6 +19,7 @@ import {
   loginRequestSchema,
   organizationPatchSchema,
   paginationQuerySchema,
+  auditListQuerySchema,
   registerRequestSchema,
   resetPasswordRequestSchema,
   reviewActionSchema,
@@ -37,6 +38,9 @@ import {
   contentSlotSchema,
   savedReportWriteSchema,
   reportPreviewRequestSchema,
+  servicePlanWriteSchema,
+  servicePlanUpdateSchema,
+  paymentRecordWriteSchema,
 } from "@mf/contracts";
 import { getEnv, repoRoot } from "./config/env";
 import { prisma } from "@mf/db/server";
@@ -58,6 +62,7 @@ import * as access from "./modules/platform/access";
 import * as siteContent from "./modules/platform/content";
 import * as contracts from "./modules/platform/contracts";
 import * as reports from "./modules/reports/service";
+import * as payments from "./modules/payments/service";
 import { createStorage } from "./storage/storage";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: FILE_POLICY.maxFileBytes } });
@@ -70,6 +75,7 @@ export function createApp() {
   app.disable("x-powered-by");
   app.use(cors({ origin: env.APP_ENV === "production" ? env.APP_BASE_URL : env.WEB_DEV_ORIGIN, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser());
   app.use((req, res, next) => {
     const requestId = req.header("x-request-id") ?? crypto.randomUUID();
@@ -427,8 +433,8 @@ export function createApp() {
     const actor = await requireActor(req);
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "audit.view");
-    const query = paginationQuerySchema.parse(req.query);
-    const result = await admin.listAudit(query.page, query.pageSize);
+    const query = auditListQuerySchema.parse(req.query);
+    const result = await admin.listAudit(query.page, query.pageSize, query.category);
     ok(res, req, result.items, result.meta);
   }));
   api.get("/site-content", route(async (req, res) => ok(res, req, await siteContent.publicSite())));
@@ -501,6 +507,38 @@ export function createApp() {
     ok(res, req, await contracts.issueContract(await requireActor(req), input.organizationId, input.templateId));
   }));
   api.get("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
+
+  api.post("/payments/checkout", route(async (req, res) => {
+    const actor = await requireActor(req);
+    const planId = z.string().uuid().parse((req.body as { planId?: unknown } | undefined)?.planId);
+    ok(res, req, await payments.startCheckout(actor, planId, env));
+  }));
+  api.post("/payments/ecpay/notify", async (req, res) => {
+    try {
+      await payments.applyEcpayNotification(env, req.body);
+      res.type("text/plain").send("1|OK");
+    } catch {
+      res.type("text/plain").send("0|Error");
+    }
+  });
+  api.post("/payments/ecpay/result", async (req, res) => {
+    const site = env.APP_ENV === "local" ? env.WEB_DEV_ORIGIN : env.APP_BASE_URL;
+    try {
+      await payments.applyEcpayNotification(env, req.body);
+      res.redirect(303, `${site}/portal/payments?ecpay=received`);
+    } catch {
+      res.redirect(303, `${site}/portal/payments?ecpay=failed`);
+    }
+  });
+  api.get("/payments", route(async (req, res) => {
+    const actor = await requireActor(req);
+    if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
+    ok(res, req, await payments.myPayments(actor));
+  }));
+  api.get("/admin/payments", route(async (req, res) => ok(res, req, await payments.paymentDesk(await requireActor(req)))));
+  api.post("/admin/plans", route(async (req, res) => ok(res, req, await payments.createPlan(await requireActor(req), servicePlanWriteSchema.parse(req.body)))));
+  api.patch("/admin/plans/:id", route(async (req, res) => ok(res, req, await payments.updatePlan(await requireActor(req), String(req.params.id), servicePlanUpdateSchema.parse(req.body)))));
+  api.post("/admin/payments", route(async (req, res) => ok(res, req, await payments.recordPayment(await requireActor(req), paymentRecordWriteSchema.parse(req.body)))));
 
   api.get("/admin/access", route(async (req, res) => {
     const actor = await requireActor(req);

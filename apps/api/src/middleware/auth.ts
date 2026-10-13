@@ -67,6 +67,10 @@ export function assertCsrf(req: Request) {
 }
 
 export function csrfGuard(req: Request, _res: Response, next: NextFunction) {
+  if (req.path.endsWith("/payments/ecpay/notify") || req.path.endsWith("/payments/ecpay/result")) {
+    next();
+    return;
+  }
   try {
     assertCsrf(req);
     next();

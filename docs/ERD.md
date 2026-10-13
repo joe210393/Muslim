@@ -22,6 +22,9 @@ erDiagram
   User ||--o{ Enrollment : attends
   Application ||--o{ NotificationJob : notifies
   User ||--o{ AuditLog : acts
+  Organization ||--o{ PaymentRecord : pays
+  ServicePlan ||--o{ PaymentRecord : prices
+  User ||--o{ PaymentRecord : records
   User ||--o{ ImportBatch : imports
   User ||--o{ Session : sessions
 ```

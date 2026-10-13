@@ -3,7 +3,8 @@ import { Guard, Shell } from "../components/shell/Shell";
 import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, CourseListPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
 import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
 import { CmsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage, SiteReviewDetail, SiteReviewPage } from "../pages/admin/InfoAdminPages";
-import { RenewalPage, ResourcePage, SupplementPage } from "../pages/portal/MemberPages";
+import { PaymentsPage } from "../pages/admin/PaymentsPage";
+import { PortalPaymentsPage, RenewalPage, ResourcePage, SupplementPage } from "../pages/portal/MemberPages";
 import { ContractPage, ContractSignPage } from "../pages/portal/ContractFlow";
 import { AboutPage, ContactPage, FaqPage, NewsDetailPage, NewsListPage, VerificationPage } from "../pages/public/InfoPages";
 import { CourseDetailPage, CoursesPage, ForgotPage, GuidePage, HomePage, LoginPage, RegisterPage, ResetPage } from "../pages/public/PublicPages";
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: "/portal/contracts", element: <ContractPage /> },
       { path: "/portal/contracts/:contractId", element: <ContractSignPage /> },
       { path: "/portal/renewals", element: <RenewalPage /> },
+      { path: "/portal/payments", element: <PortalPaymentsPage /> },
       { path: "/portal/resources", element: <ResourcePage /> },
       { path: "/portal/applications/new", element: <NewApplicationPage /> },
       { path: "/portal/applications/:applicationId/edit", element: <ApplicationEditPage /> },
@@ -57,6 +59,9 @@ export const router = createBrowserRouter([
       { path: "/admin/contracts/issued/:contractId", element: <IssuedContractDetailPage /> },
       { path: "/admin/contracts/issue", element: <IssueContractPage /> },
       { path: "/admin/contracts/templates", element: <ContractTemplatesPage /> },
+      { path: "/admin/payments", element: <PaymentsPage /> },
+      { path: "/admin/payments/plans", element: <PaymentsPage /> },
+      { path: "/admin/payments/record", element: <PaymentsPage /> },
       { path: "/admin/reports", element: <ReportsPage /> },
       { path: "/admin/permissions", element: <PermissionsPage /> },
       { path: "/admin/applications/:applicationId", element: <AdminApplicationDetail /> },

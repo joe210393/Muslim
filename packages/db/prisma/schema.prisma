@@ -185,6 +185,7 @@ model User {
   signedContracts         ContractRecord[]   @relation("ContractSigner")
   features                UserFeature[]
   savedReports            SavedReport[]
+  recordedPayments        PaymentRecord[] @relation("PaymentRecorder")
 
   @@index([organizationId])
   @@index([role, isActive])
@@ -205,6 +206,7 @@ model Organization {
   users        User[]
   applications Application[]
   contracts    ContractRecord[]
+  payments     PaymentRecord[]
 
   @@map("organizations")
 }
@@ -639,6 +641,54 @@ model SavedReport {
   createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@map("saved_reports")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+
+  @@map("payment_status")
+}
+
+model ServicePlan {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(80)
+  amount      Int
+  description String   @default("") @db.VarChar(4000)
+  paymentUrl  String   @default("") @map("payment_url") @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  payments PaymentRecord[]
+
+  @@map("service_plans")
+}
+
+model PaymentRecord {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  organizationName String   @map("organization_name") @db.VarChar(200)
+  planId           String   @map("plan_id") @db.Uuid
+  planName         String        @map("plan_name") @db.VarChar(80)
+  amount           Int
+  status           PaymentStatus @default(PAID)
+  merchantTradeNo  String?       @unique @map("merchant_trade_no") @db.VarChar(20)
+  ecpayTradeNo     String?       @map("ecpay_trade_no") @db.VarChar(20)
+  paymentMethod    String        @default("") @map("payment_method") @db.VarChar(20)
+  paidAt           DateTime?     @map("paid_at") @db.Timestamptz(6)
+  recordedById     String?       @map("recorded_by_id") @db.Uuid
+  note             String        @default("") @db.VarChar(200)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan         ServicePlan  @relation(fields: [planId], references: [id], onDelete: Restrict)
+  recordedBy   User?        @relation("PaymentRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, paidAt])
+  @@index([paidAt])
+  @@map("payment_records")
 }
 
 model UserFeature {

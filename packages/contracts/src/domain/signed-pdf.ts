@@ -45,11 +45,14 @@ export function paintContract(
   write(`職稱：${input.signerTitle}`, 28);
   write(`簽署時間（台北時間）：${input.signedAtLabel}`, 28);
   y += 24;
-  ensure(360);
+  const contentWidth = CONTRACT_PAGE_WIDTH - margin * 2;
+  ensure(300);
   painter.fillText("手寫簽名", margin, y, 26);
-  painter.fillText("簽署時人像", margin + 560, y, 26);
-  painter.drawSignature(margin, y + 24, 460, 200);
-  painter.drawFace(margin + 560, y + 24, 280, 280);
+  painter.drawSignature(margin, y + 40, contentWidth, 240);
+  y += 300;
+  ensure(340);
+  painter.fillText("簽署時人像", margin, y, 26);
+  painter.drawFace(margin, y + 40, 280, 280);
   y += 340;
   write("本檔於簽署當下產生，已嵌入手寫簽名與當時的人像。已簽署內容不隨後續範本修改而改變。", 22);
 }

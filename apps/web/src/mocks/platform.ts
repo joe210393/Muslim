@@ -15,7 +15,12 @@ import {
   CONTRACT_PAGE_HEIGHT,
   CONTRACT_PAGE_WIDTH,
   defaultFeatureEnabled,
+  isInTaipeiMonth,
+  paymentRecordWriteSchema,
   roleForAccountFeatures,
+  servicePlanUpdateSchema,
+  servicePlanWriteSchema,
+  taipeiMonthTitle,
   paintContract,
   pngPagesToPdf,
   detectFileSignature,
@@ -41,6 +46,8 @@ export type PlatformState = {
   integrations: AccessSettings["integrations"];
   contractSequence: number;
   reports: Array<{ id: string; name: string; selections: Array<{ source: "APPLICATION" | "ORGANIZATION" | "ENROLLMENT" | "CONTRACT"; fieldKeys: string[] }>; chartKind: "table" | "bar" | "pie"; chartField: string; version: number; updatedAt: string; createdById: string }>;
+  plans: Array<{ id: string; name: string; amount: number; description: string; paymentUrl: string; isActive: boolean; version: number; updatedAt: string }>;
+  payments: Array<{ id: string; organizationId: string; organizationName: string; planId: string; planName: string; amount: number; paidAt: string | null; note: string; status?: "PENDING" | "PAID"; paymentMethod?: string }>;
 };
 
 type Actor = DemoDataset["users"][number];
@@ -119,6 +126,8 @@ export function createInitialPlatform(data: DemoDataset): PlatformState {
     integrations: INTEGRATION_DEFAULTS.map((item) => ({ ...item })),
     contractSequence: 2,
     reports: [],
+    plans: [],
+    payments: [],
   };
 }
 
@@ -130,15 +139,15 @@ export function ensureAccountFeatures(platform: PlatformState, users: Array<{ id
   const storedOnAccount = platform.features.some((item) => item.userId);
   if (!storedOnAccount) platform.features = [];
   for (const user of users) {
-    if (platform.features.some((item) => item.userId === user.id)) continue;
-    platform.features.push(
-      ...PLATFORM_FEATURES.map((feature) => ({
+    for (const feature of PLATFORM_FEATURES) {
+      if (platform.features.some((item) => item.userId === user.id && item.featureKey === feature.key)) continue;
+      platform.features.push({
         userId: user.id,
         featureKey: feature.key,
         label: feature.label,
         enabled: defaultFeatureEnabled(user.role, feature.key),
-      })),
-    );
+      });
+    }
   }
 }
 
@@ -687,7 +696,11 @@ async function renderBrowserPdf(input: {
         context.fillText(text, x, y);
       },
       drawSignature(x, y, width, height) {
-        context?.drawImage(signature, x, y, width, height);
+        if (!context) return;
+        const scale = Math.min(width / signature.width, height / signature.height);
+        const drawnWidth = signature.width * scale;
+        const drawnHeight = signature.height * scale;
+        context.drawImage(signature, x, y + (height - drawnHeight) / 2, drawnWidth, drawnHeight);
       },
       drawFace(x, y, width, height) {
         context?.drawImage(face, x, y, width, height);
@@ -707,4 +720,104 @@ async function renderBrowserPdf(input: {
   const url = canvas.toDataURL("image/png");
   pages.push(Uint8Array.from(atob(url.split(",")[1] ?? ""), (char) => char.charCodeAt(0)));
   return pngPagesToPdf(pages);
+}
+
+function presentPayment(row: PlatformState["payments"][number]) {
+  return { ...row, status: row.status ?? "PAID" as const, paymentMethod: row.paymentMethod ?? "", paidAt: row.paidAt ?? null };
+}
+
+function rejectInput(error: unknown): never {
+  if (error instanceof ZodError) throw new ClientError(error.issues[0]?.message ?? "內容不正確", { status: 400, code: "VALIDATION_ERROR" });
+  throw error;
+}
+
+export function paymentDesk(platform: PlatformState, actor: Actor, data: DemoDataset) {
+  assertFeature(platform, actor, "payments.manage");
+  const plans = [...(platform.plans ?? [])].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const payments = [...(platform.payments ?? [])].map(presentPayment).sort((left, right) => (right.paidAt ?? "").localeCompare(left.paidAt ?? ""));
+  const month = payments.filter((row) => row.status === "PAID" && row.paidAt && isInTaipeiMonth(row.paidAt));
+  return {
+    monthLabel: taipeiMonthTitle(),
+    dealCount: month.length,
+    paidAmount: month.reduce((sum, row) => sum + row.amount, 0),
+    payments: month.slice(0, 100),
+    plans,
+    organizations: [...data.organizations].sort((left, right) => left.organizationName.localeCompare(right.organizationName, "zh-Hant")).map((org) => ({ id: org.id, organizationName: org.organizationName })),
+  };
+}
+
+export function createPlan(platform: PlatformState, actor: Actor, data: DemoDataset, input: unknown) {
+  assertFeature(platform, actor, "payments.manage");
+  const parsed = (() => {
+    try {
+      return servicePlanWriteSchema.parse(input);
+    } catch (error) {
+      return rejectInput(error);
+    }
+  })();
+  const saved = { id: crypto.randomUUID(), ...parsed, version: 1, updatedAt: new Date().toISOString() };
+  platform.plans.unshift(saved);
+  data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "PLAN_CREATE", entityType: "ServicePlan", entityId: saved.id, requestId: crypto.randomUUID(), safeChanges: { name: saved.name, amount: saved.amount, hasPaymentUrl: saved.paymentUrl.length > 0 }, createdAt: new Date().toISOString() });
+  return saved;
+}
+
+export function updatePlan(platform: PlatformState, actor: Actor, data: DemoDataset, id: string, input: unknown) {
+  assertFeature(platform, actor, "payments.manage");
+  const parsed = (() => {
+    try {
+      return servicePlanUpdateSchema.parse(input);
+    } catch (error) {
+      return rejectInput(error);
+    }
+  })();
+  const current = platform.plans.find((item) => item.id === id);
+  if (!current) throw new ClientError("找不到方案", { status: 404, code: "NOT_FOUND" });
+  if (current.version !== parsed.expectedVersion) throw new ClientError("方案已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+  current.name = parsed.name;
+  current.amount = parsed.amount;
+  current.description = parsed.description;
+  current.paymentUrl = parsed.paymentUrl;
+  current.isActive = parsed.isActive;
+  current.version += 1;
+  current.updatedAt = new Date().toISOString();
+  data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "PLAN_UPDATE", entityType: "ServicePlan", entityId: current.id, requestId: crypto.randomUUID(), safeChanges: { name: current.name, amount: current.amount, isActive: current.isActive, hasPaymentUrl: current.paymentUrl.length > 0 }, createdAt: current.updatedAt });
+  return current;
+}
+
+export function recordPayment(platform: PlatformState, actor: Actor, data: DemoDataset, input: unknown) {
+  assertFeature(platform, actor, "payments.manage");
+  const parsed = (() => {
+    try {
+      return paymentRecordWriteSchema.parse(input);
+    } catch (error) {
+      return rejectInput(error);
+    }
+  })();
+  const plan = platform.plans.find((item) => item.id === parsed.planId);
+  const organization = data.organizations.find((item) => item.id === parsed.organizationId);
+  if (!plan) throw new ClientError("找不到方案", { status: 404, code: "NOT_FOUND" });
+  if (!organization) throw new ClientError("找不到業者", { status: 404, code: "NOT_FOUND" });
+  const saved = {
+    id: crypto.randomUUID(),
+    organizationId: organization.id,
+    organizationName: organization.organizationName,
+    planId: plan.id,
+    planName: plan.name,
+    amount: plan.amount,
+    paidAt: new Date().toISOString(),
+    note: parsed.note,
+    status: "PAID" as const,
+    paymentMethod: "",
+  };
+  platform.payments.unshift(saved);
+  data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "PAYMENT_RECORD", entityType: "PaymentRecord", entityId: saved.id, requestId: crypto.randomUUID(), safeChanges: { organizationId: organization.id, planName: plan.name, amount: plan.amount }, createdAt: saved.paidAt });
+  return saved;
+}
+
+export function myPayments(platform: PlatformState, actor: Actor) {
+  if (!actor.organizationId) throw new ClientError("這個帳號沒有所屬業者", { status: 403, code: "FORBIDDEN" });
+  return {
+    payments: platform.payments.filter((item) => item.organizationId === actor.organizationId).map(presentPayment).sort((left, right) => (right.paidAt ?? "").localeCompare(left.paidAt ?? "")),
+    plans: platform.plans.filter((item) => item.isActive).sort((left, right) => left.name.localeCompare(right.name, "zh-Hant")),
+  };
 }

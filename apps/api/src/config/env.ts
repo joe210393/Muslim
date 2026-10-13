@@ -27,6 +27,10 @@ const schema = z
       .default("false")
       .transform((value) => value === "true"),
     WEB_DEV_ORIGIN: z.string().optional().default("http://127.0.0.1:5173"),
+    ECPAY_ENV: z.enum(["stage", "production"]).optional(),
+    ECPAY_MERCHANT_ID: z.string().optional().default(""),
+    ECPAY_HASH_KEY: z.string().optional().default(""),
+    ECPAY_HASH_IV: z.string().optional().default(""),
   })
   .superRefine((value, ctx) => {
     if (value.STORAGE_DRIVER !== "local") {

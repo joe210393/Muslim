@@ -13,6 +13,8 @@ import {
   roleForAccountFeatures,
   defaultFeatureEnabled,
   acceptWatchProgress,
+  auditCategoryOf,
+  auditRetentionCutoff,
   buildDemoDataset,
   buildLearningRecord,
   canCancelEnrollment,
@@ -64,6 +66,11 @@ import {
   contractDocument,
   contractOf,
   createInitialPlatform,
+  createPlan,
+  paymentDesk,
+  recordPayment,
+  myPayments,
+  updatePlan,
   adminEntries,
   createEntry,
   deleteEntry,
@@ -409,6 +416,8 @@ export async function createMockServices(): Promise<Services> {
     }
     return { ...legacy, selections: legacy.selections ?? [], chartKind: legacy.chartKind ?? "table", chartField: legacy.chartField ?? "" };
   });
+  state.platform.plans ??= [];
+  state.platform.payments ??= [];
   ensureAccountFeatures(state.platform, state.data.users);
   ensureEditorial(state.platform);
   for (const course of state.data.courses) {
@@ -915,6 +924,31 @@ export async function createMockServices(): Promise<Services> {
       if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       return state.data.organizations.filter((org) => !q || org.organizationName.includes(q) || org.taxId.includes(q));
     },
+    async paymentDesk() {
+      return paymentDesk(state.platform, requireActor(state), state.data);
+    },
+    async createPlan(input) {
+      const saved = createPlan(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async updatePlan(id, input) {
+      const saved = updatePlan(state.platform, requireActor(state), state.data, id, input);
+      await save();
+      return saved;
+    },
+    async recordPayment(input) {
+      const saved = recordPayment(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async myPayments() {
+      return myPayments(state.platform, requireActor(state));
+    },
+    async startCheckout() {
+      requireActor(state);
+      throw new ClientError("這個瀏覽器展示不能建立綠界檢查碼。網站改接 API 後，會導到綠界測試付款頁。", { status: 400, code: "VALIDATION_ERROR" });
+    },
     async importTemplate(type) {
       if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       const headers = type === "ORGANIZATIONS" ? ["organizationName", "taxId", "contactName", "contactPhone", "contactEmail", "address"] : ["taxId", "categoryCode", "siteName", "siteAddress", "applicationDescription", "sourceRecordKey"];
@@ -1083,10 +1117,26 @@ export async function createMockServices(): Promise<Services> {
       const rows = await services.courseEnrollments(courseId);
       return toCsv(["userName", "attendanceStatus", "attendedMinutes"], rows.map((row) => [row.userName, row.attendanceStatus, row.attendedMinutes]));
     },
-    async audit() {
+    async audit(query) {
       const actor = requireActor(state);
       if (!hasFeature(state.platform, actor.id, "audit.view")) throw new ClientError("這個帳號目前沒有此功能", { status: 403, code: "FORBIDDEN" });
-      return state.data.auditLogs.map((log) => ({ ...log, actorName: state.data.users.find((user) => user.id === log.actorId)?.displayName ?? null }));
+      const cutoff = auditRetentionCutoff().toISOString();
+      const kept = state.data.auditLogs.filter((log) => log.createdAt >= cutoff);
+      if (kept.length !== state.data.auditLogs.length) {
+        state.data.auditLogs = kept;
+        await save();
+      }
+      const category = query?.category && query.category !== "ALL" ? query.category : "";
+      const rows = kept
+        .filter((log) => !category || auditCategoryOf(log.action) === category)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      const page = query?.page ?? 1;
+      const pageSize = 100;
+      const items = rows.slice((page - 1) * pageSize, page * pageSize).map((log) => ({
+        ...log,
+        actorName: state.data.users.find((user) => user.id === log.actorId)?.displayName ?? null,
+      }));
+      return { items, meta: { page, pageSize, total: rows.length, totalPages: Math.max(1, Math.ceil(rows.length / pageSize)) } };
     },
     async publicSite() {
       return publicSite(state.platform, state.data.files);
