@@ -1,4 +1,5 @@
 import {
+  CONTRACT_TEMPLATE_CODE,
   ContentSlot,
   ContractStatus,
   DEFAULT_CONTRACT_BODY,
@@ -59,7 +60,7 @@ export function createInitialPlatform(data: DemoDataset): PlatformState {
   const contractNo = formatContractNo(taipeiYear(), 1);
   const template = {
     id: crypto.randomUUID(),
-    code: "HALA_SERVICE_V1",
+    code: CONTRACT_TEMPLATE_CODE,
     title: DEFAULT_CONTRACT_TITLE,
     body: DEFAULT_CONTRACT_BODY,
     revision: 1,
@@ -193,6 +194,28 @@ function publicEntry(entry: PlatformState["entries"][number], files: DemoDataset
     publishedOn: entry.publishedOn,
     sortOrder: entry.sortOrder,
   };
+}
+
+const halalTypo = /HALA(?!L)/g;
+
+export function fixHalalSpelling(platform: PlatformState) {
+  const fix = (text: string) => text.replace(halalTypo, "HALAL");
+  for (const item of platform.contents) {
+    item.eyebrow = fix(item.eyebrow);
+    item.title = fix(item.title);
+    item.subtitle = fix(item.subtitle);
+    item.body = fix(item.body);
+  }
+  for (const entry of platform.entries ?? []) {
+    entry.title = fix(entry.title);
+    entry.summary = fix(entry.summary);
+    entry.body = fix(entry.body);
+  }
+  for (const template of [platform.template, ...(platform.templates ?? [])]) {
+    if (template.code === "HALA_SERVICE_V1") template.code = CONTRACT_TEMPLATE_CODE;
+    template.title = fix(template.title);
+    template.body = fix(template.body);
+  }
 }
 
 export function ensureEditorial(platform: PlatformState) {

@@ -94,7 +94,7 @@ export const fieldMetadata: FieldMeta[] = [
   row("EditorialEntry", "發布日", "publishedOn", "published_on", "date", "消息以外可空", "消息必填", "消息必填", "null", "YYYY-MM-DD。首頁消息依此由新到舊取前五則", "低", "管理員可改"),
   row("EditorialEntry", "排序", "sortOrder", "sort_order", "int", "否", "否", "否", "0", "0–9999。同日消息再依此排序", "低", "管理員可改"),
   row("EditorialEntry", "是否發布", "isPublished", "is_published", "boolean", "否", "否", "否", "true", "未發布時前台與首頁都不列出", "低", "管理員可改或刪除"),
-  row("ContractTemplate", "範本代碼", "code", "code", "string", "否", "必填", "必填", "HALA_SERVICE_V1", "同一代碼可有多版，與 revision 聯合唯一", "低", "新增範本時由系統產生，不在畫面上改"),
+  row("ContractTemplate", "範本代碼", "code", "code", "string", "否", "必填", "必填", "HALAL_SERVICE_V1", "同一代碼可有多版，與 revision 聯合唯一", "低", "新增範本時由系統產生，不在畫面上改"),
   row("ContractTemplate", "範本版次", "revision", "revision", "int", "否", "必填", "必填", "1", "同一代碼從 1 遞增。發出合約時選定這一版", "低", "新增版本時加一，不改舊版"),
   row("ContractTemplate", "範本標題", "title", "title", "string", "否", "必填", "必填", "無", "1–200 字", "低", "管理員可改"),
   row("ContractTemplate", "範本內文", "body", "body", "string", "否", "必填", "必填", "示範合約", "可用 {{organizationName}} 等代換欄", "低", "管理員可改，已簽署合約不回寫"),

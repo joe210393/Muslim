@@ -66,17 +66,17 @@ export const INTEGRATION_DEFAULTS = [
 
 export type IntegrationKey = (typeof INTEGRATION_DEFAULTS)[number]["key"];
 
-export const CONTRACT_TEMPLATE_CODE = "HALA_SERVICE_V1";
+export const CONTRACT_TEMPLATE_CODE = "HALAL_SERVICE_V1";
 
-export const DEFAULT_CONTRACT_TITLE = "HALA 驗證服務合約（示範）";
+export const DEFAULT_CONTRACT_TITLE = "HALAL 驗證服務合約（示範）";
 
-export const DEFAULT_CONTRACT_BODY = `HALA 驗證服務合約
+export const DEFAULT_CONTRACT_BODY = `HALAL 驗證服務合約
 
 合約編號：{{contractNo}}
 發出日期：{{issuedOn}}
 甲方（申請業者）：{{organizationName}}
 統一編號：{{taxId}}
-乙方：HALA 驗證服務窗口（正式機構名稱待甲方確認後，可在合約管理整份替換）
+乙方：HALAL 驗證服務窗口（正式機構名稱待甲方確認後，可在合約管理整份替換）
 
 一、目的
 乙方受理甲方提出的穆斯林友善驗證申請，並依當時有效的審查流程處理文件、補件與現場複審安排。本合約是系統內可測試的示範文本，正式法律文字以甲方日後提供並儲存的版本為準。
@@ -114,7 +114,7 @@ export const DEFAULT_SITE_CONTENT: Record<
   }
 > = {
   [ContentSlot.HOME_HERO]: {
-    eyebrow: "HALA 驗證",
+    eyebrow: "HALAL 驗證",
     title: "把申請、補件與簽約放在同一條路徑",
     subtitle: "訪客先看制度說明。業者登入後送出資料、補件，並在合約頁完成簽署。",
     body: "首頁這段文字、按鈕與圖片都可以在內部後台的內容管理修改。正式文案到手後直接覆蓋，不必改程式。",
@@ -139,7 +139,7 @@ export const DEFAULT_SITE_CONTENT: Record<
     eyebrow: "公開前台",
     title: "關於我們",
     subtitle: "本站用於受理穆斯林友善驗證的線上申請與審查。組織沿革、負責人、據點照片與品牌影片尚未由甲方提供，以下只保留頁面結構。",
-    body: "對外名稱暫用 HALA 驗證。若甲方有正式機構名稱、標章使用規範或不可使用的用語，請直接替換本段，不要在畫面上另寫一套名稱。",
+    body: "對外名稱暫用 HALAL 驗證。若甲方有正式機構名稱、標章使用規範或不可使用的用語，請直接替換本段，不要在畫面上另寫一套名稱。",
     ctaLabel: "",
     ctaHref: "",
     secondaryCtaLabel: "",
@@ -158,7 +158,7 @@ export const DEFAULT_SITE_CONTENT: Record<
     youtubeUrl: "",
   },
   [ContentSlot.VERIFICATION]: {
-    eyebrow: "HALA 驗證",
+    eyebrow: "HALAL 驗證",
     title: "驗證介紹",
     subtitle: "申請順序依需求分析簡報整理。用上方切換流程、費用、朝拜時間與通知草稿。",
     body: "甲方需提供正式朝拜時間表或指定資料來源。以下只保留欄位，不填入推測時間。",

@@ -92,7 +92,7 @@ export function VerificationPage() {
   if (content.isLoading) return <p>載入中…</p>;
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow={page?.eyebrow ?? "HALA 驗證"} title={page?.title ?? "驗證介紹"} lede={page?.subtitle ?? ""} />
+      <PageHeader eyebrow={page?.eyebrow ?? "HALAL 驗證"} title={page?.title ?? "驗證介紹"} lede={page?.subtitle ?? ""} />
       <PageMedia imageUrl={page?.imageUrl} youtubeUrl={page?.youtubeUrl} />
       <PendingNote />
       <SectionNav items={[{ id: "steps", label: "申請流程" }, { id: "fees", label: "費用項目" }, { id: "prayer", label: "朝拜時間" }, { id: "mail", label: "通知草稿" }]} value={section} onChange={setSection} />

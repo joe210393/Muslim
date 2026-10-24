@@ -5,11 +5,11 @@
  */
 export const contentStatus = {
   label: "待甲方確認",
-  note: "這是依 HALA 驗證網站需求分析簡報推論的初稿。金額、法律文字、檢查標準與正式文案都以甲方日後提供的版本為準。",
+  note: "這是依 HALAL 驗證網站需求分析簡報推論的初稿。金額、法律文字、檢查標準與正式文案都以甲方日後提供的版本為準。",
 } as const;
 
 export const brand = {
-  name: "HALA 驗證",
+  name: "HALAL 驗證",
   product: "穆斯林友善驗證線上申請暨審核",
   summary: "公開前台說明制度，業者會員區處理申請與補件，內部後台負責審查、訓練與紀錄。",
 };

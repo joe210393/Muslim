@@ -76,6 +76,7 @@ import {
   deleteEntry,
   ensureAccountFeatures,
   ensureEditorial,
+  fixHalalSpelling,
   grantAccountFeatures,
   hasFeature,
   createTemplate,
@@ -420,6 +421,7 @@ export async function createMockServices(): Promise<Services> {
   state.platform.payments ??= [];
   ensureAccountFeatures(state.platform, state.data.users);
   ensureEditorial(state.platform);
+  fixHalalSpelling(state.platform);
   for (const course of state.data.courses) {
     course.youtubeUrl ??= "";
     course.imageFileId ??= null;
