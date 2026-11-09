@@ -22,3 +22,6 @@
 | 2026-10-13 | 綠界訂單 | migration `20261013010000_ecpay_payments`。`payment_records` 增加 `status`、`merchant_trade_no`、`ecpay_trade_no`、`payment_method`。待付款的 `paid_at` 可空。金鑰不入庫 |
 | 2026-10-13 | 方案內容加長 | migration `20261013020000_plan_description`。`service_plans.description` 由 500 字改為 4000 字。沒有新增欄位 |
 | 2026-10-24 | 名稱改為 HALAL | migration `20261024000000_halal_spelling`。合約範本代碼 `HALA_SERVICE_V1` 改為 `HALAL_SERVICE_V1`。頁面內容、內容條目與合約範本裡的 HALA 改成 HALAL。已發出與已簽署的合約保留原文。沒有新增欄位 |
+| 2026-10-28 | 申請類別改為空白申請表 | 沒有新增欄位。`application_categories` 的名稱改為七份空白表。另建已確認的 `category_form_versions`。已建立的案件仍指向舊版本 |
+| 2026-10-28 | 檢查表照片 | 沒有新增欄位。新的表單版本在附件定義加上 `group: checklist`。已建立的案件仍用沒有檢查表的版本 |
+| 2026-10-28 | 指定複審人員與現場結果 | migration `20261028000000_site_reviewer`。`applications.site_reviewer_id` 在初審通過時指定。`applications.site_checks` 記附件通過或沒通過。`application_attachments.captured_on_site` 標記檢查表上補拍的現場照片。既有列用預設空值 |

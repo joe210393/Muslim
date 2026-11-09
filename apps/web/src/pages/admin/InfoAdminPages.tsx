@@ -1,11 +1,12 @@
-import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, contractStatusLabels, reportFieldId, reportFieldsFor, sourceLabel, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
+import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, contractStatusLabels, reportFieldId, reportFieldsFor, sourceLabel, type ApplicationDetail, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { useServices } from "../../app/session";
-import { ApplicationReview } from "./ApplicationReview";
-import { siteReviewChecklist, standardReports } from "../../content/site-content";
-import { Badge, Button, Card, Empty, ErrorText, Field, PageHeader, PendingNote, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { useServices, useSession } from "../../app/session";
+import { AttachmentImages } from "../../components/AttachmentImages";
+import { standardReports } from "../../content/site-content";
+import { ApplicationPreview, FileChooser, OpenPdfButton } from "../portal/PortalPages";
+import { Badge, Button, Card, Empty, ErrorText, Field, PageHeader, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type EditorialUpdate, type EditorialWrite, type SiteSlotInput } from "../../services/types";
 
 const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string }>> = {
@@ -383,14 +384,16 @@ function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; e
 
 export function SiteReviewPage() {
   const services = useServices();
+  const session = useSession();
   const query = useQuery({ queryKey: ["admin-applications", "", "SECOND_REVIEW"], queryFn: () => services.applications({ status: "SECOND_REVIEW", page: 1 }) });
+  const items = (query.data?.items ?? []).filter((item) => session.user?.role === "ADMIN" || item.siteReviewerId === session.user?.id);
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="內部後台" title="現場複審" lede="初審通過的案件到這裡做現場複審，不再留在案件審查清單。" />
-      {(query.data?.items.length ?? 0) === 0 ? <Empty title="目前沒有待現場複審的案件" body="案件在初審通過之後會出現在這裡。" /> : (
+      <PageHeader eyebrow="內部後台" title="現場複審" lede="初審通過時指定的複審人員在這裡看送件預覽，並做現場複審。" />
+      {items.length === 0 ? <Empty title="目前沒有待現場複審的案件" body="初審通過並指定複審人員之後，案件會出現在這裡。" /> : (
       <div className="overflow-x-auto rounded-xl bg-white">
-        <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">承辦</th><th className="p-3">狀態</th></tr></thead>
-          <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/site-reviews/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
+        <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">複審人員</th><th className="p-3">狀態</th></tr></thead>
+          <tbody>{items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/site-reviews/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.siteReviewerName ?? "未指定"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
         </table>
       </div>
       )}
@@ -413,26 +416,139 @@ export function SiteReviewDetail() {
       </Card>
     );
   }
+  return <SiteReviewBody item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); }} />;
+}
+
+function SiteReviewBody({ item, onChanged }: { item: ApplicationDetail; onChanged: () => Promise<void> }) {
+  const services = useServices();
+  const session = useSession();
+  const [note, setNote] = useState("");
+  const [openNote, setOpenNote] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const canAct = session.user?.role === "ADMIN" || item.siteReviewerId === session.user?.id;
+  const canReject = session.user?.role === "ADMIN";
+  const applicationFiles = item.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist");
+  const checklist = item.definition.attachmentRequirements.filter((requirement) => requirement.group === "checklist");
+  async function mark(requirementKey: string, result: "pass" | "fail") {
+    try {
+      await services.saveSiteCheck(item.id, { expectedVersion: item.version, requirementKey, result });
+      setError(null);
+      await onChanged();
+    } catch (reason) {
+      setError(reason instanceof ClientError ? reason.message : "沒有登錄現場結果");
+    }
+  }
+  async function addPhoto(requirementKey: string, files: File[]) {
+    try {
+      for (const file of files) await services.uploadSitePhoto(item.id, requirementKey, file);
+      setError(null);
+      setMessage("已加上現場拍攝的照片");
+      await onChanged();
+    } catch (reason) {
+      setError(reason instanceof ClientError ? reason.message : "照片沒有上傳");
+    }
+  }
+  async function act(action: "PASS_SECOND" | "REQUEST_SUPPLEMENT" | "REJECT") {
+    const written = note.trim();
+    let publicComment: string | undefined;
+    let internalNote: string | undefined;
+    let fieldReviews = item.fieldReviews;
+    if (action === "REQUEST_SUPPLEMENT") {
+      const failed = applicationFiles.filter((requirement) => item.siteChecks.find((check) => check.key === requirement.key)?.result === "fail");
+      if (failed.length === 0) {
+        setError("請先把沒通過的附件標出來");
+        return;
+      }
+      if (!written) {
+        setError("請填寫給業者的補件說明");
+        return;
+      }
+      publicComment = written;
+      fieldReviews = failed.map((requirement) => ({ key: `attachment:${requirement.key}`, needsSupplement: true, publicComment: written, internalNote: "" }));
+    } else if (action === "REJECT") {
+      if (!written) {
+        setError("請填寫退件的公開意見");
+        return;
+      }
+      publicComment = written;
+    } else {
+      internalNote = written || "現場複審完成";
+    }
+    try {
+      await services.review(item.id, {
+        action,
+        expectedVersion: item.version,
+        requestId: crypto.randomUUID(),
+        publicComment,
+        internalNote,
+        fieldReviews,
+      });
+      setError(null);
+      setMessage("已完成現場複審動作");
+      await onChanged();
+    } catch (reason) {
+      setError(reason instanceof ClientError ? reason.message : "動作失敗");
+    }
+  }
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
         <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
       </div>
-      <p className="text-sm text-[var(--muted)]">初審通過後在這裡複審。下面先看送件內容，再對照現場檢查項目。</p>
-      <ApplicationReview item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); }} />
-      <Card>
-        <h2 className="text-xl">現場檢查項目</h2>
-        <PendingNote />
-        <ol className="mt-4 space-y-4">
-          {siteReviewChecklist.map((check, index) => (
-            <li key={check.key}>
-              <h3 className="font-medium">{index + 1}. {check.label}</h3>
-              <p className="mt-1 text-sm leading-7 text-[var(--muted)]">{check.detail}</p>
-            </li>
-          ))}
-        </ol>
+      <p className="text-sm text-[var(--muted)]">現場複審人員：{item.siteReviewerName ?? "未指定"}。下面是初審通過的同一份線上預覽。</p>
+      {!canAct ? <p className="text-sm">這件已指定給 {item.siteReviewerName ?? "複審人員"}。你可以查看，不能改現場結果。</p> : null}
+      <ApplicationPreview item={item} categoryName={item.categoryName} />
+      <Card className="space-y-4">
+        <h2 className="text-xl">附件</h2>
+        <p className="text-sm text-[var(--muted)]">看著上面的預覽，逐項標通過或沒通過。</p>
+        {applicationFiles.map((requirement) => {
+          const files = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
+          const current = item.siteChecks.find((check) => check.key === requirement.key)?.result;
+          return (
+            <div key={requirement.key} className="space-y-2 border-t border-[var(--line)] pt-3">
+              <p className="text-sm">{requirement.label}{files.length === 0 ? "：尚未上傳" : ""}</p>
+              {files.filter((file) => file.mimeType === "application/pdf").map((file) => <OpenPdfButton key={file.id} fileId={file.fileId} name={file.originalName} />)}
+              <AttachmentImages files={files} />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant={current === "pass" ? "primary" : "secondary"} aria-pressed={current === "pass"} disabled={!canAct} onClick={() => void mark(requirement.key, "pass")}>通過</Button>
+                <Button type="button" variant={current === "fail" ? "danger" : "secondary"} aria-pressed={current === "fail"} disabled={!canAct} onClick={() => void mark(requirement.key, "fail")}>沒通過</Button>
+              </div>
+            </div>
+          );
+        })}
       </Card>
+      <Card className="space-y-4">
+        <h2 className="text-xl">檢查照片</h2>
+        {checklist.length === 0 ? <p className="text-sm text-[var(--muted)]">這一版表單還沒有檢查表照片。</p> : checklist.map((requirement) => {
+          const submitted = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
+          const taken = item.attachments.filter((file) => file.requirementKey === requirement.key && file.capturedOnSite);
+          return (
+            <div key={requirement.key} className="space-y-2 border-t border-[var(--line)] pt-3">
+              <p className="text-sm">{requirement.label}</p>
+              <p className="text-sm text-[var(--muted)]">業者已上傳</p>
+              {submitted.length === 0 ? <p className="text-sm">尚未上傳</p> : <AttachmentImages files={submitted} />}
+              <p className="text-sm text-[var(--muted)]">現場拍攝</p>
+              {taken.length === 0 ? <p className="text-sm">還沒有現場照片</p> : <AttachmentImages files={taken} />}
+              {canAct ? <FileChooser label="上傳現場拍攝" accept="image/jpeg,image/png" multiple ariaLabel={requirement.label} onFiles={(files) => addPhoto(requirement.key, files)} /> : null}
+            </div>
+          );
+        })}
+      </Card>
+      {canAct ? (
+        <Card className="space-y-3">
+          <Button variant="secondary" onClick={() => setOpenNote((current) => !current)}>{openNote ? "收合這次動作的意見" : "填寫這次動作的意見"}</Button>
+          {openNote ? <Field label="給業者的說明" hint="要求補件或退件時必填。複審通過可以不填。"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void act("PASS_SECOND")}>複審通過</Button>
+            <Button variant="secondary" onClick={() => void act("REQUEST_SUPPLEMENT")}>要求補件</Button>
+            {canReject ? <Button variant="danger" onClick={() => void act("REJECT")}>退件</Button> : null}
+          </div>
+        </Card>
+      ) : null}
+      {message ? <p className="text-sm">{message}</p> : null}
+      {error ? <ErrorText message={error} /> : null}
       <Link to="/admin/site-reviews">回到現場複審清單</Link>
     </div>
   );

@@ -10,6 +10,7 @@ import {
   formatApplicationNo,
   pageMeta,
   parseCategoryDefinition,
+  parseSiteChecks,
   checkFieldReviews,
   reviewTargets,
   resolveTransition,
@@ -30,7 +31,7 @@ import { deliverNotification } from "../notifications/mailer";
 
 type Tx = Prisma.TransactionClient;
 
-const listInclude = { organization: true, category: true, assignedTo: true } satisfies Prisma.ApplicationInclude;
+const listInclude = { organization: true, category: true, assignedTo: true, siteReviewer: true } satisfies Prisma.ApplicationInclude;
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -90,7 +91,8 @@ function contentOf(app: {
   };
 }
 
-export function toListItem(app: Prisma.ApplicationGetPayload<{ include: typeof listInclude }>) {
+export function toListItem(app: Prisma.ApplicationGetPayload<{ include: typeof listInclude }>, actor?: Actor) {
+  const staff = !actor || actor.role !== UserRole.APPLICANT;
   return {
     id: app.id,
     applicationNo: app.applicationNo,
@@ -102,6 +104,8 @@ export function toListItem(app: Prisma.ApplicationGetPayload<{ include: typeof l
     status: app.status,
     assignedToId: app.assignedToId,
     assignedToName: app.assignedTo?.displayName ?? null,
+    siteReviewerId: staff ? app.siteReviewerId : null,
+    siteReviewerName: staff ? app.siteReviewer?.displayName ?? null : null,
     version: app.version,
     submittedAt: iso(app.submittedAt),
     updatedAt: app.updatedAt.toISOString(),
@@ -120,6 +124,7 @@ export function officerCaseWhere(actorId: string): Prisma.ApplicationWhereInput 
   return {
     OR: [
       { assignedToId: actorId },
+      { siteReviewerId: actorId },
       { assignedToId: null, status: { not: ApplicationStatus.DRAFT } },
     ],
   };
@@ -152,7 +157,7 @@ export async function listApplications(actor: Actor, query: { q?: string; status
       take: query.pageSize,
     }),
   ]);
-  return { items: rows.map(toListItem), meta: pageMeta(query.page, query.pageSize, total) };
+  return { items: rows.map((row) => toListItem(row, actor)), meta: pageMeta(query.page, query.pageSize, total) };
 }
 
 export async function getApplication(actor: Actor, id: string) {
@@ -166,8 +171,9 @@ export async function getApplication(actor: Actor, id: string) {
   });
   if (!app || !canViewApplication(actor, app)) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
   const definition = parseCategoryDefinition(app.categoryFormVersion.definition);
+  const staff = actor.role !== UserRole.APPLICANT;
   return {
-    ...toListItem(app),
+    ...toListItem(app, actor),
     ...contentOf(app),
     categoryFormVersionId: app.categoryFormVersionId,
     formVersion: app.categoryFormVersion.version,
@@ -178,16 +184,18 @@ export async function getApplication(actor: Actor, id: string) {
     sourceSystem: app.sourceSystem,
     sourceRecordKey: app.sourceRecordKey,
     decidedAt: iso(app.decidedAt),
-    attachments: app.attachments.map((item) => ({
+    attachments: app.attachments.filter((item) => staff || !item.capturedOnSite).map((item) => ({
       id: item.id,
       requirementKey: item.requirementKey,
       fileId: item.fileId,
       originalName: item.file.originalName,
       mimeType: item.file.mimeType,
       sizeBytes: item.file.sizeBytes,
+      capturedOnSite: item.capturedOnSite,
       createdAt: item.createdAt.toISOString(),
     })),
-    fieldReviews: presentFieldReviews(app.fieldReviews, actor.role !== UserRole.APPLICANT),
+    fieldReviews: presentFieldReviews(app.fieldReviews, staff),
+    siteChecks: staff ? parseSiteChecks(app.siteChecks) : [],
   };
 }
 
@@ -316,6 +324,7 @@ async function writeSubmission(env: Env, actor: Actor, id: string, action: typeo
       resumeStatus: app.resumeStatus,
       role: actor.role,
       isAssignee: app.assignedToId === actor.id,
+      isSiteReviewer: app.siteReviewerId === actor.id,
       hasAssignee: Boolean(app.assignedToId),
     });
     if (!transition.ok) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, transition.message);
@@ -325,7 +334,7 @@ async function writeSubmission(env: Env, actor: Actor, id: string, action: typeo
       throw new ApiError(409, ErrorCodes.CATEGORY_NOT_CONFIRMED, "此類別仍是示範或未確認設定，正式環境不能送件");
     }
     const content = contentOf(app);
-    const issues = validateSubmit(content, definition, app.attachments.map((item) => item.requirementKey));
+    const issues = validateSubmit(content, definition, app.attachments.filter((item) => !item.capturedOnSite).map((item) => item.requirementKey));
     if (issues.length) fieldFailure(issues);
     const revision = (await tx.applicationSubmission.count({ where: { applicationId: id } })) + 1;
     const changed = await tx.application.updateMany({
@@ -510,7 +519,7 @@ export async function reviewApplication(
   env: Env,
   actor: Actor,
   id: string,
-  input: { action: string; expectedVersion: number; requestId: string; publicComment?: string; internalNote?: string; fieldReviews?: FieldReview[] },
+  input: { action: string; expectedVersion: number; requestId: string; publicComment?: string; internalNote?: string; fieldReviews?: FieldReview[]; siteReviewerId?: string },
 ) {
   const action = input.action as ApplicationAction;
   const requestHash = await sha256Hex(JSON.stringify(input));
@@ -532,6 +541,7 @@ export async function reviewApplication(
       resumeStatus: app.resumeStatus,
       role: actor.role,
       isAssignee: app.assignedToId === actor.id,
+      isSiteReviewer: app.siteReviewerId === actor.id,
       hasAssignee: Boolean(app.assignedToId),
     });
     if (!transition.ok) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, transition.message);
@@ -541,12 +551,25 @@ export async function reviewApplication(
     if (requirement === "review" && !publicComment?.trim() && !hasInternal) {
       fieldFailure([{ path: "publicComment", message: "請填寫審查意見" }]);
     }
+    let nextSiteReviewerId = app.siteReviewerId;
+    let assignmentNote: string | null = null;
+    if (action === ApplicationAction.PASS_INITIAL) {
+      if (!input.siteReviewerId) fieldFailure([{ path: "siteReviewerId", message: "請指定複審人員" }]);
+      const reviewer = await tx.user.findUnique({ where: { id: input.siteReviewerId } });
+      if (!reviewer || !reviewer.isActive || reviewer.role === UserRole.APPLICANT) {
+        fieldFailure([{ path: "siteReviewerId", message: "請指定在職的複審人員" }]);
+      }
+      nextSiteReviewerId = reviewer.id;
+      assignmentNote = `已指定複審：${reviewer.displayName}`;
+    }
+    const visibleComment = [publicComment?.trim(), assignmentNote].filter(Boolean).join("\n");
     const changed = await tx.application.updateMany({
       where: { id, version: input.expectedVersion, status: app.status },
       data: {
         status: transition.toStatus,
         resumeStatus: transition.nextResumeStatus,
         fieldReviews: reviews as Prisma.InputJsonValue,
+        siteReviewerId: nextSiteReviewerId,
         version: { increment: 1 },
         decidedAt: transition.toStatus === ApplicationStatus.APPROVED || transition.toStatus === ApplicationStatus.REJECTED ? new Date() : app.decidedAt,
       },
@@ -559,7 +582,7 @@ export async function reviewApplication(
         action,
         fromStatus: app.status,
         toStatus: transition.toStatus,
-        publicComment: publicComment?.trim() || null,
+        publicComment: visibleComment || null,
         internalNote: input.internalNote?.trim() || null,
         requestId: input.requestId,
         requestHash,
@@ -590,12 +613,41 @@ export async function reviewApplication(
         entityType: "Application",
         entityId: id,
         requestId: input.requestId,
-        safeChanges: { fromStatus: app.status, toStatus: transition.toStatus },
+        safeChanges: { fromStatus: app.status, toStatus: transition.toStatus, siteReviewerId: nextSiteReviewerId },
       },
     });
     return { jobId };
   });
   if (result.jobId) await deliverNotification(env, result.jobId, "請登入系統查看案件，信件失敗不影響審核結果。");
+  return getApplication(actor, id);
+}
+
+export async function listStaffOptions() {
+  return prisma.user.findMany({
+    where: { isActive: true, role: { in: [UserRole.CASE_OFFICER, UserRole.ADMIN] } },
+    select: { id: true, displayName: true, role: true },
+    orderBy: { displayName: "asc" },
+  });
+}
+
+export async function saveSiteCheck(actor: Actor, id: string, expectedVersion: number, requirementKey: string, result: "pass" | "fail") {
+  await prisma.$transaction(async (tx) => {
+    const app = await tx.application.findUnique({ where: { id }, include: { categoryFormVersion: true } });
+    if (!app || !canViewApplication(actor, app)) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
+    if (app.status !== ApplicationStatus.SECOND_REVIEW) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "目前不是現場複審");
+    if (actor.role !== UserRole.ADMIN && app.siteReviewerId !== actor.id) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有指定的複審人員或管理員可以登錄現場結果");
+    const definition = parseCategoryDefinition(app.categoryFormVersion.definition);
+    const requirement = definition.attachmentRequirements.find((item) => item.key === requirementKey);
+    if (!requirement || requirement.group === "checklist") throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "這個項目不能標通過或沒通過");
+    if (app.version !== expectedVersion) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
+    const checks = parseSiteChecks(app.siteChecks).filter((item) => item.key !== requirementKey);
+    checks.push({ key: requirementKey, result });
+    const changed = await tx.application.updateMany({
+      where: { id, version: expectedVersion, status: ApplicationStatus.SECOND_REVIEW },
+      data: { siteChecks: checks as Prisma.InputJsonValue, version: { increment: 1 } },
+    });
+    if (changed.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
+  });
   return getApplication(actor, id);
 }
 

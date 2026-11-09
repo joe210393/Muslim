@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { validateDraft, validateSubmit } from "./application-validation";
 import { resolveTransition } from "./application-workflow";
 import { certificationValidity, validateCertificationDates } from "./certification";
-import { cat01DefinitionV1 } from "../fixtures/categories";
+import { cat01DefinitionV1, officialCategoryDefinition } from "../fixtures/categories";
 import { buildDemoDataset } from "../fixtures/demo-dataset";
 import { sanitizeCsvCell, toCsv } from "./csv";
 import { acceptWatchProgress, buildLearningRecord, canEnroll } from "./training";
@@ -37,6 +37,36 @@ describe("申請驗證", () => {
     const issues = validateSubmit(filled, cat01DefinitionV1, []);
     expect(issues.some((issue) => issue.path.startsWith("attachments."))).toBe(true);
   });
+
+  it("未使用肉品時不必上傳肉品證書", () => {
+    const definition = officialCategoryDefinition("CAT_01");
+    const formData = {
+      applicationItem: "halal_kitchen",
+      mealKind: "meals",
+      certificateNameEn: "Star Kitchen",
+      certificateAddressEn: "1 Demo Road",
+      certificatePhone: "02-12345678",
+      ownerName: "負責人",
+      supervisorName: "主管",
+      supervisorTitle: "經理",
+      supervisorPhone: "0912000001",
+      supervisorEmail: "lead@example.test",
+      liaisonName: "窗口",
+      liaisonTitle: "專員",
+      liaisonPhone: "0912000002",
+      liaisonEmail: "desk@example.test",
+      managerName: "餐廳主管",
+      managerTitle: "主管",
+      chefName: "廚師",
+      chefTitle: "主廚",
+      usesMeat: "no",
+      ingredientDetail: "咖哩雞飯：雞肉、洋蔥",
+    };
+    const issues = validateSubmit({ ...filled, formData }, definition, []);
+    expect(issues.some((issue) => issue.path === "attachments.meat_certificate")).toBe(false);
+    expect(issues.some((issue) => issue.path === "attachments.photo_cooking")).toBe(true);
+    expect(issues.some((issue) => issue.path === "attachments.check_menu")).toBe(true);
+  });
 });
 
 describe("狀態轉移", () => {
@@ -46,7 +76,8 @@ describe("狀態轉移", () => {
       status: ApplicationStatus.SECOND_REVIEW,
       resumeStatus: null,
       role: UserRole.CASE_OFFICER,
-      isAssignee: true,
+      isAssignee: false,
+      isSiteReviewer: true,
       hasAssignee: true,
     });
     expect(supplement.ok && supplement.toStatus).toBe(ApplicationStatus.NEED_SUPPLEMENT);
@@ -56,6 +87,7 @@ describe("狀態轉移", () => {
       resumeStatus: supplement.ok ? supplement.nextResumeStatus : null,
       role: UserRole.APPLICANT,
       isAssignee: false,
+      isSiteReviewer: false,
       hasAssignee: true,
     });
     expect(resubmit.ok && resubmit.toStatus).toBe(ApplicationStatus.SECOND_REVIEW);
@@ -68,6 +100,20 @@ describe("狀態轉移", () => {
       resumeStatus: null,
       role: UserRole.CASE_OFFICER,
       isAssignee: true,
+      isSiteReviewer: false,
+      hasAssignee: true,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("初審承辦不是複審人員時不能複審通過", () => {
+    const result = resolveTransition({
+      action: ApplicationAction.PASS_SECOND,
+      status: ApplicationStatus.SECOND_REVIEW,
+      resumeStatus: null,
+      role: UserRole.CASE_OFFICER,
+      isAssignee: true,
+      isSiteReviewer: false,
       hasAssignee: true,
     });
     expect(result.ok).toBe(false);

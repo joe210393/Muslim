@@ -41,12 +41,12 @@ export function AdminHome() {
 }
 
 const caseReviewStatuses = [
-  ["SUBMITTED", "已送件"],
-  ["INITIAL_REVIEW", "初審中"],
-  ["NEED_SUPPLEMENT", "待補件"],
-  ["FINAL_REVIEW", "待核定"],
-  ["APPROVED", "已核定"],
-  ["REJECTED", "已退件"],
+  ["SUBMITTED", "已送件", "業者剛送出，還沒開始審文件。"],
+  ["INITIAL_REVIEW", "初審中", "承辦正在看文件。還沒到核定。"],
+  ["NEED_SUPPLEMENT", "待補件", "退回業者改指定欄位。改完送回當初要求補件的階段。"],
+  ["FINAL_REVIEW", "待核定", "初審和現場複審都過了，等管理員核定或退件。"],
+  ["APPROVED", "已核定", "管理員已核定，案件結束。"],
+  ["REJECTED", "已退件", "管理員已退件，案件結束。"],
 ] as const;
 
 export function AdminApplicationList() {
@@ -54,6 +54,7 @@ export function AdminApplicationList() {
   const [params, setParams] = useSearchParams();
   const requested = params.get("status");
   const status = caseReviewStatuses.some(([id]) => id === requested) ? requested as (typeof caseReviewStatuses)[number][0] : "SUBMITTED";
+  const stage = caseReviewStatuses.find(([id]) => id === status);
   const [q, setQ] = useState("");
   const query = useQuery({ queryKey: ["admin-applications", q, status], queryFn: () => services.applications({ q, status, page: 1 }) });
   return (
@@ -63,6 +64,7 @@ export function AdminApplicationList() {
         <Button variant="secondary" onClick={async () => downloadText("applications.csv", await services.exportApplications())}>匯出 CSV</Button>
       </div>
       <SectionNav items={caseReviewStatuses.map(([id, label]) => ({ id, label }))} value={status} onChange={(id) => setParams(id === "SUBMITTED" ? {} : { status: id })} />
+      <p className="text-sm text-[var(--muted)]">{stage?.[2]} 現場複審中的案件不在這裡，改到現場複審。</p>
       <TextInput placeholder="編號或業者" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋案件" />
       {(query.data?.items.length ?? 0) === 0 ? <Empty title="沒有符合的案件" body="這裡只看已送出的案件。草稿留在業者會員區，複審中的案件在現場複審。" /> : null}
       <div className="overflow-x-auto rounded-xl bg-white">

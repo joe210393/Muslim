@@ -13,7 +13,7 @@ import {
 import { resolveTransition } from "../domain/application-workflow";
 import type { CategoryDefinition } from "../domain/category-definition";
 import { formatApplicationNo } from "../domain/hash";
-import { categoryBlueprints, cat01DefinitionV1, cat01DefinitionV2, genericCategoryDefinition } from "./categories";
+import { categoryBlueprints, cat01DefinitionV1, cat01DefinitionV2, genericCategoryDefinition, officialCategoryDefinition } from "./categories";
 
 export const DEMO_PASSWORD = "Demo1234!";
 export const DEMO_SOURCE_SYSTEM = "DEMO_SEED";
@@ -77,6 +77,8 @@ export type DemoApplication = {
   status: ApplicationStatus;
   resumeStatus: ApplicationStatus | null;
   assignedToId: string | null;
+  siteReviewerId: string | null;
+  siteChecks: Array<{ key: string; result: "pass" | "fail" }>;
   version: number;
   organizationNameSnapshot: string | null;
   taxIdSnapshot: string | null;
@@ -145,6 +147,7 @@ export type DemoDataset = {
     applicationId: string;
     fileId: string;
     requirementKey: string;
+    capturedOnSite: boolean;
     createdAt: string;
     removedAt: string | null;
   }[];
@@ -371,6 +374,24 @@ export function buildDemoDataset(): DemoDataset {
       latestDefinition = cat01DefinitionV2;
     }
     versionByCategory.set(category.id, { v1: v1Id, latest, definition: latestDefinition });
+    const official = officialCategoryDefinition(category.code);
+    const beforeChecklist = { ...official, attachmentRequirements: official.attachmentRequirements.filter((item) => item.group !== "checklist") };
+    formVersions.push({
+      id: demoUuid(0x420 + index + 1),
+      categoryId: category.id,
+      version: category.code === "CAT_01" ? 3 : 2,
+      configurationStatus: ConfigurationStatus.CONFIRMED,
+      definition: beforeChecklist,
+      createdAt: isoDaysBefore(1),
+    });
+    formVersions.push({
+      id: demoUuid(0x430 + index + 1),
+      categoryId: category.id,
+      version: category.code === "CAT_01" ? 4 : 3,
+      configurationStatus: ConfigurationStatus.CONFIRMED,
+      definition: official,
+      createdAt: isoDaysBefore(0),
+    });
   });
 
   const statusPattern: ApplicationStatus[] = [
@@ -413,6 +434,13 @@ export function buildDemoDataset(): DemoDataset {
           ? ApplicationStatus.SECOND_REVIEW
           : ApplicationStatus.INITIAL_REVIEW
         : null;
+    const pastInitial =
+      status === ApplicationStatus.SECOND_REVIEW ||
+      status === ApplicationStatus.FINAL_REVIEW ||
+      status === ApplicationStatus.APPROVED ||
+      status === ApplicationStatus.REJECTED ||
+      (status === ApplicationStatus.NEED_SUPPLEMENT && resumeStatus !== ApplicationStatus.INITIAL_REVIEW);
+    const siteReviewer = pastInitial ? officers[(index + 1) % officers.length]! : null;
     const formData: Record<string, string | number | boolean | null> = {};
     if (!incomplete) {
       if (definition.fields.some((field) => field.key === "kitchenType")) {
@@ -436,6 +464,8 @@ export function buildDemoDataset(): DemoDataset {
       status,
       resumeStatus,
       assignedToId: assignee?.id ?? null,
+      siteReviewerId: siteReviewer?.id ?? null,
+      siteChecks: [],
       version: status === ApplicationStatus.DRAFT ? 1 : 2,
       organizationNameSnapshot: incomplete ? org.organizationName : org.organizationName,
       taxIdSnapshot: incomplete ? null : org.taxId,
@@ -479,6 +509,7 @@ export function buildDemoDataset(): DemoDataset {
           applicationId: application.id,
           fileId,
           requirementKey: key,
+          capturedOnSite: false,
           createdAt: isoDaysBefore(11),
           removedAt: null,
         });
@@ -525,13 +556,20 @@ export function buildDemoDataset(): DemoDataset {
                 ? UserRole.ADMIN
                 : UserRole.CASE_OFFICER;
         const actorId =
-          role === UserRole.APPLICANT ? applicant.id : role === UserRole.ADMIN ? admin.id : (assignee?.id ?? officers[0]!.id);
+          role === UserRole.APPLICANT
+            ? applicant.id
+            : role === UserRole.ADMIN
+              ? admin.id
+              : cursor === ApplicationStatus.SECOND_REVIEW
+                ? (siteReviewer?.id ?? assignee?.id ?? officers[0]!.id)
+                : (assignee?.id ?? officers[0]!.id);
         const transition = resolveTransition({
           action,
           status: cursor,
           resumeStatus: resume,
           role,
-          isAssignee: role === UserRole.CASE_OFFICER,
+          isAssignee: role === UserRole.CASE_OFFICER && cursor !== ApplicationStatus.SECOND_REVIEW,
+          isSiteReviewer: role === UserRole.CASE_OFFICER && cursor === ApplicationStatus.SECOND_REVIEW,
           hasAssignee: action !== ApplicationAction.SUBMIT,
         });
         if (!transition.ok) throw new Error(`示範資料流程無效：${application.applicationNo} ${action} ${transition.message}`);
@@ -553,7 +591,7 @@ export function buildDemoDataset(): DemoDataset {
                   : action === ApplicationAction.PASS_INITIAL || action === ApplicationAction.PASS_SECOND
                     ? "審查意見：資料齊備，進入下一階段（示範）。"
                     : null,
-          internalNote: action === ApplicationAction.PASS_INITIAL ? "內部註記：同一承辦初審與複審，尚未實行雙人覆核。" : null,
+          internalNote: action === ApplicationAction.PASS_INITIAL ? `已指定複審：${siteReviewer?.displayName ?? "未指定"}` : null,
           requestId: `seed-${application.id}-${action}`,
           requestHash: `seed-${action}`,
           createdAt: isoDaysBefore(10),

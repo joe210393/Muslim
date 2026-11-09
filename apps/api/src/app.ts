@@ -24,6 +24,7 @@ import {
   resetPasswordRequestSchema,
   reviewActionSchema,
   saveFieldReviewsSchema,
+  saveSiteCheckSchema,
   submitApplicationSchema,
   updateStaffUserSchema,
   parseCategoryDefinition,
@@ -296,6 +297,27 @@ export function createApp() {
     await access.assertFeature(actor, "applications.review");
     const body = saveFieldReviewsSchema.parse(req.body);
     ok(res, req, await applications.saveFieldReviews(actor, String(req.params.id), body.expectedVersion, body.fieldReviews));
+  }));
+  api.get("/admin/staff-options", route(async (req, res) => {
+    const actor = await requireActor(req);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
+    await access.assertFeature(actor, "applications.review");
+    ok(res, req, await applications.listStaffOptions());
+  }));
+  api.put("/admin/applications/:id/site-checks", route(async (req, res) => {
+    const actor = await requireActor(req);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
+    await access.assertFeature(actor, "applications.review");
+    const body = saveSiteCheckSchema.parse(req.body);
+    ok(res, req, await applications.saveSiteCheck(actor, String(req.params.id), body.expectedVersion, body.requirementKey, body.result));
+  }));
+  api.post("/admin/applications/:id/site-photos", upload.single("file"), route(async (req, res) => {
+    const actor = await requireActor(req);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
+    await access.assertFeature(actor, "applications.review");
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇照片");
+    const requirementKey = String(req.body.requirementKey ?? "");
+    ok(res, req, await files.addSitePhoto(actor, storage, String(req.params.id), requirementKey, req.file));
   }));
   api.post("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);

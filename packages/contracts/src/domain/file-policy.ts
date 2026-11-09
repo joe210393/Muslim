@@ -3,6 +3,7 @@ export const FILE_POLICY = {
   allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png"] as const,
   maxFileBytes: 10 * 1024 * 1024,
   maxApplicationBytes: 100 * 1024 * 1024,
+  maxImagesPerRequirement: 16,
 };
 
 export const COURSE_VIDEO_MAX_BYTES = 200 * 1024 * 1024;

@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { Guard, Shell } from "../components/shell/Shell";
 import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, CourseListPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
-import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
+import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, FileWindowPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
 import { CmsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage, SiteReviewDetail, SiteReviewPage } from "../pages/admin/InfoAdminPages";
 import { PaymentsPage } from "../pages/admin/PaymentsPage";
 import { PortalPaymentsPage, RenewalPage, ResourcePage, SupplementPage } from "../pages/portal/MemberPages";
@@ -75,5 +75,6 @@ export const router = createBrowserRouter([
       { path: "/admin/audit-logs", element: <AuditPage /> },
     ] },
   ] },
+  { path: "/files/:fileId", element: <FileWindowPage /> },
   { path: "*", element: <p className="p-6">找不到這個頁面。</p> },
 ]);

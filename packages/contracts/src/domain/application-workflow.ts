@@ -18,6 +18,7 @@ export type TransitionInput = {
   resumeStatus: ApplicationStatus | null;
   role: UserRole;
   isAssignee: boolean;
+  isSiteReviewer: boolean;
   hasAssignee: boolean;
 };
 
@@ -31,12 +32,10 @@ export type TransitionResult =
 
 function canProcessStage(input: TransitionInput): boolean {
   if (input.role === UserRole.ADMIN) return true;
-  if (input.role !== UserRole.CASE_OFFICER || !input.isAssignee) return false;
-  return (
-    input.status === ApplicationStatus.INITIAL_REVIEW ||
-    input.status === ApplicationStatus.SECOND_REVIEW ||
-    input.status === ApplicationStatus.SUBMITTED
-  );
+  if (input.role !== UserRole.CASE_OFFICER) return false;
+  if (input.status === ApplicationStatus.SECOND_REVIEW) return input.isSiteReviewer;
+  if (!input.isAssignee) return false;
+  return input.status === ApplicationStatus.INITIAL_REVIEW || input.status === ApplicationStatus.SUBMITTED;
 }
 
 export function resolveTransition(input: TransitionInput): TransitionResult {

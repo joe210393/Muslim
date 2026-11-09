@@ -2,6 +2,7 @@ import {
   APP_NAME,
   ApplicationAction,
   ApplicationStatus,
+  ConfigurationStatus,
   AttendanceStatus,
   CourseStatus,
   DEMO_CONTACT_EMAIL,
@@ -16,6 +17,8 @@ import {
   auditCategoryOf,
   auditRetentionCutoff,
   buildDemoDataset,
+  categoryBlueprints,
+  officialCategoryDefinition,
   buildLearningRecord,
   canCancelEnrollment,
   detectCourseVideo,
@@ -110,6 +113,47 @@ type State = {
 
 const KEY = "mf-demo-state-v1";
 
+function ensureSiteReview(state: State) {
+  for (const app of state.data.applications) {
+    app.siteReviewerId ??= null;
+    if (!Array.isArray(app.siteChecks)) app.siteChecks = [];
+    const pastInitial =
+      app.status === ApplicationStatus.SECOND_REVIEW ||
+      app.status === ApplicationStatus.FINAL_REVIEW ||
+      app.status === ApplicationStatus.APPROVED ||
+      app.status === ApplicationStatus.REJECTED ||
+      (app.status === ApplicationStatus.NEED_SUPPLEMENT && app.resumeStatus !== ApplicationStatus.INITIAL_REVIEW && app.resumeStatus !== null);
+    if (pastInitial && !app.siteReviewerId && app.assignedToId) app.siteReviewerId = app.assignedToId;
+  }
+  for (const item of state.data.attachments) item.capturedOnSite ??= false;
+}
+
+function ensureOfficialCategories(state: State) {
+  const now = new Date().toISOString();
+  for (const blueprint of categoryBlueprints) {
+    const category = state.data.categories.find((item) => item.code === blueprint.code);
+    if (!category) continue;
+    category.name = blueprint.name;
+    category.description = blueprint.description;
+    const versions = state.data.formVersions.filter((item) => item.categoryId === category.id);
+    const parsed = versions.flatMap((item) => {
+      try { return [parseCategoryDefinition(item.definition)]; } catch { return []; }
+    });
+    const hasForm = parsed.some((definition) => definition.fields.some((field) => field.key === "certificateNameEn"));
+    const hasChecklist = parsed.some((definition) => definition.attachmentRequirements.some((item) => item.group === "checklist"));
+    if (hasForm && hasChecklist) continue;
+    const nextVersion = versions.reduce((max, item) => Math.max(max, item.version), 0) + 1;
+    state.data.formVersions.push({
+      id: crypto.randomUUID(),
+      categoryId: category.id,
+      version: nextVersion,
+      configurationStatus: ConfigurationStatus.CONFIRMED,
+      definition: officialCategoryDefinition(blueprint.code),
+      createdAt: now,
+    });
+  }
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open("mf-demo", 1);
@@ -169,13 +213,15 @@ function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]
   const category = state.data.categories.find((item) => item.id === app.categoryId);
   const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
   const assignee = state.data.users.find((item) => item.id === app.assignedToId);
+  const siteReviewer = state.data.users.find((item) => item.id === app.siteReviewerId);
   if (!org || !category || !version) throw new ClientError("案件資料不完整", { status: 500 });
   const definition = parseCategoryDefinition(version.definition);
+  const staff = viewer.role !== UserRole.APPLICANT;
   const attachments = state.data.attachments
-    .filter((item) => item.applicationId === app.id && !item.removedAt)
+    .filter((item) => item.applicationId === app.id && !item.removedAt && (staff || !item.capturedOnSite))
     .map((item) => {
       const file = state.data.files.find((entry) => entry.id === item.fileId)!;
-      return { id: item.id, requirementKey: item.requirementKey, fileId: item.fileId, originalName: file.originalName, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: item.createdAt };
+      return { id: item.id, requirementKey: item.requirementKey, fileId: item.fileId, originalName: file.originalName, mimeType: file.mimeType, sizeBytes: file.sizeBytes, capturedOnSite: Boolean(item.capturedOnSite), createdAt: item.createdAt };
     });
   return {
     id: app.id,
@@ -187,6 +233,8 @@ function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]
     status: app.status,
     assignedToId: app.assignedToId,
     assignedToName: assignee?.displayName ?? null,
+    siteReviewerId: staff ? app.siteReviewerId ?? null : null,
+    siteReviewerName: staff ? siteReviewer?.displayName ?? null : null,
     version: app.version,
     submittedAt: app.submittedAt,
     updatedAt: app.updatedAt,
@@ -213,6 +261,7 @@ function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]
     decidedAt: app.decidedAt,
     attachments,
     fieldReviews: (app.fieldReviews ?? []).map((item) => ({ ...item, internalNote: viewer.role === UserRole.APPLICANT ? "" : item.internalNote })),
+    siteChecks: staff ? app.siteChecks ?? [] : [],
   };
 }
 
@@ -419,6 +468,8 @@ export async function createMockServices(): Promise<Services> {
   });
   state.platform.plans ??= [];
   state.platform.payments ??= [];
+  ensureOfficialCategories(state);
+  ensureSiteReview(state);
   ensureAccountFeatures(state.platform, state.data.users);
   ensureEditorial(state.platform);
   fixHalalSpelling(state.platform);
@@ -561,6 +612,8 @@ export async function createMockServices(): Promise<Services> {
         status: ApplicationStatus.DRAFT,
         resumeStatus: null,
         assignedToId: null,
+        siteReviewerId: null,
+        siteChecks: [],
         version: 1,
         organizationNameSnapshot: org.organizationName,
         taxIdSnapshot: org.taxId,
@@ -645,7 +698,7 @@ export async function createMockServices(): Promise<Services> {
       if (existing) return toDetail(state, id, actor);
       const app = state.data.applications.find((item) => item.id === id);
       if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
-      const decision = resolveTransition({ action: input.action as ApplicationAction, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, hasAssignee: Boolean(app.assignedToId) });
+      const decision = resolveTransition({ action: input.action as ApplicationAction, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, isSiteReviewer: app.siteReviewerId === actor.id, hasAssignee: Boolean(app.assignedToId) });
       if (!decision.ok) throw new ClientError(decision.message, { code: "INVALID_TRANSITION" });
       if (app.version !== input.expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
       const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
@@ -657,8 +710,16 @@ export async function createMockServices(): Promise<Services> {
       const hasInternal = Boolean(input.internalNote?.trim() || reviews.some((item) => item.internalNote.trim()));
       if (requirement === "public" && !publicComment?.trim()) throw new ClientError("請填寫公開意見");
       if (requirement === "review" && !publicComment?.trim() && !hasInternal) throw new ClientError("請填寫審查意見");
+      let assignmentNote: string | null = null;
+      if (input.action === "PASS_INITIAL") {
+        const reviewer = state.data.users.find((user) => user.id === input.siteReviewerId && user.isActive && user.role !== UserRole.APPLICANT);
+        if (!reviewer) throw new ClientError("請指定在職的複審人員");
+        app.siteReviewerId = reviewer.id;
+        assignmentNote = `已指定複審：${reviewer.displayName}`;
+      }
       const now = new Date().toISOString();
-      state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: input.action as ApplicationAction, fromStatus: app.status, toStatus: decision.toStatus, publicComment: publicComment ?? null, internalNote: input.internalNote ?? null, requestId: input.requestId, requestHash: input.requestId, createdAt: now });
+      const visibleComment = [publicComment?.trim(), assignmentNote].filter(Boolean).join("\n");
+      state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: input.action as ApplicationAction, fromStatus: app.status, toStatus: decision.toStatus, publicComment: visibleComment || null, internalNote: input.internalNote ?? null, requestId: input.requestId, requestHash: input.requestId, createdAt: now });
       app.fieldReviews = reviews;
       app.status = decision.toStatus;
       app.resumeStatus = decision.nextResumeStatus;
@@ -687,6 +748,54 @@ export async function createMockServices(): Promise<Services> {
       app.updatedAt = new Date().toISOString();
       await save();
       return toDetail(state, id, actor);
+    },
+    async staffOptions() {
+      const actor = requireActor(state);
+      if (actor.role === UserRole.APPLICANT || !hasFeature(state.platform, actor.id, "applications.review")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      return state.data.users
+        .filter((user) => user.isActive && user.role !== UserRole.APPLICANT)
+        .map((user) => ({ id: user.id, displayName: user.displayName, role: user.role }));
+    },
+    async saveSiteCheck(id, input) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "applications.review")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const app = state.data.applications.find((item) => item.id === id);
+      if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
+      if (app.status !== ApplicationStatus.SECOND_REVIEW) throw new ClientError("目前不是現場複審", { code: "INVALID_TRANSITION" });
+      if (actor.role !== UserRole.ADMIN && app.siteReviewerId !== actor.id) throw new ClientError("只有指定的複審人員或管理員可以登錄現場結果", { status: 403 });
+      const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
+      const requirement = parseCategoryDefinition(version?.definition ?? { schemaVersion: 1, fields: [], attachmentRequirements: [], helpText: "" }).attachmentRequirements.find((item) => item.key === input.requirementKey);
+      if (!requirement || requirement.group === "checklist") throw new ClientError("這個項目不能標通過或沒通過");
+      if (app.version !== input.expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+      app.siteChecks = [...(app.siteChecks ?? []).filter((item) => item.key !== input.requirementKey), { key: input.requirementKey, result: input.result }];
+      app.version += 1;
+      app.updatedAt = new Date().toISOString();
+      await save();
+      return toDetail(state, id, actor);
+    },
+    async uploadSitePhoto(applicationId, requirementKey, file) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "applications.review")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const app = state.data.applications.find((item) => item.id === applicationId);
+      if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
+      if (app.status !== ApplicationStatus.SECOND_REVIEW) throw new ClientError("目前不是現場複審", { code: "INVALID_TRANSITION" });
+      if (actor.role !== UserRole.ADMIN && app.siteReviewerId !== actor.id) throw new ClientError("只有指定的複審人員或管理員可以上傳現場照片", { status: 403 });
+      const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
+      const requirement = parseCategoryDefinition(version?.definition ?? { schemaVersion: 1, fields: [], attachmentRequirements: [], helpText: "" }).attachmentRequirements.find((item) => item.key === requirementKey);
+      if (!requirement || requirement.group !== "checklist") throw new ClientError("只能在檢查表照片上補現場拍攝");
+      if (file.size > FILE_POLICY.maxFileBytes) throw new ClientError("檔案超過 10 MiB", { code: "FILE_TOO_LARGE" });
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const signature = detectFileSignature(bytes);
+      if (!signature || !signature.startsWith("image/") || signature !== file.type) throw new ClientError("現場拍攝只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
+      const sitePhotos = state.data.attachments.filter((item) => item.applicationId === applicationId && item.requirementKey === requirementKey && !item.removedAt && item.capturedOnSite);
+      if (sitePhotos.length >= FILE_POLICY.maxImagesPerRequirement) throw new ClientError(`這個項目的現場照片最多 ${FILE_POLICY.maxImagesPerRequirement} 張`);
+      const now = new Date().toISOString();
+      const fileId = crypto.randomUUID();
+      let binary = "";
+      for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      state.data.files.push({ id: fileId, uploadedById: actor.id, storageKey: `mock/${fileId}`, originalName: file.name, mimeType: signature, sizeBytes: file.size, sha256: await sha256Hex(bytes), contentBase64: btoa(binary), createdAt: now });
+      state.data.attachments.push({ id: crypto.randomUUID(), applicationId, fileId, requirementKey, capturedOnSite: true, createdAt: now, removedAt: null });
+      await save();
     },
     async events(id) {
       const actor = requireActor(state);
@@ -717,11 +826,15 @@ export async function createMockServices(): Promise<Services> {
       if (!app || !canEditApplicationContent(actor, app)) throw new ClientError("找不到可編輯的案件", { status: 404 });
       const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId)!;
       const definition = parseCategoryDefinition(version.definition);
-      if (!definition.attachmentRequirements.some((item) => item.key === requirementKey)) throw new ClientError("此表單版本沒有這個附件項目");
+      const requirement = definition.attachmentRequirements.find((item) => item.key === requirementKey);
+      if (!requirement) throw new ClientError("此表單版本沒有這個附件項目");
       if (file.size > FILE_POLICY.maxFileBytes) throw new ClientError("檔案超過 10 MiB", { code: "FILE_TOO_LARGE" });
       const bytes = new Uint8Array(await file.arrayBuffer());
       const signature = detectFileSignature(bytes);
       if (!signature || signature !== file.type) throw new ClientError("只接受 PDF、JPEG、PNG，且內容需與格式一致", { code: "UNSUPPORTED_FILE_TYPE" });
+      if (requirement.accept === "image" && !signature.startsWith("image/")) throw new ClientError("這個照片欄只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
+      const active = state.data.attachments.filter((item) => item.applicationId === applicationId && item.requirementKey === requirementKey && !item.removedAt && !item.capturedOnSite);
+      if (requirement.multiple && active.length >= FILE_POLICY.maxImagesPerRequirement) throw new ClientError(`這個照片欄最多 ${FILE_POLICY.maxImagesPerRequirement} 張`);
       const now = new Date().toISOString();
       const fileId = crypto.randomUUID();
       let binary = "";
@@ -729,8 +842,8 @@ export async function createMockServices(): Promise<Services> {
         binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
       }
       state.data.files.push({ id: fileId, uploadedById: actor.id, storageKey: `mock/${fileId}`, originalName: file.name, mimeType: signature, sizeBytes: file.size, sha256: await sha256Hex(bytes), contentBase64: btoa(binary), createdAt: now });
-      state.data.attachments.filter((item) => item.applicationId === applicationId && item.requirementKey === requirementKey && !item.removedAt).forEach((item) => { item.removedAt = now; });
-      state.data.attachments.push({ id: crypto.randomUUID(), applicationId, fileId, requirementKey, createdAt: now, removedAt: null });
+      if (!requirement.multiple) active.forEach((item) => { item.removedAt = now; });
+      state.data.attachments.push({ id: crypto.randomUUID(), applicationId, fileId, requirementKey, capturedOnSite: false, createdAt: now, removedAt: null });
       await save();
     },
     async removeAttachment(applicationId, attachmentId) {
@@ -739,6 +852,7 @@ export async function createMockServices(): Promise<Services> {
       if (!app || !canEditApplicationContent(actor, app)) throw new ClientError("找不到可編輯的案件", { status: 404 });
       const attachment = state.data.attachments.find((item) => item.id === attachmentId && item.applicationId === applicationId && !item.removedAt);
       if (!attachment) throw new ClientError("找不到附件", { status: 404 });
+      if (attachment.capturedOnSite) throw new ClientError("不能移除現場拍攝的照片", { status: 403 });
       attachment.removedAt = new Date().toISOString();
       await save();
     },
@@ -1008,6 +1122,8 @@ export async function createMockServices(): Promise<Services> {
               status: ApplicationStatus.DRAFT,
               resumeStatus: null,
               assignedToId: null,
+        siteReviewerId: null,
+        siteChecks: [],
               version: 1,
               organizationNameSnapshot: organization.organizationName,
               taxIdSnapshot: organization.taxId,
@@ -1341,7 +1457,7 @@ export async function createMockServices(): Promise<Services> {
     if (existing) return toDetail(state, id, actor);
     const app = state.data.applications.find((item) => item.id === id);
     if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
-    const decision = resolveTransition({ action, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, hasAssignee: Boolean(app.assignedToId) });
+    const decision = resolveTransition({ action, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, isSiteReviewer: app.siteReviewerId === actor.id, hasAssignee: Boolean(app.assignedToId) });
     if (!decision.ok) throw new ClientError(decision.message, { code: "INVALID_TRANSITION" });
     if (app.version !== expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
     const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId)!;
@@ -1349,7 +1465,7 @@ export async function createMockServices(): Promise<Services> {
     if (version.configurationStatus !== "CONFIRMED") {
       /* 展示模式允許示範類別送件 */
     }
-    const active = state.data.attachments.filter((item) => item.applicationId === id && !item.removedAt);
+    const active = state.data.attachments.filter((item) => item.applicationId === id && !item.removedAt && !item.capturedOnSite);
     const issues = validateSubmit(content(app), definition, active.map((item) => item.requirementKey));
     if (issues.length) throw new ClientError("還不能送件", { fieldErrors: issues, code: "VALIDATION_ERROR" });
     const now = new Date().toISOString();

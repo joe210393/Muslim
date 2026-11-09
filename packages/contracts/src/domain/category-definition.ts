@@ -29,6 +29,11 @@ const reserved = new Set<string>(RESERVED_FORM_KEYS);
 
 export const fieldInputTypeSchema = z.enum(["text", "textarea", "select", "date", "number", "checkbox"]);
 
+export const requiredWhenSchema = z.object({
+  field: z.string().regex(/^[a-z][A-Za-z0-9]{1,40}$/),
+  equals: z.string().min(1).max(40),
+});
+
 export const categoryFieldSchema = z
   .object({
     key: z.string().regex(/^[a-z][A-Za-z0-9]{1,40}$/, "欄位代碼需為 camelCase 業務名稱"),
@@ -39,6 +44,7 @@ export const categoryFieldSchema = z
     minLength: z.number().int().nonnegative().optional(),
     maxLength: z.number().int().positive().optional(),
     helpText: z.string().max(300).optional(),
+    requiredWhen: requiredWhenSchema.optional(),
   })
   .superRefine((field, ctx) => {
     if (reserved.has(field.key)) {
@@ -57,6 +63,10 @@ export const attachmentRequirementSchema = z.object({
   label: z.string().min(1).max(120),
   requiredOnSubmit: z.boolean(),
   helpText: z.string().max(300).optional(),
+  accept: z.enum(["file", "image"]).default("file"),
+  multiple: z.boolean().default(false),
+  requiredWhen: requiredWhenSchema.optional(),
+  group: z.enum(["application", "checklist"]).optional(),
 });
 
 export const categoryDefinitionSchema = z
@@ -81,6 +91,15 @@ export const categoryDefinitionSchema = z
       }
       attachmentKeys.add(item.key);
     }
+    const checkWhen = (when: { field: string; equals: string } | undefined, label: string) => {
+      if (!when) return;
+      const field = definition.fields.find((item) => item.key === when.field);
+      if (!field || field.inputType !== "select" || !field.options?.some((option) => option.value === when.equals)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label}的顯示條件找不到對應選項` });
+      }
+    };
+    for (const field of definition.fields) checkWhen(field.requiredWhen, field.label);
+    for (const item of definition.attachmentRequirements) checkWhen(item.requiredWhen, item.label);
   });
 
 export type CategoryField = z.infer<typeof categoryFieldSchema>;

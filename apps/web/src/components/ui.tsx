@@ -27,10 +27,10 @@ export function Button({
   );
 }
 
-export function Field({ label, error, children, hint }: { label: string; error?: string; hint?: string; children: ReactNode }) {
+export function Field({ label, error, children, hint, required }: { label: string; error?: string; hint?: string; required?: boolean; children: ReactNode }) {
   return (
     <label className="block space-y-1.5 text-sm">
-      <span className="font-medium text-[var(--ink)]">{label}</span>
+      <span className="font-medium text-[var(--ink)]">{required ? <span className="text-[var(--danger)]">* </span> : null}{label}</span>
       {children}
       {hint ? <span className="block text-sm leading-6 text-[var(--muted)]">{hint}</span> : null}
       {error ? <span className="block text-sm text-[var(--danger)]">{error}</span> : null}

@@ -34,6 +34,8 @@ export const applicationListItemSchema = z.object({
   status: applicationStatusSchema,
   assignedToId: z.string().uuid().nullable(),
   assignedToName: z.string().nullable(),
+  siteReviewerId: z.string().uuid().nullable(),
+  siteReviewerName: z.string().nullable(),
   version: z.number().int(),
   submittedAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
@@ -47,8 +49,21 @@ export const attachmentSchema = z.object({
   originalName: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number().int(),
+  capturedOnSite: z.boolean(),
   createdAt: z.string().datetime(),
 });
+
+export const siteCheckSchema = z.object({
+  key: z.string().min(1).max(64),
+  result: z.enum(["pass", "fail"]),
+});
+
+export const siteChecksSchema = z.array(siteCheckSchema).max(80);
+
+export function parseSiteChecks(value: unknown) {
+  const parsed = siteChecksSchema.safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
 
 export const applicationContentSchema = z.object({
   organizationName: z.string().nullable(),
@@ -76,6 +91,7 @@ export const applicationDetailSchema = applicationListItemSchema.merge(applicati
   decidedAt: z.string().datetime().nullable(),
   attachments: z.array(attachmentSchema),
   fieldReviews: fieldReviewsSchema,
+  siteChecks: siteChecksSchema,
 });
 
 export const applicationEventSchema = z.object({
@@ -133,6 +149,13 @@ export const reviewActionSchema = z.object({
   publicComment: z.string().trim().max(2000).optional(),
   internalNote: z.string().trim().max(2000).optional(),
   fieldReviews: fieldReviewsSchema.optional(),
+  siteReviewerId: z.string().uuid().optional(),
+});
+
+export const saveSiteCheckSchema = z.object({
+  expectedVersion: z.number().int(),
+  requirementKey: z.string().trim().min(1).max(64),
+  result: z.enum(["pass", "fail"]),
 });
 
 export const saveFieldReviewsSchema = z.object({

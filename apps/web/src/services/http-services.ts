@@ -140,6 +140,18 @@ export function createHttpServices(): Services {
     async saveFieldReviews(id, expectedVersion, fieldReviews) {
       return (await request("PUT", `/admin/applications/${id}/field-reviews`, { expectedVersion, fieldReviews })).data as Awaited<ReturnType<Services["saveFieldReviews"]>>;
     },
+    async staffOptions() {
+      return (await request("GET", "/admin/staff-options")).data as Awaited<ReturnType<Services["staffOptions"]>>;
+    },
+    async saveSiteCheck(id, input) {
+      return (await request("PUT", `/admin/applications/${id}/site-checks`, input)).data as Awaited<ReturnType<Services["application"]>>;
+    },
+    async uploadSitePhoto(applicationId, requirementKey, file) {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("requirementKey", requirementKey);
+      await request("POST", `/admin/applications/${applicationId}/site-photos`, form);
+    },
     async events(id) {
       return (await request("GET", `/applications/${id}/events`)).data as Awaited<ReturnType<Services["events"]>>;
     },

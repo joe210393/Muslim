@@ -1,4 +1,5 @@
 import { reviewTargets, type ApplicationDetail, type FieldReview } from "@mf/contracts";
+import { AttachmentImages } from "../../components/AttachmentImages";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServices, useSession } from "../../app/session";
@@ -11,8 +12,8 @@ function displayValue(item: ApplicationDetail, key: string) {
   if (key === "category") return item.categoryName;
   if (key === "declarationAccepted") return item.declarationAccepted ? "已確認以上資料可作為本次送件內容" : "未勾選";
   if (key.startsWith("attachment:")) {
-    const file = item.attachments.find((attachment) => attachment.requirementKey === key.slice("attachment:".length));
-    return file ? file.originalName : "尚未上傳";
+    const files = item.attachments.filter((attachment) => attachment.requirementKey === key.slice("attachment:".length) && !attachment.capturedOnSite);
+    return files.length ? files.map((file) => file.originalName).join("、") : "尚未上傳";
   }
   const extra = item.definition.fields.find((field) => field.key === key);
   if (extra) {
@@ -37,7 +38,8 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
   const session = useSession();
   const client = useQueryClient();
   const canDecide = session.user?.featureKeys?.includes("applications.decide") ?? false;
-  const users = useQuery({ queryKey: ["staff-options"], queryFn: () => services.users(), enabled: canDecide });
+  const users = useQuery({ queryKey: ["admin-users"], queryFn: () => services.users(), enabled: canDecide });
+  const [siteReviewerId, setSiteReviewerId] = useState("");
   const [marks, setMarks] = useState<Record<string, Mark>>(() => marksFrom(item));
   const [note, setNote] = useState("");
   const [decisionComment, setDecisionComment] = useState("");
@@ -45,11 +47,18 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
   const [reassign, setReassign] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [openNotes, setOpenNotes] = useState<Record<string, boolean>>(() => {
+    const open: Record<string, boolean> = {};
+    for (const row of item.fieldReviews) if (row.publicComment || row.internalNote) open[row.key] = true;
+    return open;
+  });
+  const [openActionNote, setOpenActionNote] = useState(false);
   useEffect(() => { setMarks(marksFrom(item)); }, [item.id, item.version]);
   const targets = reviewTargets(item.definition);
   const isAssignee = item.assignedToId === session.user?.id;
   const canMark = (session.user?.role === "ADMIN" || isAssignee)
     && (item.status === "INITIAL_REVIEW" || item.status === "SECOND_REVIEW" || (item.status === "FINAL_REVIEW" && canDecide));
+  const reviewers = useQuery({ queryKey: ["staff-options"], queryFn: () => services.staffOptions(), enabled: canMark && item.status === "INITIAL_REVIEW" });
   const sections = [...new Set(targets.map((target) => target.section))];
   function currentReviews(): FieldReview[] {
     return targets.map((target) => ({
@@ -88,14 +97,19 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
     }
   }
   async function run(action: string) {
+    if (action === "PASS_INITIAL" && !siteReviewerId) {
+      setError("請指定複審人員");
+      return;
+    }
     try {
       await services.review(item.id, {
         action,
         expectedVersion: item.version,
         requestId: crypto.randomUUID(),
         publicComment: action === "APPROVE" || action === "REJECT" ? decisionComment : undefined,
-        internalNote: note,
+        internalNote: note.trim() || (action === "PASS_INITIAL" ? "初審通過" : note),
         fieldReviews: currentReviews(),
+        siteReviewerId: action === "PASS_INITIAL" ? siteReviewerId : undefined,
       });
       setError(null);
       setMessage("已完成審查動作");
@@ -110,7 +124,7 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
     <div className="space-y-4">
       <Card className="space-y-3">
         <h2 className="text-xl">承辦</h2>
-        {item.assignedToId ? <p>目前承辦：{item.assignedToName}。初審、複審與補件都由這位承辦繼續處理。</p> : <p>這件還沒有承辦。請管理員先指派，指派後就維持同一人。</p>}
+        {item.assignedToId ? <p>目前承辦：{item.assignedToName}。初審由這位承辦處理。初審通過時要另外指定現場複審人員，承辦不會被換掉。</p> : <p>這件還沒有承辦。請管理員先指派。</p>}
         {!item.assignedToId && session.user?.role === "CASE_OFFICER" ? <p className="text-sm text-[var(--muted)]">承辦不能自己接案。請管理員指派後再開始審查。</p> : null}
         {canDecide && !item.assignedToId ? <AssignFields users={users.data ?? []} value={assignee} onChange={setAssignee} onSubmit={() => void assignTo(assignee)} label="指派承辦" /> : null}
         {canDecide && item.assignedToId ? (
@@ -125,17 +139,23 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
           <h2 className="text-xl">{section}</h2>
           {targets.filter((target) => target.section === section).map((target) => {
             const mark = marks[target.key] ?? { needsSupplement: false, publicComment: "", internalNote: "" };
-            const file = target.key.startsWith("attachment:") ? item.attachments.find((attachment) => attachment.requirementKey === target.key.slice("attachment:".length)) : undefined;
+            const files = target.key.startsWith("attachment:") ? item.attachments.filter((attachment) => attachment.requirementKey === target.key.slice("attachment:".length) && !attachment.capturedOnSite) : [];
             return (
               <div key={target.key} className="space-y-2 border-t border-[var(--line)] pt-3">
                 <p className="text-sm text-[var(--muted)]">{target.label}</p>
                 <p>{displayValue(item, target.key)}</p>
-                {file ? <button className="text-sm text-[var(--link)]" type="button" onClick={async () => { const downloaded = await services.download(file.fileId); const url = URL.createObjectURL(downloaded.blob); const link = document.createElement("a"); link.href = url; link.download = downloaded.name; link.click(); }}>下載附件</button> : null}
+                <AttachmentImages files={files} />
+                {files.map((file) => <button key={file.id} className="block text-sm text-[var(--link)]" type="button" onClick={async () => { const downloaded = await services.download(file.fileId); const url = URL.createObjectURL(downloaded.blob); const link = document.createElement("a"); link.href = url; link.download = downloaded.name; link.click(); }}>下載 {file.originalName}</button>)}
                 {canMark ? (
                   <>
-                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mark.needsSupplement} onChange={(event) => update(target.key, { needsSupplement: event.target.checked })} />要求補件</label>
-                    <Field label="公開意見"><TextArea value={mark.publicComment} onChange={(event) => update(target.key, { publicComment: event.target.value })} /></Field>
-                    <Field label="內部註記" hint="只有員工看得到"><TextArea value={mark.internalNote} onChange={(event) => update(target.key, { internalNote: event.target.value })} /></Field>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mark.needsSupplement} onChange={(event) => { update(target.key, { needsSupplement: event.target.checked }); if (event.target.checked) setOpenNotes((current) => ({ ...current, [target.key]: true })); }} />要求補件</label>
+                    <Button variant="secondary" onClick={() => setOpenNotes((current) => ({ ...current, [target.key]: !current[target.key] }))}>{openNotes[target.key] ? "收合意見" : "填寫公開意見與內部註記"}</Button>
+                    {openNotes[target.key] ? (
+                      <>
+                        <Field label="公開意見"><TextArea value={mark.publicComment} onChange={(event) => update(target.key, { publicComment: event.target.value })} /></Field>
+                        <Field label="內部註記" hint="只有員工看得到"><TextArea value={mark.internalNote} onChange={(event) => update(target.key, { internalNote: event.target.value })} /></Field>
+                      </>
+                    ) : mark.publicComment || mark.internalNote ? <p className="text-sm text-[var(--muted)]">已填意見</p> : null}
                   </>
                 ) : mark.needsSupplement || mark.publicComment || mark.internalNote ? (
                   <div className="text-sm">
@@ -152,9 +172,26 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
       {canMark ? (
         <Card className="space-y-3">
           <Button variant="secondary" onClick={() => void saveMarks()}>儲存補件勾選</Button>
-          <Field label="這次動作的內部註記" hint="業者看不到。初審或複審通過時，至少要有公開意見或內部註記。"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
-          {actions.some((action) => action.code === "APPROVE" || action.code === "REJECT") ? <Field label="核定或退件的公開意見"><TextArea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></Field> : null}
-          <div className="flex flex-wrap gap-2">{actions.map((action) => <Button key={action.code} onClick={() => void run(action.code)}>{action.label}</Button>)}</div>
+          <Button variant="secondary" onClick={() => setOpenActionNote((current) => !current)}>{openActionNote ? "收合這次動作的意見" : "填寫這次動作的意見"}</Button>
+          {openActionNote ? (
+            <>
+              <Field label="這次動作的內部註記" hint="業者看不到。初審或複審通過時，至少要有公開意見或內部註記。"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
+              {actions.some((action) => action.code === "APPROVE" || action.code === "REJECT") ? <Field label="核定或退件的公開意見"><TextArea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></Field> : null}
+            </>
+          ) : null}
+          <div className="flex flex-wrap items-end gap-2">
+            {actions.map((action) => action.code === "PASS_INITIAL" ? (
+              <div key={action.code} className="flex flex-wrap items-end gap-2">
+                <Field label="複審人員" required>
+                  <SelectInput value={siteReviewerId} onChange={(event) => setSiteReviewerId(event.target.value)}>
+                    <option value="">選擇現場複審人員</option>
+                    {(reviewers.data ?? []).map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}
+                  </SelectInput>
+                </Field>
+                <Button onClick={() => void run(action.code)}>{action.label}</Button>
+              </div>
+            ) : <Button key={action.code} onClick={() => void run(action.code)}>{action.label}</Button>)}
+          </div>
         </Card>
       ) : null}
       {item.status === "SUBMITTED" && item.assignedToId && (session.user?.role === "ADMIN" || isAssignee) ? <Button onClick={() => void run("START_REVIEW")}>開始初審</Button> : null}

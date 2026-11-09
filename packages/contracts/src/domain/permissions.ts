@@ -10,6 +10,7 @@ export type Actor = {
 export type ApplicationAccess = {
   organizationId: string;
   assignedToId: string | null;
+  siteReviewerId?: string | null;
   status: ApplicationStatus;
 };
 
@@ -62,6 +63,7 @@ export function canViewApplication(actor: Actor, application: ApplicationAccess)
     return actor.organizationId !== null && actor.organizationId === application.organizationId;
   }
   if (application.assignedToId === actor.id) return true;
+  if (application.siteReviewerId === actor.id) return true;
   return application.assignedToId === null && application.status !== ApplicationStatus.DRAFT;
 }
 

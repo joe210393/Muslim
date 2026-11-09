@@ -23,10 +23,12 @@
 | Application | 表單版本 | categoryFormVersionId | category_form_version_id | uuid；送件後不自動改版 | 否 | 建立時綁定 | 必填 | 低 | 建立時決定 |
 | Application | 案件狀態 | status | status | ApplicationStatus；禁止魔法數字與任意下拉改狀態 | 否 | 是 | 僅 workflow | 低 | 只經動作 |
 | Application | 補件返回階段 | resumeStatus | resume_status | ApplicationStatus；只允許三種審查階段 | 是 | 否 | 補件時寫入 | 低 | 補件結束清空 |
-| Application | 承辦人 | assignedToId | assigned_to_id | uuid；必須是承辦或管理員 | 是 | 否 | 開始初審前需要 | 中 | 管理員派案 |
+| Application | 承辦人 | assignedToId | assigned_to_id | uuid；必須是承辦或管理員 | 是 | 否 | 開始初審前需要 | 中 | 管理員派案。初審維持這位承辦 |
+| Application | 複審人員 | siteReviewerId | site_reviewer_id | uuid；必須是啟用中的承辦或管理員 | 是 | 否 | 初審通過時必填 | 中 | 初審通過時指定。之後現場複審由這位人員或管理員處理 |
+| Application | 現場附件結果 | siteChecks | site_checks | json；只記附件項目的通過或沒通過。檢查表照片不記在這裡 | 否 | 否 | 現場複審時寫入 | 中 | 現場複審人員或管理員可改 |
 | Application | 編輯版本 | version | version | int；不符回 409 | 否 | 是 | 每次更新比對 | 低 | server 遞增 |
 | Application | 業者名稱快照 | organizationName | organization_name_snapshot | string；API 欄位 organizationName | 是 | 否 | 送件必填 | 中 | 草稿／補件可改 |
-| Application | 統編快照 | taxId | tax_id_snapshot | string；API 欄位 taxId | 是 | 否 | 送件必填 | 高 | 草稿／補件可改 |
+| Application | 統編快照 | taxId | tax_id_snapshot | string；API 欄位 taxId | 是 | 否 | 空白申請表寫無則免填；有填仍檢查 8 位數字 | 高 | 草稿／補件可改 |
 | Application | 聯絡人快照 | contactName | contact_name_snapshot | string；API 欄位 contactName | 是 | 否 | 送件必填 | 高 | 草稿／補件可改 |
 | Application | 電話快照 | contactPhone | contact_phone_snapshot | string；API 欄位 contactPhone | 是 | 否 | 送件必填 | 高 | 草稿／補件可改 |
 | Application | Email 快照 | contactEmail | contact_email_snapshot | string；API 欄位 contactEmail | 是 | 否 | 送件必填 | 高 | 草稿／補件可改 |
@@ -36,7 +38,7 @@
 | Application | 申請說明 | applicationDescription | application_description | string；最多 4000 字 | 是 | 否 | 送件必填 | 中 | 草稿／補件可改 |
 | Application | 資料聲明 | declarationAccepted | declaration_accepted | boolean；未勾選不能送件 | 否 | 否 | 送件必須 true | 低 | 草稿／補件可改 |
 | Application | 類別額外欄位 | formData | form_data | json；不可含保留 key 或未知欄位 | 否 | 否 | 依類別版本 | 中 | 草稿／補件可改 |
-| Application | 欄位審查 | fieldReviews | field_reviews | json；每項含是否補件、公開意見、內部註記。業者看不到內部註記 | 否 | 否 | 審查時寫入 | 中 | 管理員一開始派案後，承辦維持同一人 |
+| Application | 欄位審查 | fieldReviews | field_reviews | json；每項含是否補件、公開意見、內部註記。業者看不到內部註記 | 否 | 否 | 審查時寫入 | 中 | 初審由指派承辦勾選。現場複審的附件結果另記在 siteChecks |
 | Application | 外部來源 | sourceSystem | source_system | string；與 sourceRecordKey 聯合唯一 | 與 sourceRecordKey 同空或同有 | 否 | 匯入時成對 | 低 | 匯入寫入 |
 | Application | 外部鍵 | sourceRecordKey | source_record_key | string；不可只用公司名稱去重 | 與 sourceSystem 成對 | 否 | 匯入時成對 | 低 | 匯入寫入 |
 | Enrollment | 實際時數 | attendedMinutes | attended_minutes | int；0 到課程 durationMinutes；缺席不可為正 | 否 | 否 | 登錄出席時 | 低 | 承辦登錄 |
@@ -58,6 +60,7 @@
 | Course | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG。前台顯示為 imageUrl | 是 | 否 | 否 | 低 | 管理端可換圖 |
 | FileObject | 儲存鍵 | storageKey | storage_key | string；不可覆寫；阻擋路徑穿越 | 否 | server 產生 | 不回傳實體路徑 | 高 | 不可改 |
 | ApplicationAttachment | 附件要求代碼 | requirementKey | requirement_key | string；必須存在於該表單版本 | 否 | 上傳必填 | 依類別版本 | 低 | 移除只標 removedAt |
+| ApplicationAttachment | 現場拍攝 | capturedOnSite | captured_on_site | boolean；只有檢查表照片可在現場複審再上傳。不取代業者原照，也不能拿來通過送件 | 否 | 否 | 否 | 低 | 現場複審人員或管理員上傳 |
 | SiteContent | 版位 | slot | slot | ContentSlot；同一版位只有一筆 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | SiteContent | 眉題 | eyebrow | eyebrow | string；1–80 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | SiteContent | 標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |

@@ -40,7 +40,7 @@ export function reviewTargets(definition: CategoryDefinition): ReviewTarget[] {
     ...CONTACT_FIELDS.map((field) => ({ ...field, section: "業者與聯絡資料" })),
     ...CONTENT_FIELDS.map((field) => ({ ...field, section: "申請內容" })),
     ...definition.fields.map((field) => ({ key: field.key, label: field.label, section: "申請內容" })),
-    ...definition.attachmentRequirements.map((item) => ({ key: attachmentReviewKey(item.key), label: item.label, section: "附件資料" })),
+    ...definition.attachmentRequirements.map((item) => ({ key: attachmentReviewKey(item.key), label: item.label, section: item.group === "checklist" ? "檢查表照片" : "附件資料" })),
     { key: "declarationAccepted", label: "資料聲明", section: "確認送件" },
   ];
 }

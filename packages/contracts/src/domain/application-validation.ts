@@ -59,16 +59,26 @@ function checkEmail(value: string | null, issues: FieldIssue[], required: boolea
   if (!EMAIL_DEMO.test(value.trim())) issues.push({ path: "contactEmail", message: "Email 格式不正確" });
 }
 
-function checkFieldValue(field: CategoryField, raw: unknown, issues: FieldIssue[], required: boolean) {
+export function fieldIsRequired(field: CategoryField, formData: Record<string, unknown>): boolean {
+  if (field.requiredWhen) return String(formData[field.requiredWhen.field] ?? "") === field.requiredWhen.equals;
+  return field.requiredOnSubmit;
+}
+
+export function attachmentIsRequired(requirement: CategoryDefinition["attachmentRequirements"][number], formData: Record<string, unknown>): boolean {
+  if (requirement.requiredWhen) return String(formData[requirement.requiredWhen.field] ?? "") === requirement.requiredWhen.equals;
+  return requirement.requiredOnSubmit;
+}
+
+function checkFieldValue(field: CategoryField, raw: unknown, issues: FieldIssue[], required: boolean, formData: Record<string, unknown>) {
   const path = `formData.${field.key}`;
   const empty = raw === undefined || raw === null || raw === "";
   if (empty) {
-    if (required && field.requiredOnSubmit) issues.push({ path, message: `請填寫${field.label}` });
+    if (required && fieldIsRequired(field, formData)) issues.push({ path, message: `請填寫${field.label}` });
     return;
   }
   if (field.inputType === "checkbox") {
     if (typeof raw !== "boolean") issues.push({ path, message: `${field.label}必須是勾選值` });
-    else if (required && field.requiredOnSubmit && raw !== true) issues.push({ path, message: `請勾選${field.label}` });
+    else if (required && fieldIsRequired(field, formData) && raw !== true) issues.push({ path, message: `請勾選${field.label}` });
     return;
   }
   if (field.inputType === "number") {
@@ -111,7 +121,7 @@ export function validateDraft(input: CommonApplicationInput, definition: Categor
     if (!known.has(key)) issues.push({ path: `formData.${key}`, message: "此類別版本沒有這個欄位" });
   }
   for (const field of definition.fields) {
-    checkFieldValue(field, input.formData[field.key], issues, false);
+    checkFieldValue(field, input.formData[field.key], issues, false, input.formData);
   }
   return issues;
 }
@@ -123,22 +133,22 @@ export function validateSubmit(
 ): FieldIssue[] {
   const issues = validateDraft(input, definition);
   requiredText(input.organizationName, "organizationName", "業者名稱", issues);
-  checkTaxId(input.taxId, issues, true);
+  checkTaxId(input.taxId, issues, false);
   requiredText(input.contactName, "contactName", "聯絡人", issues, 100);
   checkPhone(input.contactPhone, issues, true);
   checkEmail(input.contactEmail, issues, true);
   requiredText(input.organizationAddress, "organizationAddress", "地址", issues, 300);
-  requiredText(input.siteName, "siteName", "場所名稱", issues);
-  requiredText(input.siteAddress, "siteAddress", "場所地址", issues, 300);
+  requiredText(input.siteName, "siteName", "單位名稱（中文）", issues);
+  requiredText(input.siteAddress, "siteAddress", "單位地址（中文）", issues, 300);
   requiredText(input.applicationDescription, "applicationDescription", "申請說明", issues, 4000);
   if (!input.declarationAccepted) {
     issues.push({ path: "declarationAccepted", message: "請勾選資料聲明" });
   }
   for (const field of definition.fields) {
-    checkFieldValue(field, input.formData[field.key], issues, true);
+    checkFieldValue(field, input.formData[field.key], issues, true, input.formData);
   }
   for (const requirement of definition.attachmentRequirements) {
-    if (requirement.requiredOnSubmit && !activeAttachmentKeys.includes(requirement.key)) {
+    if (attachmentIsRequired(requirement, input.formData) && !activeAttachmentKeys.includes(requirement.key)) {
       issues.push({ path: `attachments.${requirement.key}`, message: `請上傳${requirement.label}` });
     }
   }

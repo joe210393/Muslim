@@ -168,6 +168,7 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   createdApplications     Application[]          @relation("ApplicationCreatedBy")
   assignedApplications    Application[]          @relation("ApplicationAssignedTo")
+  siteReviewApplications  Application[]          @relation("ApplicationSiteReviewer")
   submissions             ApplicationSubmission[]
   applicationEvents       ApplicationEvent[]
   uploadedFiles           FileObject[]
@@ -279,6 +280,8 @@ model Application {
   status                     ApplicationStatus
   resumeStatus               ApplicationStatus? @map("resume_status")
   assignedToId               String?            @map("assigned_to_id") @db.Uuid
+  siteReviewerId             String?            @map("site_reviewer_id") @db.Uuid
+  siteChecks                 Json               @default("[]") @map("site_checks")
   version                    Int                @default(1)
   organizationNameSnapshot   String?            @map("organization_name_snapshot") @db.VarChar(200)
   taxIdSnapshot              String?            @map("tax_id_snapshot") @db.VarChar(32)
@@ -304,6 +307,7 @@ model Application {
   category            ApplicationCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   categoryFormVersion CategoryFormVersion  @relation(fields: [categoryFormVersionId], references: [id], onDelete: Restrict)
   assignedTo          User?                @relation("ApplicationAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
+  siteReviewer        User?                @relation("ApplicationSiteReviewer", fields: [siteReviewerId], references: [id], onDelete: Restrict)
   submissions         ApplicationSubmission[]
   events              ApplicationEvent[]
   attachments         ApplicationAttachment[]
@@ -314,6 +318,7 @@ model Application {
   @@index([status])
   @@index([organizationId])
   @@index([assignedToId])
+  @@index([siteReviewerId])
   @@index([categoryId])
   @@index([createdAt])
   @@map("applications")
@@ -390,6 +395,7 @@ model ApplicationAttachment {
   applicationId  String    @map("application_id") @db.Uuid
   fileId         String    @map("file_id") @db.Uuid
   requirementKey String    @map("requirement_key") @db.VarChar(64)
+  capturedOnSite Boolean   @default(false) @map("captured_on_site")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   removedAt      DateTime? @map("removed_at") @db.Timestamptz(6)
 

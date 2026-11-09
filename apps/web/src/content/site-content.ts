@@ -31,14 +31,6 @@ export const contactContent = {
   inboxNote: "正式收件信箱與是否改由表單進件，都待甲方確認。按下送出只會留在這台瀏覽器，不會寄信。",
 };
 
-export const siteReviewChecklist = [
-  { key: "supplier-docs", label: "供應商與原料文件", detail: "可追溯的原料來源文件是否齊備。判定標準待甲方提供。" },
-  { key: "segregation", label: "交叉污染防範", detail: "作業區、器具與清潔劑是否分開。拍照項目待確認。" },
-  { key: "cleaning", label: "清潔與病媒", detail: "清潔紀錄與現場狀態。錄影長度與保存年限待確認。" },
-  { key: "staff", label: "人員與訓練", detail: "在場人員是否完成指定課程。課程名單待甲方提供。" },
-  { key: "facility", label: "洗淨與祈禱空間", detail: "若申請類別需要，再依正式檢查表補充，此項可能不適用於每一類。" },
-];
-
 export const contractFields = [
   { key: "version", label: "合約版本", hint: "正式範本編號，待甲方提供" },
   { key: "signer", label: "簽約人姓名", hint: "是否必須為負責人，待確認" },
