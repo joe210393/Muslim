@@ -161,25 +161,40 @@ if (demoOrg && template && adminUser) {
   const existing = organization
     ? await prisma.contractRecord.findFirst({ where: { organizationId: organization.id, status: { in: [ContractStatus.ISSUED, ContractStatus.SIGNED] } } })
     : null;
-  if (organization && !existing) {
-    const contractNo = formatContractNo(taipeiYear(), 1);
-    await prisma.contractRecord.create({
-      data: {
-        contractNo,
-        organizationId: organization.id,
-        templateId: template.id,
-        title: template.title,
-        bodySnapshot: renderContractBody(template.body, {
-          organizationName: organization.organizationName,
-          taxId: organization.taxId ?? "",
+  if (organization && organization.id === demoOrg.id && !existing) {
+    const year = taipeiYear();
+    let sequence = 1;
+    let contractNo = formatContractNo(year, sequence);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const taken = await prisma.contractRecord.findUnique({ where: { contractNo } });
+      if (!taken) break;
+      const rows = await prisma.$queryRawUnsafe<Array<{ nextval: number }>>(`SELECT nextval('contract_no_seq')::int AS nextval`);
+      sequence = Math.max(sequence + 1, rows[0]?.nextval ?? sequence + 1);
+      contractNo = formatContractNo(year, sequence);
+    }
+    try {
+      await prisma.contractRecord.create({
+        data: {
           contractNo,
-          issuedOn: taipeiDateLabel(),
-        }),
-        status: ContractStatus.ISSUED,
-        issuedById: adminUser.id,
-      },
-    });
-    await prisma.$executeRawUnsafe(`SELECT setval('contract_no_seq', GREATEST(1, (SELECT last_value FROM contract_no_seq)), true)`);
+          organizationId: organization.id,
+          templateId: template.id,
+          title: template.title,
+          bodySnapshot: renderContractBody(template.body, {
+            organizationName: organization.organizationName,
+            taxId: organization.taxId ?? "",
+            contractNo,
+            issuedOn: taipeiDateLabel(),
+          }),
+          status: ContractStatus.ISSUED,
+          issuedById: adminUser.id,
+        },
+      });
+      await prisma.$executeRawUnsafe(`SELECT setval('contract_no_seq', GREATEST(${sequence}, (SELECT last_value FROM contract_no_seq)), true)`);
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+      if (code !== "P2002") throw error;
+      console.info(`合約編號 ${contractNo} 已存在，略過示範合約。`);
+    }
   }
 }
 await mkdir(path.resolve(repoRoot(), env.UPLOAD_ROOT), { recursive: true });
