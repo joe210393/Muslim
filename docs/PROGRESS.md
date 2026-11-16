@@ -189,7 +189,7 @@ PostgreSQL 18 的資料目錄是 `/var/lib/postgresql/18/docker`。沒有把 Vol
 
 ## 2026-11-16 啟動種子撞到已存在的合約編號
 
-Zeabur 上的容器在遷移完成後執行 `seed:boot`，再用固定編號建立示範合約。該編號已經存在，Postgres 回 unique constraint on `contract_no`，行程以 exit 1 結束，Pod 進入 BackOff。資料庫沒有待套用的 migration。種子改為示範業者已有已發出或已簽署合約就略過；編號被占用時改取下一個，若仍撞號就記下並繼續啟動，不再讓整個服務退出。推上後要等 Zeabur 用這一版重新部署，部署完成前線上仍可能繼續重啟。
+Zeabur 上的容器在遷移完成後執行 `seed:boot`，再用固定編號建立示範合約。該編號已經存在，Postgres 回 unique constraint on `contract_no`，行程以 exit 1 結束，Pod 進入 BackOff。資料庫沒有待套用的 migration。種子改為示範業者已有已發出或已簽署合約就略過；編號被占用時改取下一個，若仍撞號就記下並繼續啟動，不再讓整個服務退出。`55adf5b` 推上後 Zeabur 沒有開新的部署，網站仍是 502。再推一次，請它重新建置。這台電腦的 Zeabur 指令登入已失效，而且目前選到的是另一個專案，所以不能從這裡按重新部署。
 
 ## 下一步
 
