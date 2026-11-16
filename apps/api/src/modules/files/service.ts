@@ -46,16 +46,10 @@ export async function addAttachment(actor: SessionActor, storage: StorageAdapter
   await storage.save(storageKey, bytes);
   try {
     const sameKey = app.attachments.filter((item) => item.requirementKey === requirementKey && !item.capturedOnSite);
-    if (requirement.multiple && sameKey.length >= FILE_POLICY.maxImagesPerRequirement) {
-      throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, `這個照片欄最多 ${FILE_POLICY.maxImagesPerRequirement} 張`);
+    if (sameKey.length >= FILE_POLICY.maxImagesPerRequirement) {
+      throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, `這個項目最多 ${FILE_POLICY.maxImagesPerRequirement} 個檔案`);
     }
     const created = await prisma.$transaction(async (tx) => {
-      if (!requirement.multiple && sameKey.length) {
-        await tx.applicationAttachment.updateMany({
-          where: { id: { in: sameKey.map((item) => item.id) } },
-          data: { removedAt: new Date() },
-        });
-      }
       const stored = await tx.fileObject.create({
         data: {
           id: fileId,

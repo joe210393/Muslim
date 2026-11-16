@@ -834,7 +834,7 @@ export async function createMockServices(): Promise<Services> {
       if (!signature || signature !== file.type) throw new ClientError("只接受 PDF、JPEG、PNG，且內容需與格式一致", { code: "UNSUPPORTED_FILE_TYPE" });
       if (requirement.accept === "image" && !signature.startsWith("image/")) throw new ClientError("這個照片欄只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
       const active = state.data.attachments.filter((item) => item.applicationId === applicationId && item.requirementKey === requirementKey && !item.removedAt && !item.capturedOnSite);
-      if (requirement.multiple && active.length >= FILE_POLICY.maxImagesPerRequirement) throw new ClientError(`這個照片欄最多 ${FILE_POLICY.maxImagesPerRequirement} 張`);
+      if (active.length >= FILE_POLICY.maxImagesPerRequirement) throw new ClientError(`這個項目最多 ${FILE_POLICY.maxImagesPerRequirement} 個檔案`);
       const now = new Date().toISOString();
       const fileId = crypto.randomUUID();
       let binary = "";
@@ -842,7 +842,6 @@ export async function createMockServices(): Promise<Services> {
         binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
       }
       state.data.files.push({ id: fileId, uploadedById: actor.id, storageKey: `mock/${fileId}`, originalName: file.name, mimeType: signature, sizeBytes: file.size, sha256: await sha256Hex(bytes), contentBase64: btoa(binary), createdAt: now });
-      if (!requirement.multiple) active.forEach((item) => { item.removedAt = now; });
       state.data.attachments.push({ id: crypto.randomUUID(), applicationId, fileId, requirementKey, capturedOnSite: false, createdAt: now, removedAt: null });
       await save();
     },

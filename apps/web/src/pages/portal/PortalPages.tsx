@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useServices } from "../../app/session";
 import { AttachmentImages } from "../../components/AttachmentImages";
+import { SquareCropDialog } from "../../components/SquareCropDialog";
 import { TrainingPage } from "./TrainingPage";
 import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatBytes, formatTaipei, labels } from "../../lib/format";
@@ -165,6 +166,7 @@ export function ApplicationEditPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [crop, setCrop] = useState<{ key: string; files: File[] } | null>(null);
   const [previewed, setPreviewed] = useState(false);
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
   useEffect(() => { if (query.data) setDraft(query.data); }, [query.data]);
@@ -275,7 +277,7 @@ export function ApplicationEditPage() {
       ) : null}
       {step === 3 || step === 4 ? (
         <div className="space-y-3">
-          {step === 4 ? <p className="text-sm text-[var(--muted)]">依這一類的正式檢查表，每一項上傳一張照片。</p> : null}
+          {step === 4 ? <p className="text-sm text-[var(--muted)]">每一項可以一次選多張照片。上傳前會裁成正方形，請自己拖曳方框決定位置。</p> : null}
           {draft.definition.attachmentRequirements.filter((requirement) => (requirement.group === "checklist") === (step === 4)).map((requirement) => {
             const files = draft.attachments.filter((item) => item.requirementKey === requirement.key && !item.capturedOnSite);
             const needed = attachmentIsRequired(requirement, draft.formData);
@@ -284,7 +286,7 @@ export function ApplicationEditPage() {
               <Card key={requirement.key}>
                 <p className="font-medium">{needed ? <span className="text-[var(--danger)]">* </span> : null}{requirement.label}</p>
                 {supplementFor(`attachment:${requirement.key}`) ? <p className="text-sm">審查請補件：{supplementFor(`attachment:${requirement.key}`)?.publicComment}</p> : null}
-                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。" : "PDF、JPEG、PNG。"}單檔 10 MiB。{requirement.multiple ? "可上傳多張。" : ""}{requirement.helpText}</p>
+                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。" : "PDF、JPEG、PNG。"}單檔 10 MiB。可一次選擇多個檔案。{step === 4 ? "每張都會先裁成正方形。" : ""}{requirement.helpText}</p>
                 {files.length === 0 ? <p className="text-sm text-[var(--muted)]">尚未上傳</p> : files.map((file) => (
                   <div key={file.id} className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                     {file.mimeType === "application/pdf" ? <OpenPdfButton fileId={file.fileId} name={file.originalName} /> : <span>{file.originalName}</span>}
@@ -296,11 +298,21 @@ export function ApplicationEditPage() {
                 <FileChooser
                   label={image ? "選擇照片" : "選擇檔案"}
                   accept={image ? "image/jpeg,image/png" : "application/pdf,image/jpeg,image/png"}
-                  multiple={requirement.multiple}
+                  multiple
                   ariaLabel={requirement.label}
                   onFiles={async (selected) => {
                     try {
-                      await save();
+                      const saved = await save();
+                      if (!saved) return;
+                      if (step === 4) {
+                        const images = selected.filter((file) => file.type === "image/jpeg" || file.type === "image/png");
+                        if (!images.length) {
+                          setError("請選擇 JPEG 或 PNG");
+                          return;
+                        }
+                        setCrop({ key: requirement.key, files: images });
+                        return;
+                      }
                       for (const file of selected) await services.upload(draft.id, requirement.key, file);
                       setMessage(image ? "照片已上傳，可以在下方查看。" : "附件已上傳");
                       await client.invalidateQueries({ queryKey: ["application", applicationId] });
@@ -342,6 +354,17 @@ export function ApplicationEditPage() {
       </div>
       {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
       {error ? <ErrorText message={error} /> : null}
+      {crop ? (
+        <SquareCropDialog
+          files={crop.files}
+          onClose={() => setCrop(null)}
+          onUse={async (file) => {
+            await services.upload(draft.id, crop.key, file);
+            setMessage("照片已裁成正方形並上傳。");
+            await client.invalidateQueries({ queryKey: ["application", applicationId] });
+          }}
+        />
+      ) : null}
       {confirm ? (
         <Modal title="確認送件" onClose={() => setConfirm(false)}>
           <p className="text-sm">送件後會建立不可覆寫的快照。若資料不完整，狀態不會改變。</p>
