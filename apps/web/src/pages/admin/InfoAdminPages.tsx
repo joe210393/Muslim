@@ -419,7 +419,7 @@ export function SiteReviewDetail() {
   return <SiteReviewBody item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); }} />;
 }
 
-function SiteReviewBody({ item, onChanged }: { item: ApplicationDetail; onChanged: () => Promise<void> }) {
+export function SiteReviewBody({ item, onChanged, embedded = false }: { item: ApplicationDetail; onChanged: () => Promise<void>; embedded?: boolean }) {
   const services = useServices();
   const session = useSession();
   const [note, setNote] = useState("");
@@ -493,11 +493,13 @@ function SiteReviewBody({ item, onChanged }: { item: ApplicationDetail; onChange
   }
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
-        <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
-      </div>
-      <p className="text-sm text-[var(--muted)]">現場複審人員：{item.siteReviewerName ?? "未指定"}。下面是初審通過的同一份線上預覽。</p>
+      {embedded ? null : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
+          <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
+        </div>
+      )}
+      <p className="text-sm text-[var(--muted)]">現場複審人員：{item.siteReviewerName ?? "未指定"}。下面是初審通過的同一份線上預覽。通過後進入待核定。</p>
       {!canAct ? <p className="text-sm">這件已指定給 {item.siteReviewerName ?? "複審人員"}。你可以查看，不能改現場結果。</p> : null}
       <ApplicationPreview item={item} categoryName={item.categoryName} />
       <Card className="space-y-4">
@@ -549,7 +551,7 @@ function SiteReviewBody({ item, onChanged }: { item: ApplicationDetail; onChange
       ) : null}
       {message ? <p className="text-sm">{message}</p> : null}
       {error ? <ErrorText message={error} /> : null}
-      <Link to="/admin/site-reviews">回到現場複審清單</Link>
+      {embedded ? null : <Link to="/admin/applications?status=SECOND_REVIEW">回到案件審查</Link>}
     </div>
   );
 }

@@ -1,8 +1,8 @@
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, useParams } from "react-router";
 import { Guard, Shell } from "../components/shell/Shell";
 import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, CourseListPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
 import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, FileWindowPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
-import { CmsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage, SiteReviewDetail, SiteReviewPage } from "../pages/admin/InfoAdminPages";
+import { CmsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage } from "../pages/admin/InfoAdminPages";
 import { PaymentsPage } from "../pages/admin/PaymentsPage";
 import { PortalPaymentsPage, RenewalPage, ResourcePage, SupplementPage } from "../pages/portal/MemberPages";
 import { ContractPage, ContractSignPage } from "../pages/portal/ContractFlow";
@@ -52,8 +52,8 @@ export const router = createBrowserRouter([
       { path: "/admin/cms", element: <Navigate to="/admin/cms/home" replace /> },
       { path: "/admin/cms/:page", element: <CmsPage /> },
       { path: "/admin/applications", element: <AdminApplicationList /> },
-      { path: "/admin/site-reviews", element: <SiteReviewPage /> },
-      { path: "/admin/site-reviews/:applicationId", element: <SiteReviewDetail /> },
+      { path: "/admin/site-reviews", element: <Navigate to="/admin/applications?status=SECOND_REVIEW" replace /> },
+      { path: "/admin/site-reviews/:applicationId", element: <SiteReviewRedirect /> },
       { path: "/admin/contracts", element: <Navigate to="/admin/contracts/issued" replace /> },
       { path: "/admin/contracts/issued", element: <IssuedContractsPage /> },
       { path: "/admin/contracts/issued/:contractId", element: <IssuedContractDetailPage /> },
@@ -78,3 +78,8 @@ export const router = createBrowserRouter([
   { path: "/files/:fileId", element: <FileWindowPage /> },
   { path: "*", element: <p className="p-6">找不到這個頁面。</p> },
 ]);
+
+function SiteReviewRedirect() {
+  const { applicationId = "" } = useParams();
+  return <Navigate to={`/admin/applications/${applicationId}`} replace />;
+}

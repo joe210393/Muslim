@@ -34,7 +34,7 @@ categoryDefinitionSchema.parse(cat01DefinitionV2);
 categoryDefinitionSchema.parse(genericCategoryDefinition("CAT_02"));
 for (const item of categoryBlueprints) categoryDefinitionSchema.parse(officialCategoryDefinition(item.code));
 const data = buildDemoDataset();
-if (data.applications.length < 40 || data.organizations.length < 8 || data.courses.length < 6) {
+if (data.applications.length !== 0 || data.organizations.length < 8 || data.courses.length < 6) {
   console.error("示範資料數量不足");
   process.exit(1);
 }

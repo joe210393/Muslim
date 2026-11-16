@@ -204,10 +204,10 @@ describe("證書與 CSV", () => {
 });
 
 describe("示範資料", () => {
-  it("含 40 案、8 家業者、6 門課程，且標籤覆蓋角色與狀態", () => {
+  it("含 8 家業者、6 門課程，且標籤覆蓋角色與狀態", () => {
     const data = buildDemoDataset();
     expect(data.organizations).toHaveLength(8);
-    expect(data.applications).toHaveLength(40);
+    expect(data.applications).toHaveLength(0);
     expect(data.courses).toHaveLength(6);
     expect(data.users.filter((user) => user.role === UserRole.ADMIN)).toHaveLength(1);
     expect(data.users.filter((user) => user.role === UserRole.CASE_OFFICER)).toHaveLength(2);

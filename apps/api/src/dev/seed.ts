@@ -70,6 +70,34 @@ for (const version of data.formVersions) {
   });
 }
 
+const seededCases = await prisma.application.findMany({
+  where: { sourceSystem: DEMO_SOURCE_SYSTEM },
+  select: { id: true },
+});
+const seededIds = seededCases.map((item) => item.id);
+if (seededIds.length > 0) {
+  const attachments = await prisma.applicationAttachment.findMany({
+    where: { applicationId: { in: seededIds } },
+    select: { fileId: true },
+  });
+  const fileIds = attachments.map((item) => item.fileId);
+  await prisma.$transaction([
+    prisma.applicationEvent.deleteMany({ where: { applicationId: { in: seededIds } } }),
+    prisma.certification.deleteMany({ where: { applicationId: { in: seededIds } } }),
+    prisma.notificationJob.deleteMany({ where: { applicationId: { in: seededIds } } }),
+    prisma.applicationAttachment.deleteMany({ where: { applicationId: { in: seededIds } } }),
+    prisma.applicationSubmission.deleteMany({ where: { applicationId: { in: seededIds } } }),
+    prisma.auditLog.deleteMany({ where: { entityType: "Application", entityId: { in: seededIds } } }),
+    prisma.application.deleteMany({ where: { id: { in: seededIds } } }),
+  ]);
+  if (fileIds.length > 0) {
+    const files = await prisma.fileObject.findMany({ where: { id: { in: fileIds } }, select: { id: true, storageKey: true } });
+    await prisma.fileObject.deleteMany({ where: { id: { in: fileIds } } });
+    for (const file of files) await storage.delete(file.storageKey).catch(() => undefined);
+  }
+  console.info(`已清除 ${seededIds.length} 筆示範案件。之後新建的案件會保留。`);
+}
+
 for (const application of data.applications) {
   if (!application.sourceSystem || !application.sourceRecordKey) continue;
   const exists = await prisma.application.findUnique({
@@ -149,7 +177,16 @@ for (const log of data.auditLogs) {
   if (!existing) await prisma.auditLog.create({ data: { ...log, safeChanges: log.safeChanges as Prisma.InputJsonValue } });
 }
 
-await prisma.$executeRawUnsafe(`SELECT setval('application_no_seq', GREATEST(40, (SELECT last_value FROM application_no_seq)), true)`);
+const remaining = await prisma.application.findMany({ select: { applicationNo: true } });
+const maxApplicationNo = remaining.reduce((max, item) => {
+  const sequence = Number(item.applicationNo.split("-").at(-1));
+  return Number.isFinite(sequence) ? Math.max(max, sequence) : max;
+}, 0);
+if (maxApplicationNo === 0) {
+  await prisma.$executeRawUnsafe(`SELECT setval('application_no_seq', 1, false)`);
+} else {
+  await prisma.$executeRawUnsafe(`SELECT setval('application_no_seq', ${maxApplicationNo}, true)`);
+}
 
 const { ensureContent } = await import("../modules/platform/content");
 await ensureContent();
@@ -198,5 +235,5 @@ if (demoOrg && template && adminUser) {
   }
 }
 await mkdir(path.resolve(repoRoot(), env.UPLOAD_ROOT), { recursive: true });
-console.info(`示範資料已寫入（不會覆寫既有案件）。登入帳號見 README，密碼僅供本地示範。來源=${DEMO_SOURCE_SYSTEM}`);
+console.info(`示範帳號已寫入。案件審查的測試案件不會再建立。登入帳號見 README，密碼僅供本地示範。來源=${DEMO_SOURCE_SYSTEM}`);
 await prisma.$disconnect();

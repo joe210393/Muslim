@@ -51,7 +51,6 @@ const adminNav: Array<{ href: string; label: string; anyOf?: string[]; children?
   { href: "/admin", label: "工作總覽" },
   { href: "/admin/cms", label: "內容管理", anyOf: ["cms.edit"], children: cmsPages },
   { href: "/admin/applications", label: "案件審查", anyOf: ["applications.review", "applications.decide"] },
-  { href: "/admin/site-reviews", label: "現場複審", anyOf: ["applications.review", "applications.decide"] },
   { href: "/admin/organizations", label: "會員管理", anyOf: ["users.manage"] },
   { href: "/admin/contracts", label: "合約管理", anyOf: ["contracts.issue"], children: contractPages },
   { href: "/admin/payments", label: "方案與付款", anyOf: ["payments.manage"], children: paymentPages },

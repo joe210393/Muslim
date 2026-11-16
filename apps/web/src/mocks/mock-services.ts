@@ -111,7 +111,7 @@ type State = {
   platform: PlatformState;
 };
 
-const KEY = "mf-demo-state-v1";
+const KEY = "mf-demo-state-v2";
 
 function ensureSiteReview(state: State) {
   for (const app of state.data.applications) {
@@ -450,7 +450,7 @@ export async function createMockServices(): Promise<Services> {
     return {
       data,
       digests: Object.fromEntries(data.users.map((user) => [user.id, digest])),
-      sequence: 41,
+      sequence: 1,
       imports: [],
       resetTokens: [],
       platform: createInitialPlatform(data),

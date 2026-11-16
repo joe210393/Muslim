@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
 import { ApplicationReview } from "./ApplicationReview";
 import { Badge, Button, Card, Empty, ErrorText, Field, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
-import { PermissionsPage } from "./InfoAdminPages";
+import { PermissionsPage, SiteReviewBody } from "./InfoAdminPages";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
 
@@ -21,7 +21,7 @@ export function AdminHome() {
   const cards: Array<{ label: string; count: number; href: string }> = [
     { label: "待派案", count: data.submitted, href: "/admin/applications" },
     { label: "初審", count: data.initialReview, href: "/admin/applications?status=INITIAL_REVIEW" },
-    { label: "複審", count: data.secondReview, href: "/admin/site-reviews" },
+    { label: "複審", count: data.secondReview, href: "/admin/applications?status=SECOND_REVIEW" },
     { label: "待核定", count: data.finalReview, href: "/admin/applications?status=FINAL_REVIEW" },
     { label: "待補件", count: data.needSupplement, href: "/admin/applications?status=NEED_SUPPLEMENT" },
   ];
@@ -44,6 +44,7 @@ const caseReviewStatuses = [
   ["SUBMITTED", "已送件", "業者剛送出，還沒開始審文件。"],
   ["INITIAL_REVIEW", "初審中", "承辦正在看文件。還沒到核定。"],
   ["NEED_SUPPLEMENT", "待補件", "退回業者改指定欄位。改完送回當初要求補件的階段。"],
+  ["SECOND_REVIEW", "複審中", "初審通過後，指定的複審人員在這裡做現場複審。通過後仍留在案件審查，進入待核定。"],
   ["FINAL_REVIEW", "待核定", "初審和現場複審都過了，等管理員核定或退件。"],
   ["APPROVED", "已核定", "管理員已核定，案件結束。"],
   ["REJECTED", "已退件", "管理員已退件，案件結束。"],
@@ -64,12 +65,12 @@ export function AdminApplicationList() {
         <Button variant="secondary" onClick={async () => downloadText("applications.csv", await services.exportApplications())}>匯出 CSV</Button>
       </div>
       <SectionNav items={caseReviewStatuses.map(([id, label]) => ({ id, label }))} value={status} onChange={(id) => setParams(id === "SUBMITTED" ? {} : { status: id })} />
-      <p className="text-sm text-[var(--muted)]">{stage?.[2]} 現場複審中的案件不在這裡，改到現場複審。</p>
+      <p className="text-sm text-[var(--muted)]">{stage?.[2]}</p>
       <TextInput placeholder="編號或業者" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋案件" />
-      {(query.data?.items.length ?? 0) === 0 ? <Empty title="沒有符合的案件" body="這裡只看已送出的案件。草稿留在業者會員區，複審中的案件在現場複審。" /> : null}
+      {(query.data?.items.length ?? 0) === 0 ? <Empty title="沒有符合的案件" body="這裡只看已送出的案件。草稿留在業者會員區。" /> : null}
       <div className="overflow-x-auto rounded-xl bg-white">
-        <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">承辦</th><th className="p-3">狀態</th></tr></thead>
-          <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/applications/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
+        <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">承辦</th>{status === "SECOND_REVIEW" ? <th className="p-3">複審人員</th> : null}<th className="p-3">狀態</th></tr></thead>
+          <tbody>{query.data?.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/applications/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.assignedToName ?? "未派案"}</td>{status === "SECOND_REVIEW" ? <td className="p-3">{item.siteReviewerName ?? "未指定"}</td> : null}<td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -91,10 +92,7 @@ export function AdminApplicationDetail() {
         <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
       </div>
       {item.status === "SECOND_REVIEW" ? (
-        <Card>
-          <p>這件已完成初審，接下來在現場複審處理。</p>
-          <Link className="mt-3 inline-block text-[var(--link)]" to={`/admin/site-reviews/${item.id}`}>前往現場複審</Link>
-        </Card>
+        <SiteReviewBody item={item} embedded onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); await client.invalidateQueries({ queryKey: ["events", applicationId] }); }} />
       ) : (
         <>
           <p className="text-sm text-[var(--muted)]">下面是業者送件的同一份表。要補的項目在該欄後面勾選，並寫給業者看的公開意見。內部註記只有員工看得到。</p>
