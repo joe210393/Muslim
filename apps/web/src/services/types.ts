@@ -139,6 +139,7 @@ export type Services = {
   applications: (query?: { q?: string; status?: string; categoryId?: string; page?: number }) => Promise<Page<ApplicationListItem>>;
   application: (id: string) => Promise<ApplicationDetail>;
   createApplication: (categoryId: string) => Promise<ApplicationDetail>;
+  deleteDraft: (id: string) => Promise<void>;
   updateApplication: (id: string, patch: ApplicationPatch) => Promise<{ version: number; updatedAt: string }>;
   submit: (id: string, expectedVersion: number, requestId: string) => Promise<ApplicationDetail>;
   resubmit: (id: string, expectedVersion: number, requestId: string) => Promise<ApplicationDetail>;

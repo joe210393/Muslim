@@ -3,7 +3,7 @@ export const AUDIT_RETENTION_DAYS = 30;
 
 export const AUDIT_CATEGORIES = [
   { key: "AUTH", label: "登入與帳號", detail: "註冊、登入成功或失敗、建立員工、停用帳號，以及功能開關。" },
-  { key: "APPLICATION", label: "案件審查", detail: "送件、派案、初審、現場複審、補件、核定與退件。" },
+  { key: "APPLICATION", label: "案件審查", detail: "送件、派案、初審、現場複審、補件、核定、退件，以及業者刪除草稿。" },
   { key: "CONTRACT", label: "合約", detail: "發出合約、業者簽署，以及登記已續約或未續約。" },
   { key: "TRAINING", label: "教育訓練", detail: "新增或修改課程，以及登錄出席。" },
   { key: "CONTENT", label: "內容管理", detail: "修改首頁、消息、常見問題等前台內容。" },
@@ -31,6 +31,7 @@ const ACTIONS: Record<string, { category: AuditCategory; label: string }> = {
   RESUBMIT: { category: "APPLICATION", label: "補件送回" },
   REJECT: { category: "APPLICATION", label: "退件" },
   ASSIGN: { category: "APPLICATION", label: "指派承辦" },
+  DELETE_DRAFT: { category: "APPLICATION", label: "刪除草稿" },
   CONTRACT_ISSUE: { category: "CONTRACT", label: "發出合約" },
   CONTRACT_SIGN: { category: "CONTRACT", label: "簽署合約" },
   CONTRACT_RENEWAL: { category: "CONTRACT", label: "登記續約" },

@@ -602,8 +602,9 @@ export async function createMockServices(): Promise<Services> {
       const now = new Date().toISOString();
       const applicationNo = formatApplicationNo(taipeiYear(), state.sequence);
       state.sequence += 1;
+      const createdId = crypto.randomUUID();
       state.data.applications.unshift({
-        id: crypto.randomUUID(),
+        id: createdId,
         applicationNo,
         organizationId: org.id,
         createdById: actor.id,
@@ -636,6 +637,22 @@ export async function createMockServices(): Promise<Services> {
       const created = state.data.applications[0]!;
       await save();
       return toDetail(state, created.id, actor);
+    },
+    async deleteDraft(id) {
+      const actor = requireActor(state);
+      if (actor.role !== UserRole.APPLICANT) throw new ClientError("只有業者可以刪除草稿", { status: 403 });
+      const app = state.data.applications.find((item) => item.id === id);
+      if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
+      if (app.status !== ApplicationStatus.DRAFT) throw new ClientError("只有草稿可以刪除", { status: 409, code: "INVALID_TRANSITION" });
+      const fileIds = new Set(state.data.attachments.filter((item) => item.applicationId === id).map((item) => item.fileId));
+      state.data.applications = state.data.applications.filter((item) => item.id !== id);
+      state.data.events = state.data.events.filter((item) => item.applicationId !== id);
+      state.data.submissions = state.data.submissions.filter((item) => item.applicationId !== id);
+      state.data.attachments = state.data.attachments.filter((item) => item.applicationId !== id);
+      state.data.certifications = state.data.certifications.filter((item) => item.applicationId !== id);
+      state.data.notificationJobs = state.data.notificationJobs.filter((item) => item.applicationId !== id);
+      state.data.files = state.data.files.filter((item) => !fileIds.has(item.id));
+      await save();
     },
     async updateApplication(id, patch) {
       const actor = requireActor(state);

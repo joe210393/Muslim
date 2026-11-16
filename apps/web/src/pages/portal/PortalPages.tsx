@@ -93,8 +93,11 @@ export function AccountPage() {
 
 export function ApplicationListPage() {
   const services = useServices();
+  const client = useQueryClient();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; applicationNo: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["applications", q, status], queryFn: () => services.applications({ q, status, page: 1 }) });
   return (
     <div className="space-y-3">
@@ -107,10 +110,11 @@ export function ApplicationListPage() {
         </SelectInput>
       </div>
       {query.isLoading ? <p>載入中…</p> : null}
+      {error ? <ErrorText message={error} /> : null}
       {(query.data?.items.length ?? 0) === 0 && !query.isLoading ? <Empty title="沒有案件" body="可以新增一筆草稿。" /> : null}
       <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
         <table className="min-w-full text-sm">
-          <thead className="bg-stone-50 text-left"><tr><th className="p-3">案件編號</th><th className="p-3">類別</th><th className="p-3">更新時間</th><th className="p-3">狀態</th></tr></thead>
+          <thead className="bg-stone-50 text-left"><tr><th className="p-3">案件編號</th><th className="p-3">類別</th><th className="p-3">更新時間</th><th className="p-3">狀態</th><th className="p-3">操作</th></tr></thead>
           <tbody>
             {query.data?.items.map((item) => (
               <tr key={item.id} className="border-t border-stone-100">
@@ -118,11 +122,32 @@ export function ApplicationListPage() {
                 <td className="p-3">{item.categoryName}</td>
                 <td className="p-3">{formatTaipei(item.updatedAt)}</td>
                 <td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td>
+                <td className="p-3">{item.status === "DRAFT" ? <Button variant="danger" onClick={() => setPendingDelete({ id: item.id, applicationNo: item.applicationNo })}>刪除草稿</Button> : null}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {pendingDelete ? (
+        <Modal title="刪除草稿" onClose={() => setPendingDelete(null)}>
+          <p className="text-sm">刪除 {pendingDelete.applicationNo} 後不能復原。已送出的案件不能刪。</p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="danger" onClick={async () => {
+              try {
+                await services.deleteDraft(pendingDelete.id);
+                setPendingDelete(null);
+                setError(null);
+                await client.invalidateQueries({ queryKey: ["applications"] });
+                await client.invalidateQueries({ queryKey: ["summary"] });
+              } catch (reason) {
+                setPendingDelete(null);
+                setError(reason instanceof ClientError ? reason.message : "刪除失敗");
+              }
+            }}>確認刪除</Button>
+            <Button variant="ghost" onClick={() => setPendingDelete(null)}>取消</Button>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -157,6 +182,7 @@ export function NewApplicationPage() {
 
 export function ApplicationEditPage() {
   const { applicationId = "" } = useParams();
+  const navigate = useNavigate();
   const services = useServices();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["application", applicationId], queryFn: () => services.application(applicationId) });
@@ -166,6 +192,7 @@ export function ApplicationEditPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [crop, setCrop] = useState<{ key: string; files: File[] } | null>(null);
   const [previewed, setPreviewed] = useState(false);
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
@@ -175,8 +202,8 @@ export function ApplicationEditPage() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
-  if (query.isLoading || !draft) return <p>載入中…</p>;
-  if (query.isError) return <ErrorText message="找不到申請或沒有權限" />;
+  if (query.isLoading) return <p>載入中…</p>;
+  if (query.isError || !draft) return <ErrorText message="找不到申請或沒有權限" />;
   const steps = ["申請類別", "業者與聯絡資料", "申請內容", "附件資料", "檢查表照片", "線上預覽", "確認送件"];
   const previewStep = 5;
   const confirmStep = 6;
@@ -349,6 +376,7 @@ export function ApplicationEditPage() {
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" onClick={() => void save()}>儲存草稿</Button>
+        {draft.status === "DRAFT" ? <Button variant="danger" onClick={() => setDeleteOpen(true)}>刪除草稿</Button> : null}
         {step > 0 ? <Button variant="ghost" onClick={() => void openStep(step - 1)}>上一步</Button> : null}
         {step < confirmStep ? <Button variant="ghost" onClick={() => void openStep(step + 1)}>{step === previewStep ? "下一步：確認送件" : "下一步"}</Button> : null}
       </div>
@@ -364,6 +392,24 @@ export function ApplicationEditPage() {
             await client.invalidateQueries({ queryKey: ["application", applicationId] });
           }}
         />
+      ) : null}
+      {deleteOpen ? (
+        <Modal title="刪除草稿" onClose={() => setDeleteOpen(false)}>
+          <p className="text-sm">刪除 {draft.applicationNo} 後不能復原。</p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="danger" onClick={async () => {
+              try {
+                await services.deleteDraft(draft.id);
+                setDeleteOpen(false);
+                navigate("/portal/applications");
+              } catch (reason) {
+                setDeleteOpen(false);
+                setError(reason instanceof ClientError ? reason.message : "刪除失敗");
+              }
+            }}>確認刪除</Button>
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>取消</Button>
+          </div>
+        </Modal>
       ) : null}
       {confirm ? (
         <Modal title="確認送件" onClose={() => setConfirm(false)}>

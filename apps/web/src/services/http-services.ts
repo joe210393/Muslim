@@ -122,6 +122,9 @@ export function createHttpServices(): Services {
     async createApplication(categoryId) {
       return (await request("POST", "/applications", { categoryId })).data as Awaited<ReturnType<Services["application"]>>;
     },
+    async deleteDraft(id) {
+      await request("DELETE", `/applications/${id}`);
+    },
     async updateApplication(id, patch) {
       return (await request("PATCH", `/applications/${id}`, patch)).data as { version: number; updatedAt: string };
     },

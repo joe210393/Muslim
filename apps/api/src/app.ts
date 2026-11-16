@@ -167,6 +167,12 @@ export function createApp() {
     await access.assertFeature(actor, "applications.create");
     ok(res, req, await applications.createDraft(actor, createApplicationSchema.parse(req.body).categoryId));
   }));
+  api.delete("/applications/:id", route(async (req, res) => {
+    const actor = await requireActor(req);
+    await access.assertFeature(actor, "applications.create");
+    await applications.deleteDraft(actor, storage, String(req.params.id));
+    ok(res, req, { deleted: true });
+  }));
   api.get("/applications/:id/events", route(async (req, res) => ok(res, req, await applications.listEvents(await requireActor(req), String(req.params.id)))));
   api.get("/applications/:id/submissions", route(async (req, res) => ok(res, req, await applications.listSubmissions(await requireActor(req), String(req.params.id)))));
   api.post("/applications/:id/submit", route(async (req, res) => {

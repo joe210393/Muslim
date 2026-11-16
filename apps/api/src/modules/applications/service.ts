@@ -22,12 +22,14 @@ import {
   type ApplicationPatch,
   type FieldReview,
 } from "@mf/contracts";
+import { randomUUID } from "node:crypto";
 import { prisma, type Prisma } from "@mf/db/server";
 import type { Env } from "../../config/env";
 import { ApiError } from "../../lib/errors";
 import { fieldFailure } from "../../lib/http";
 import type { SessionActor as Actor } from "../../middleware/auth";
 import { deliverNotification } from "../notifications/mailer";
+import type { StorageAdapter } from "../../storage/storage";
 
 type Tx = Prisma.TransactionClient;
 
@@ -236,6 +238,38 @@ export async function createDraft(actor: Actor, categoryId: string) {
     });
   });
   return getApplication(actor, created.id);
+}
+
+export async function deleteDraft(actor: Actor, storage: StorageAdapter, id: string) {
+  if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可以刪除草稿");
+  const app = await prisma.application.findUnique({
+    where: { id },
+    include: { attachments: { include: { file: true } } },
+  });
+  if (!app || !canViewApplication(actor, app)) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
+  if (app.status !== ApplicationStatus.DRAFT) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "只有草稿可以刪除");
+  await prisma.$transaction(async (tx) => {
+    await tx.auditLog.create({
+      data: {
+        actorId: actor.id,
+        action: "DELETE_DRAFT",
+        entityType: "Application",
+        entityId: id,
+        requestId: randomUUID(),
+        safeChanges: { applicationNo: app.applicationNo },
+      },
+    });
+    await tx.applicationEvent.deleteMany({ where: { applicationId: id } });
+    await tx.certification.deleteMany({ where: { applicationId: id } });
+    await tx.notificationJob.deleteMany({ where: { applicationId: id } });
+    await tx.applicationAttachment.deleteMany({ where: { applicationId: id } });
+    await tx.applicationSubmission.deleteMany({ where: { applicationId: id } });
+    await tx.application.delete({ where: { id } });
+    if (app.attachments.length > 0) {
+      await tx.fileObject.deleteMany({ where: { id: { in: app.attachments.map((item) => item.fileId) } } });
+    }
+  });
+  for (const item of app.attachments) await storage.delete(item.file.storageKey).catch(() => undefined);
 }
 
 export async function updateDraft(actor: Actor, id: string, patch: ApplicationPatch) {
