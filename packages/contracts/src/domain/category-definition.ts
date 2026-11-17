@@ -45,6 +45,8 @@ export const categoryFieldSchema = z
     maxLength: z.number().int().positive().optional(),
     helpText: z.string().max(300).optional(),
     requiredWhen: requiredWhenSchema.optional(),
+    requiredWhenAny: z.array(requiredWhenSchema).min(1).optional(),
+    visibleWhenAny: z.array(requiredWhenSchema).min(1).optional(),
   })
   .superRefine((field, ctx) => {
     if (reserved.has(field.key)) {
@@ -66,6 +68,8 @@ export const attachmentRequirementSchema = z.object({
   accept: z.enum(["file", "image"]).default("file"),
   multiple: z.boolean().default(false),
   requiredWhen: requiredWhenSchema.optional(),
+  requiredWhenAny: z.array(requiredWhenSchema).min(1).optional(),
+  visibleWhenAny: z.array(requiredWhenSchema).min(1).optional(),
   group: z.enum(["application", "checklist"]).optional(),
 });
 
@@ -94,12 +98,25 @@ export const categoryDefinitionSchema = z
     const checkWhen = (when: { field: string; equals: string } | undefined, label: string) => {
       if (!when) return;
       const field = definition.fields.find((item) => item.key === when.field);
-      if (!field || field.inputType !== "select" || !field.options?.some((option) => option.value === when.equals)) {
+      const selectOk = field?.inputType === "select" && field.options?.some((option) => option.value === when.equals);
+      const checkOk = field?.inputType === "checkbox" && (when.equals === "true" || when.equals === "false");
+      if (!selectOk && !checkOk) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label}的顯示條件找不到對應選項` });
       }
     };
-    for (const field of definition.fields) checkWhen(field.requiredWhen, field.label);
-    for (const item of definition.attachmentRequirements) checkWhen(item.requiredWhen, item.label);
+    const checkAll = (clauses: { field: string; equals: string }[] | undefined, label: string) => {
+      for (const when of clauses ?? []) checkWhen(when, label);
+    };
+    for (const field of definition.fields) {
+      checkWhen(field.requiredWhen, field.label);
+      checkAll(field.requiredWhenAny, field.label);
+      checkAll(field.visibleWhenAny, field.label);
+    }
+    for (const item of definition.attachmentRequirements) {
+      checkWhen(item.requiredWhen, item.label);
+      checkAll(item.requiredWhenAny, item.label);
+      checkAll(item.visibleWhenAny, item.label);
+    }
   });
 
 export type CategoryField = z.infer<typeof categoryFieldSchema>;

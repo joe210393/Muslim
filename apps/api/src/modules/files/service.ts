@@ -93,7 +93,7 @@ export async function addSitePhoto(actor: SessionActor, storage: StorageAdapter,
   if (actor.role !== UserRole.ADMIN && app.siteReviewerId !== actor.id) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有指定的複審人員或管理員可以上傳現場照片");
   const definition = parseCategoryDefinition(app.categoryFormVersion.definition);
   const requirement = definition.attachmentRequirements.find((item) => item.key === requirementKey);
-  if (!requirement || requirement.group !== "checklist") throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "只能在檢查表照片上補現場拍攝");
+  if (!requirement || requirement.group === "checklist") throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "只能在送件附件項目上補現場拍攝");
   if (file.size > FILE_POLICY.maxFileBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, "檔案超過 10 MiB");
   const bytes = new Uint8Array(file.buffer);
   const signature = detectFileSignature(bytes);

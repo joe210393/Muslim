@@ -59,6 +59,7 @@ import * as applications from "./modules/applications/service";
 import * as auth from "./modules/auth/service";
 import * as files from "./modules/files/service";
 import * as training from "./modules/training/service";
+import * as basicTraining from "./modules/training/basic";
 import * as access from "./modules/platform/access";
 import * as siteContent from "./modules/platform/content";
 import * as contracts from "./modules/platform/contracts";
@@ -222,6 +223,26 @@ export function createApp() {
   }));
   api.get("/enrollments/mine", route(async (req, res) => ok(res, req, await training.myEnrollments(await requireActor(req)))));
   api.get("/learning-records/mine", route(async (req, res) => ok(res, req, await training.myEnrollments(await requireActor(req)))));
+  api.get("/training/policy", route(async (req, res) => {
+    await requireActor(req);
+    ok(res, req, await basicTraining.getPolicy());
+  }));
+  api.get("/training/basic", route(async (req, res) => ok(res, req, await basicTraining.basicStatus(await requireActor(req)))));
+  api.post("/training/basic/modules/:moduleId/complete", route(async (req, res) => ok(res, req, await basicTraining.completeModule(await requireActor(req), String(req.params.moduleId)))));
+  api.post("/training/basic/quiz", route(async (req, res) => ok(res, req, await basicTraining.submitQuiz(await requireActor(req), storage, repoRoot(), req.body))));
+  api.get("/training/basic/certificate", route(async (req, res) => {
+    const file = await basicTraining.downloadBasicCertificate(await requireActor(req), storage);
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.get("/training/company-requests", route(async (req, res) => ok(res, req, await basicTraining.myCompanyRequests(await requireActor(req)))));
+  api.post("/training/company-requests", route(async (req, res) => ok(res, req, await basicTraining.saveCompanyRequest(await requireActor(req), req.body))));
+  api.patch("/training/company-requests/:id", route(async (req, res) => ok(res, req, await basicTraining.saveCompanyRequest(await requireActor(req), req.body, String(req.params.id)))));
+  api.post("/training/company-requests/:id/submit", route(async (req, res) => {
+    const body = z.object({ expectedVersion: z.number().int() }).parse(req.body);
+    ok(res, req, await basicTraining.submitCompanyRequest(await requireActor(req), String(req.params.id), body.expectedVersion));
+  }));
   api.get("/certifications/mine", route(async (req, res) => ok(res, req, await admin.myCertifications(await requireActor(req)))));
   api.get("/portal/summary", route(async (req, res) => ok(res, req, await admin.summaryFor(await requireActor(req)))));
 
@@ -336,6 +357,48 @@ export function createApp() {
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "applications.decide");
     ok(res, req, await admin.upsertCertification(actor, String(req.params.id), certificationWriteSchema.parse(req.body)));
+  }));
+
+  api.get("/admin/training/policy", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
+    ok(res, req, await basicTraining.getPolicy());
+  }));
+  api.put("/admin/training/policy", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.savePolicy(actor, req.body));
+  }));
+  api.get("/admin/training/basic-modules", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.adminModules(actor));
+  }));
+  api.post("/admin/training/basic-modules", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.saveModule(actor, req.body));
+  }));
+  api.put("/admin/training/basic-modules/:id", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.saveModule(actor, req.body, String(req.params.id)));
+  }));
+  api.get("/admin/training/company-requests", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.adminCompanyRequests(actor));
+  }));
+  api.post("/admin/training/company-requests/:id/review", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.reviewCompanyRequest(actor, String(req.params.id), req.body));
+  }));
+  api.post("/admin/training/certificates", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.registerCertificate(actor, req.body));
   }));
 
   api.get("/admin/courses", route(async (req, res) => {

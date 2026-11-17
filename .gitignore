@@ -24,3 +24,5 @@ blob-report/
 .vite/
 apps/web/dist/
 apps/api/dist/
+
+.playwright-cli/

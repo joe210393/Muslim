@@ -1,4 +1,4 @@
-import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, contractStatusLabels, reportFieldId, reportFieldsFor, sourceLabel, type ApplicationDetail, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
+import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, attachmentIsVisible, contractStatusLabels, reportFieldId, reportFieldsFor, sourceLabel, type ApplicationDetail, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -428,8 +428,7 @@ export function SiteReviewBody({ item, onChanged, embedded = false }: { item: Ap
   const [message, setMessage] = useState<string | null>(null);
   const canAct = session.user?.role === "ADMIN" || item.siteReviewerId === session.user?.id;
   const canReject = session.user?.role === "ADMIN";
-  const applicationFiles = item.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist");
-  const checklist = item.definition.attachmentRequirements.filter((requirement) => requirement.group === "checklist");
+  const applicationFiles = item.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist" && attachmentIsVisible(requirement, item.formData));
   async function mark(requirementKey: string, result: "pass" | "fail") {
     try {
       await services.saveSiteCheck(item.id, { expectedVersion: item.version, requirementKey, result });
@@ -503,10 +502,12 @@ export function SiteReviewBody({ item, onChanged, embedded = false }: { item: Ap
       {!canAct ? <p className="text-sm">這件已指定給 {item.siteReviewerName ?? "複審人員"}。你可以查看，不能改現場結果。</p> : null}
       <ApplicationPreview item={item} categoryName={item.categoryName} />
       <Card className="space-y-4">
-        <h2 className="text-xl">附件</h2>
-        <p className="text-sm text-[var(--muted)]">看著上面的預覽，逐項標通過或沒通過。</p>
+        <h2 className="text-xl">附件檢查</h2>
+        <p className="text-sm text-[var(--muted)]">核對業者送件附件。可以只按通過；有需要再拍現場存證，不取代業者原照。</p>
+        {applicationFiles.length === 0 ? <p className="text-sm text-[var(--muted)]">這件沒有可見的送件附件項目。</p> : null}
         {applicationFiles.map((requirement) => {
           const files = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
+          const taken = item.attachments.filter((file) => file.requirementKey === requirement.key && file.capturedOnSite);
           const current = item.siteChecks.find((check) => check.key === requirement.key)?.result;
           return (
             <div key={requirement.key} className="space-y-2 border-t border-[var(--line)] pt-3">
@@ -517,23 +518,9 @@ export function SiteReviewBody({ item, onChanged, embedded = false }: { item: Ap
                 <Button type="button" variant={current === "pass" ? "primary" : "secondary"} aria-pressed={current === "pass"} disabled={!canAct} onClick={() => void mark(requirement.key, "pass")}>通過</Button>
                 <Button type="button" variant={current === "fail" ? "danger" : "secondary"} aria-pressed={current === "fail"} disabled={!canAct} onClick={() => void mark(requirement.key, "fail")}>沒通過</Button>
               </div>
-            </div>
-          );
-        })}
-      </Card>
-      <Card className="space-y-4">
-        <h2 className="text-xl">檢查照片</h2>
-        {checklist.length === 0 ? <p className="text-sm text-[var(--muted)]">這一版表單還沒有檢查表照片。</p> : checklist.map((requirement) => {
-          const submitted = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
-          const taken = item.attachments.filter((file) => file.requirementKey === requirement.key && file.capturedOnSite);
-          return (
-            <div key={requirement.key} className="space-y-2 border-t border-[var(--line)] pt-3">
-              <p className="text-sm">{requirement.label}</p>
-              <p className="text-sm text-[var(--muted)]">業者已上傳</p>
-              {submitted.length === 0 ? <p className="text-sm">尚未上傳</p> : <AttachmentImages files={submitted} />}
-              <p className="text-sm text-[var(--muted)]">現場拍攝</p>
-              {taken.length === 0 ? <p className="text-sm">還沒有現場照片</p> : <AttachmentImages files={taken} />}
-              {canAct ? <FileChooser label="上傳現場拍攝" accept="image/jpeg,image/png" multiple ariaLabel={requirement.label} onFiles={(files) => addPhoto(requirement.key, files)} /> : null}
+              <p className="text-sm text-[var(--muted)]">現場拍攝（可選）</p>
+              {taken.length === 0 ? <p className="text-sm">尚未拍攝</p> : <AttachmentImages files={taken} />}
+              {canAct ? <FileChooser label="上傳現場拍攝" accept="image/jpeg,image/png" multiple ariaLabel={`${requirement.label}現場拍攝`} onFiles={(files) => addPhoto(requirement.key, files)} /> : null}
             </div>
           );
         })}

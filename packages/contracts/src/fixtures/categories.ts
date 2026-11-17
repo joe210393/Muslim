@@ -113,23 +113,26 @@ export function genericCategoryDefinition(code: string): CategoryDefinition {
 export const categoryBlueprints = [
   {
     code: "CAT_01",
-    name: "Halal廚房／Halal餐廳／穆斯林友善餐廳",
-    description: "同一份申請表勾一種。Halal廚房沒有內用座位。Halal餐廳全菜單可食用。穆斯林友善餐廳只有部分 Halal 餐點，廚具要區隔。",
+    name: "穆斯林友善餐廳",
+    description: "證書用餐廳這一類。菜單、廚房和食材依勾選的驗證項目才要交。",
+    displayOrder: 1,
   },
   {
     code: "CAT_02",
-    name: "食用品",
-    description: "空白表標題是食用品驗證申請表。申請項目格子沒有印名稱，檔名為穆斯林友善食用品。",
+    name: "穆斯林友善產品",
+    description: "證書列出通過的產品。申請附件仍用食用品申請表，不跟場域勾選表混用。",
+    displayOrder: 7,
   },
   {
     code: "CAT_03",
     name: "穆斯林友善旅宿",
-    description: "可選住宿含早餐或住宿不含早餐。不含早餐只交住宿資料；含早餐另交廚房、菜單與食材。",
+    description: "證書依旅宿這一類。含早餐才交早餐與廚房，勾了客房才交客房資料。",
+    displayOrder: 2,
   },
-  { code: "CAT_04", name: "穆斯林友善商店", description: "販售 Halal 商品的商店。要附商品名稱，以及商品與擺放位置的照片。" },
-  { code: "CAT_05", name: "穆斯林友善旅行社", description: "要附兩條中英文行程，以及從業人員在職證明。這份表沒有照片。" },
-  { code: "CAT_06", name: "穆斯林友善環境", description: "祈禱室、淨下洗手間與前往祈禱室的方向指標。" },
-  { code: "CAT_07", name: "穆斯林友善體驗活動", description: "要附中英文價格與步驟、器具食材，以及器具、食材、場地和成品照片。" },
+  { code: "CAT_04", name: "穆斯林友善商店", description: "證書用商店這一類。專區和產品證明在勾了商店之後才要交。", displayOrder: 5 },
+  { code: "CAT_05", name: "穆斯林友善旅行社", description: "證書寫從業人員與穆斯林友善行程。附件用旅行社申請表，不跟場域勾選表混用。", displayOrder: 6 },
+  { code: "CAT_06", name: "穆斯林友善環境", description: "證書寫祈禱室與淨下設施。勾了環境之後才要交祈禱室和洗手間。", displayOrder: 3 },
+  { code: "CAT_07", name: "穆斯林友善體驗活動", description: "證書寫體驗活動。含食用品才交材料；不含食用品只交器材、場地和洗手間。", displayOrder: 4 },
 ] as const;
 
 const FORM_NOTE = "欄位依 2026 年空白申請表。表上寫人員須修畢指定時數，時數沒有印在表上，送件時不檢查。";
@@ -138,15 +141,16 @@ function text(key: string, label: string, required = true, helpText?: string, ma
   return { key, label, inputType: "text", requiredOnSubmit: required, maxLength, ...(helpText ? { helpText } : {}) };
 }
 
-function notes(key: string, label: string, required = true, helpText?: string, when?: { field: string; equals: string }): CategoryField {
+function notes(key: string, label: string, required = true, helpText?: string, when?: { field: string; equals: string }, whenAny?: { field: string; equals: string }[]): CategoryField {
   return {
     key,
     label,
     inputType: "textarea",
-    requiredOnSubmit: when ? false : required,
+    requiredOnSubmit: when || whenAny ? false : required,
     maxLength: 4000,
     ...(helpText ? { helpText } : {}),
-    ...(when ? { requiredWhen: when } : {}),
+    ...(when ? { requiredWhen: when, visibleWhenAny: [when] } : {}),
+    ...(whenAny ? { requiredWhenAny: whenAny, visibleWhenAny: whenAny } : {}),
   };
 }
 
@@ -161,89 +165,20 @@ function choice(key: string, label: string, options: Array<[string, string]>, he
   };
 }
 
-function file(key: string, label: string, options?: { image?: boolean; multiple?: boolean; required?: boolean; when?: { field: string; equals: string }; helpText?: string; group?: "application" | "checklist" }): CategoryDefinition["attachmentRequirements"][number] {
+function file(key: string, label: string, options?: { image?: boolean; multiple?: boolean; required?: boolean; when?: { field: string; equals: string }; whenAny?: { field: string; equals: string }[]; helpText?: string; group?: "application" | "checklist" }): CategoryDefinition["attachmentRequirements"][number] {
   return {
     key,
     label,
-    requiredOnSubmit: options?.when ? false : (options?.required ?? true),
+    requiredOnSubmit: options?.when || options?.whenAny ? false : (options?.required ?? true),
     accept: options?.image ? "image" : "file",
     multiple: options?.multiple ?? false,
     ...(options?.when ? { requiredWhen: options.when } : {}),
+    ...(options?.whenAny ? { requiredWhenAny: options.whenAny, visibleWhenAny: options.whenAny } : {}),
+    ...(options?.when && !options?.whenAny ? { visibleWhenAny: [options.when] } : {}),
     ...(options?.helpText ? { helpText: options.helpText } : {}),
     ...(options?.group ? { group: options.group } : {}),
   };
 }
-
-function checklist(items: Array<[string, string]>) {
-  return items.map(([key, label]) => file(key, label, { image: true, group: "checklist", helpText: "檢查表這一項的照片。JPEG 或 PNG。" }));
-}
-
-const checklistByCode: Record<string, Array<[string, string]>> = {
-  CAT_01: [
-    ["check_menu", "Halal菜單"],
-    ["check_ingredients", "食材及原物料"],
-    ["check_cooking_equipment", "烹調設備"],
-    ["check_utensils", "廚具與相關器具"],
-    ["check_detergent", "清潔用具及洗劑"],
-    ["check_storage", "冷藏／凍冰箱及乾料倉庫"],
-    ["check_tableware", "穆斯林專用餐具"],
-    ["check_dining", "用餐區"],
-  ],
-  CAT_02: [
-    ["check_floor_plan", "工廠平面圖"],
-    ["check_process_chart", "產品製程圖"],
-    ["check_material_proof", "原物料明細列表及證明"],
-    ["check_purchase", "採購單據"],
-    ["check_environment", "整體環境"],
-    ["check_equipment", "使用之器材"],
-    ["check_storage", "冷藏／凍冰箱及乾料倉庫"],
-    ["check_packaging", "外包裝"],
-    ["check_halal_team", "Halal人員管理小組"],
-    ["check_restroom", "洗手間"],
-  ],
-  CAT_03: [
-    ["check_toilet", "免治馬桶或沖洗噴頭"],
-    ["check_qibla", "麥加方向指標之張貼"],
-    ["check_prayer_kit", "禱告毯子數量／時間表"],
-    ["check_images", "人物或動物畫像及裝飾"],
-    ["check_alcohol", "酒精類飲料"],
-    ["check_refreshment", "Halal的點心／茶包／咖啡包"],
-    ["check_adult_channel", "成人頻道管理"],
-    ["check_room_count", "穆斯林友善客房之數量"],
-  ],
-  CAT_04: [
-    ["check_product_list", "Halal商品之清單"],
-    ["check_display", "Halal商品之陳列專用區"],
-    ["check_product_mark", "Halal商品標示或證書"],
-    ["check_restroom", "洗手間"],
-  ],
-  CAT_05: [
-    ["check_documents", "書面資料"],
-    ["check_package", "旅遊配套"],
-    ["check_training", "教育訓練"],
-    ["check_site_visit", "現場訪視"],
-    ["check_guide", "司導（車）"],
-  ],
-  CAT_06: [
-    ["check_room_clean", "祈禱室空間清潔"],
-    ["check_rug_count", "祈禱毯子數量"],
-    ["check_qibla", "麥加方向指標之張貼"],
-    ["check_screen", "屏風之擺放"],
-    ["check_clock", "時鐘之擺放"],
-    ["check_shoes", "鞋櫃及拖鞋"],
-    ["check_timetable", "禮拜時間表之擺放"],
-    ["check_toilet", "免治馬桶或沖洗噴頭"],
-    ["check_sign", "中英文祈禱室之標示"],
-  ],
-  CAT_07: [
-    ["check_materials", "體驗活動使用之食／原物料"],
-    ["check_tools", "器具／器材"],
-    ["check_venue", "體驗活動使用之場地"],
-    ["check_steps", "操作步驟"],
-    ["check_price", "中英文項目及價格"],
-    ["check_restroom", "洗手間"],
-  ],
-};
 
 const certificateFields: CategoryField[] = [
   text("certificateNameEn", "單位名稱（英文）", true, "印在證書上的英文名稱", 200),
@@ -267,25 +202,105 @@ const staffFields: CategoryField[] = [
 
 const meatChoice = choice("usesMeat", "是否使用肉品", [["yes", "有使用"], ["no", "未使用"]], "有使用才要上傳肉品 Halal 證書。");
 
-const kitchenShots: Array<[string, string]> = [
-  ["photo_cooking", "專用烹調區"],
-  ["photo_utensils", "專用廚具"],
-  ["photo_worktop", "專用工作臺"],
-  ["photo_fridge", "專用冰箱"],
-  ["photo_dry_storage", "專用儲藏櫃（乾貨）"],
-  ["photo_tableware", "專用儲藏櫃（餐具）"],
-  ["photo_sink", "專用水槽"],
-  ["photo_detergent", "清潔劑成分照"],
-  ["photo_dining", "用餐區"],
-  ["photo_toilet_wash", "廁所淨下設施"],
-];
+const usesMeat = { field: "usesMeat", equals: "yes" };
 
-function kitchenPhotos(when?: { field: string; equals: string }) {
-  return kitchenShots.map(([key, label]) => file(key, label, { image: true, when, helpText: "上傳這一處的照片。JPEG 或 PNG。" }));
+function checked(keys: string[]) {
+  return keys.map((field) => ({ field, equals: "true" }));
 }
 
-const breakfast = { field: "lodgingPlan", equals: "with_breakfast" };
-const usesMeat = { field: "usesMeat", equals: "yes" };
+export const VERIFICATION_PICK_KEYS = [
+  "scopeKitchen",
+  "scopeHalalRestaurant",
+  "scopeFriendlyRestaurant",
+  "mealBreakfast",
+  "mealLunch",
+  "mealDinner",
+  "mealDrink",
+  "mealSnack",
+  "scopeRestroom",
+  "lodgingBreakfast",
+  "lodgingNoBreakfast",
+  "scopeGuestRoom",
+  "activityWithFood",
+  "activityWithoutFood",
+  "scopeEnvironment",
+  "scopeShop",
+] as const;
+
+export const VERIFICATION_EXCLUSIVE = [
+  ["lodgingBreakfast", "lodgingNoBreakfast"],
+  ["activityWithFood", "activityWithoutFood"],
+] as const;
+
+const FOOD_SCOPE = ["scopeKitchen", "scopeHalalRestaurant", "scopeFriendlyRestaurant", "mealBreakfast", "mealLunch", "mealDinner", "mealDrink", "mealSnack", "lodgingBreakfast", "activityWithFood"];
+const MENU_SCOPE = ["scopeKitchen", "scopeHalalRestaurant", "scopeFriendlyRestaurant", "mealBreakfast", "mealLunch", "mealDinner", "mealDrink", "mealSnack"];
+const RESTAURANT_MEAL = ["scopeHalalRestaurant", "scopeFriendlyRestaurant", "mealBreakfast", "mealLunch", "mealDinner", "mealDrink", "mealSnack"];
+const KITCHEN_SCOPE = [...MENU_SCOPE, "lodgingBreakfast"];
+const RESTROOM_SCOPE = ["scopeRestroom", "activityWithFood", "activityWithoutFood", "scopeEnvironment"];
+const ACTIVITY_SCOPE = ["activityWithFood", "activityWithoutFood"];
+
+function tick(key: string, label: string): CategoryField {
+  return { key, label, inputType: "checkbox", requiredOnSubmit: false };
+}
+
+const verificationPicks: CategoryField[] = [
+  tick("scopeKitchen", "Halal 廚房"),
+  tick("scopeHalalRestaurant", "Halal 餐廳"),
+  tick("scopeFriendlyRestaurant", "穆斯林友善餐廳"),
+  tick("mealBreakfast", "早餐"),
+  tick("mealLunch", "午餐"),
+  tick("mealDinner", "晚餐"),
+  tick("mealDrink", "飲品"),
+  tick("mealSnack", "點心"),
+  tick("scopeRestroom", "洗手間：備有淨下設施"),
+  tick("lodgingBreakfast", "旅宿含早餐"),
+  tick("lodgingNoBreakfast", "旅宿不含早餐"),
+  tick("scopeGuestRoom", "客房"),
+  tick("activityWithFood", "體驗活動含食用品"),
+  tick("activityWithoutFood", "體驗活動不含食用品"),
+  tick("scopeEnvironment", "穆斯林友善環境"),
+  tick("scopeShop", "穆斯林友善商店"),
+];
+
+const kitchenZone: CategoryField = {
+  key: "kitchenZone",
+  label: "廚房範圍",
+  inputType: "select",
+  requiredOnSubmit: false,
+  options: [
+    { value: "full", label: "全 Halal 廚房" },
+    { value: "partial", label: "部分專區廚房" },
+  ],
+  helpText: "Halal 餐廳、穆斯林友善餐廳或任一餐別要選。Halal 廚房本身就是全廚房。",
+  requiredWhenAny: checked(RESTAURANT_MEAL),
+  visibleWhenAny: checked(RESTAURANT_MEAL),
+};
+
+function meatField(): CategoryField {
+  return {
+    ...meatChoice,
+    requiredOnSubmit: false,
+    visibleWhenAny: checked(FOOD_SCOPE),
+    requiredWhenAny: checked(FOOD_SCOPE),
+  };
+}
+
+function sharedVerificationFiles(): CategoryDefinition["attachmentRequirements"] {
+  return [
+    file("menu_bilingual", "Halal 中英文菜單", { whenAny: checked(MENU_SCOPE) }),
+    file("photo_kitchen_set", "廚房設備、廚具、餐具、器具、洗劑", { image: true, multiple: true, whenAny: checked(KITCHEN_SCOPE), helpText: "Halal 廚房、餐廳、餐別或旅宿含早餐要交。可上傳多張。" }),
+    file("photo_ingredient_set", "食材：原物料、醬料、調味料", { image: true, multiple: true, whenAny: checked(MENU_SCOPE), helpText: "可上傳多張。" }),
+    file("photo_breakfast_service", "Halal 早餐", { image: true, multiple: true, whenAny: checked(["lodgingBreakfast"]), helpText: "提供的 Halal 早餐。廚房設備用上面的廚房照片。" }),
+    file("photo_guest_room", "客房：麥加方向、禱告毯、無酒精與非 Halal 點心、無人物或動物畫像、淨下設施", { image: true, multiple: true, whenAny: checked(["scopeGuestRoom"]) }),
+    file("photo_activity_place", "體驗活動使用的器材及場地", { image: true, multiple: true, whenAny: checked(ACTIVITY_SCOPE) }),
+    file("photo_activity_materials", "體驗活動的原物料、醬料、調味料、餐具、器具、洗劑", { image: true, multiple: true, whenAny: checked(["activityWithFood"]) }),
+    file("photo_prayer_room", "祈禱室：禱告毯、麥加方向貼紙、禱告時間表、屏風、時鐘、鞋櫃、拖鞋", { image: true, multiple: true, whenAny: checked(["scopeEnvironment"]) }),
+    file("photo_restroom_wash", "洗手間淨下設施", { image: true, whenAny: checked(RESTROOM_SCOPE) }),
+    file("photo_shop_zone", "販售 Halal 產品的專用區", { image: true, multiple: true, whenAny: checked(["scopeShop"]) }),
+    file("shop_halal_proof", "Halal 標示或證書", { whenAny: checked(["scopeShop"]), helpText: "用來證明產品的 Halal 狀態。" }),
+    file("meat_certificate", "肉類 Halal 證書與採購證明", { when: usesMeat, whenAny: checked(FOOD_SCOPE), helpText: "有使用肉品才要上傳。" }),
+  ];
+}
 
 export function officialCategoryDefinition(code: string): CategoryDefinition {
   const common = { schemaVersion: 1 as const, helpText: FORM_NOTE };
@@ -293,26 +308,22 @@ export function officialCategoryDefinition(code: string): CategoryDefinition {
     return {
       ...common,
       fields: [
-        choice("applicationItem", "申請項目", [["halal_kitchen", "Halal廚房"], ["halal_restaurant", "Halal餐廳"], ["friendly_restaurant", "穆斯林友善餐廳"]], "Halal廚房沒有內用座位。Halal餐廳全菜單可食用。穆斯林友善餐廳要區隔廚具。"),
-        choice("mealKind", "申請餐點種類", [["meals", "早／午／晚餐"], ["drinks", "飲品／點心"], ["both", "兩者都有"]]),
+        ...verificationPicks,
+        kitchenZone,
         ...certificateFields,
         ...staffFields,
         text("managerName", "餐廳主管姓名"),
         text("managerTitle", "餐廳主管職稱"),
         text("chefName", "餐廳廚師姓名"),
         text("chefTitle", "餐廳廚師職稱"),
-        meatChoice,
-        notes("ingredientDetail", "Halal菜單原物料明細", true, "每列寫餐點名稱與成分，含調味料和肉品。"),
+        meatField(),
+        notes("ingredientDetail", "Halal菜單原物料明細", true, "每列寫餐點名稱與成分，含調味料和肉品。", undefined, checked(FOOD_SCOPE)),
       ],
       attachmentRequirements: [
         file("registration_copy", "公司／商業設立登記影本"),
         file("operating_license", "營業登記證或行業許可執照影本"),
-        ...kitchenPhotos(),
+        ...sharedVerificationFiles(),
         file("photo_place_other", "其他環境照片", { image: true, multiple: true, required: false, helpText: "空白表的其他格。一欄一張，最多 16 張。" }),
-        file("menu_bilingual", "中英文 Halal 菜單"),
-        file("photo_ingredients", "食材及醬料成分照片", { image: true, multiple: true, helpText: "一張照片一個物品。可上傳多張，最多 16 張。" }),
-        file("meat_certificate", "肉類 Halal 證書與 2 個月內採購證明", { when: usesMeat, helpText: "未使用肉品不必上傳。" }),
-        ...checklist(checklistByCode.CAT_01 ?? []),
       ],
     };
   }
@@ -338,7 +349,6 @@ export function officialCategoryDefinition(code: string): CategoryDefinition {
         file("photo_materials", "原物料成分與成品照片", { image: true, multiple: true, helpText: "清單寫成分照片，內頁同時要成品。最多 16 張。" }),
         file("meat_certificate", "肉製品原料 Halal 證書", { when: usesMeat }),
         file("other_proof", "產品其他相關證明", { helpText: "例如 ISO、HACCP、產地證明、無農藥殘留或產品責任險。" }),
-        ...checklist(checklistByCode.CAT_02 ?? []),
       ],
     };
   }
@@ -346,7 +356,8 @@ export function officialCategoryDefinition(code: string): CategoryDefinition {
     return {
       ...common,
       fields: [
-        choice("lodgingPlan", "申請項目", [["room_only", "住宿不含早餐"], ["with_breakfast", "住宿含早餐"]], "不含早餐只交附件一到四。含早餐另交廚房、菜單和食材。"),
+        ...verificationPicks,
+        kitchenZone,
         ...certificateFields,
         text("lodgingLicenseNo", "旅宿合法編號", true, undefined, 40),
         ...staffFields,
@@ -354,35 +365,25 @@ export function officialCategoryDefinition(code: string): CategoryDefinition {
         text("roomManagerTitle", "客房主管職稱"),
         text("chefName", "餐廳廚師姓名", false, "空白表這欄沒有標必填"),
         text("chefTitle", "餐廳廚師職稱", false),
-        meatChoice,
-        notes("roomDetail", "免治馬桶或沖洗器房號表", true, "每列寫房號、房型與間數。表上寫旅館至少 10 間、民宿至少 5 間。"),
-        notes("ingredientDetail", "Halal菜單原物料明細", false, "含早餐才要填。每列寫餐點名稱與成分。", breakfast),
+        meatField(),
+        notes("roomDetail", "免治馬桶或沖洗器房號表", true, "每列寫房號、房型與間數。表上寫旅館至少 10 間、民宿至少 5 間。", undefined, checked(["lodgingBreakfast", "lodgingNoBreakfast", "scopeGuestRoom"])),
+        notes("ingredientDetail", "Halal菜單原物料明細", false, "含早餐或有餐點時才要填。每列寫餐點名稱與成分。", undefined, checked(FOOD_SCOPE)),
       ],
       attachmentRequirements: [
         file("registration_copy", "公司／商業設立登記影本"),
         file("lodging_license", "旅館／民宿營業登記證影本"),
-        file("photo_room_wall", "客房牆面", { image: true }),
-        file("photo_room_wash", "客房洗手間淨下", { image: true }),
-        file("photo_prayer_board", "朝拜指標與朝拜時間表", { image: true }),
-        file("photo_prayer_rug", "朝拜毯", { image: true }),
-        file("photo_room_other", "其他客房照片", { image: true, multiple: true, required: false }),
-        ...kitchenPhotos(breakfast),
-        file("menu_bilingual", "中英文 Halal 菜單", { when: breakfast }),
-        file("photo_ingredients", "食材成分照片", { image: true, multiple: true, when: breakfast, helpText: "含早餐才要。一張照片一個物品，最多 16 張。" }),
-        file("meat_certificate", "肉類 Halal 證書與採購證明", { when: usesMeat, helpText: "未使用肉品不必上傳。" }),
-        ...checklist(checklistByCode.CAT_03 ?? []),
+        ...sharedVerificationFiles(),
       ],
     };
   }
   if (code === "CAT_04") {
     return {
       ...common,
-      fields: [...certificateFields, ...staffFields, notes("productDetail", "Halal 商品一覽表", true, "每列寫一個商品名稱。")],
+      fields: [...verificationPicks, kitchenZone, ...certificateFields, ...staffFields, meatField(), notes("productDetail", "Halal 商品一覽表", true, "每列寫一個商品名稱。", undefined, checked(["scopeShop"]))],
       attachmentRequirements: [
         file("registration_copy", "公司／商業設立登記影本"),
         file("trade_license", "行業許可執照影本"),
-        file("photo_products", "商品與擺放位置照片", { image: true, multiple: true, helpText: "商品本身和現場欲擺放的位置都要拍。最多 16 張。" }),
-        ...checklist(checklistByCode.CAT_04 ?? []),
+        ...sharedVerificationFiles(),
       ],
     };
   }
@@ -394,42 +395,30 @@ export function officialCategoryDefinition(code: string): CategoryDefinition {
         file("registration_copy", "公司／商業設立登記影本"),
         file("trade_license", "行業許可執照影本"),
         file("staff_proof", "從業人員在職證明"),
-        ...checklist(checklistByCode.CAT_05 ?? []),
       ],
     };
   }
   if (code === "CAT_06") {
     return {
       ...common,
-      fields: [...certificateFields, ...staffFields],
+      fields: [...verificationPicks, kitchenZone, ...certificateFields, ...staffFields, meatField()],
       attachmentRequirements: [
         file("registration_copy", "公司／商業設立登記影本"),
         file("trade_license", "行業許可執照影本"),
-        file("photo_prayer_room", "祈禱室空間", { image: true }),
-        file("photo_screen", "屏風", { image: true }),
-        file("photo_prayer_direction", "朝拜指標", { image: true }),
-        file("photo_prayer_rug", "朝拜毯", { image: true }),
-        file("photo_clock", "時鐘", { image: true }),
-        file("photo_shoes", "鞋櫃與拖鞋", { image: true }),
-        file("photo_rules", "祈禱室使用規則", { image: true, helpText: "中英文版。" }),
-        file("photo_wash_room", "淨下洗手間", { image: true }),
-        file("photo_timetable", "朝拜時間表", { image: true }),
-        file("photo_place_other", "其他環境照片", { image: true, multiple: true, required: false }),
-        file("photo_signs", "指引祈禱室的方向指標", { image: true, multiple: true, helpText: "空白表有方向 1 到 8。可上傳多張，最多 16 張。" }),
-        ...checklist(checklistByCode.CAT_06 ?? []),
+        ...sharedVerificationFiles(),
+        file("photo_signs", "指引祈禱室的方向指標", { image: true, multiple: true, whenAny: checked(["scopeEnvironment"]), helpText: "空白表有方向 1 到 8。可上傳多張，最多 16 張。" }),
       ],
     };
   }
   if (code === "CAT_07") {
     return {
       ...common,
-      fields: [...certificateFields, ...staffFields, notes("activityDetail", "器具食材一覽表", true, "每列寫體驗活動名稱、使用器具和食用品成分。")],
+      fields: [...verificationPicks, kitchenZone, ...certificateFields, ...staffFields, meatField(), notes("activityDetail", "器具食材一覽表", true, "每列寫體驗活動名稱、使用器具和食用品成分。", undefined, checked(ACTIVITY_SCOPE))],
       attachmentRequirements: [
         file("registration_copy", "公司／商業設立登記影本"),
         file("trade_license", "行業許可執照影本"),
-        file("price_sheet", "中英文項目價格表與步驟解說"),
-        file("photo_activity", "器具、食材、場地與成品照片", { image: true, multiple: true, helpText: "一張照片一個物品。最多 16 張。" }),
-        ...checklist(checklistByCode.CAT_07 ?? []),
+        file("price_sheet", "中英文項目價格表與步驟解說", { whenAny: checked(ACTIVITY_SCOPE) }),
+        ...sharedVerificationFiles(),
       ],
     };
   }

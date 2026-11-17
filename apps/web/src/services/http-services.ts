@@ -205,6 +205,51 @@ export function createHttpServices(): Services {
     async attendance(id, input) {
       return (await request("PATCH", `/admin/enrollments/${id}/attendance`, input)).data as Awaited<ReturnType<Services["attendance"]>>;
     },
+    async basicTrainingStatus() {
+      return (await request("GET", "/training/basic")).data as Awaited<ReturnType<Services["basicTrainingStatus"]>>;
+    },
+    async completeBasicModule(moduleId) {
+      return (await request("POST", `/training/basic/modules/${moduleId}/complete`)).data as Awaited<ReturnType<Services["completeBasicModule"]>>;
+    },
+    async submitBasicQuiz(input) {
+      return (await request("POST", "/training/basic/quiz", input)).data as Awaited<ReturnType<Services["submitBasicQuiz"]>>;
+    },
+    async downloadBasicCertificate() {
+      const result = await request("GET", "/training/basic/certificate");
+      return { blob: result.data as Blob, name: "basic-certificate.pdf" };
+    },
+    async trainingPolicy() {
+      return (await request("GET", "/training/policy")).data as Awaited<ReturnType<Services["trainingPolicy"]>>;
+    },
+    async saveTrainingPolicy(input) {
+      return (await request("PUT", "/admin/training/policy", input)).data as Awaited<ReturnType<Services["saveTrainingPolicy"]>>;
+    },
+    async adminBasicModules() {
+      return (await request("GET", "/admin/training/basic-modules")).data as Awaited<ReturnType<Services["adminBasicModules"]>>;
+    },
+    async saveBasicModule(input, id) {
+      const result = id ? await request("PUT", `/admin/training/basic-modules/${id}`, input) : await request("POST", "/admin/training/basic-modules", input);
+      return result.data as Awaited<ReturnType<Services["saveBasicModule"]>>;
+    },
+    async myCompanyTrainingRequests() {
+      return (await request("GET", "/training/company-requests")).data as Awaited<ReturnType<Services["myCompanyTrainingRequests"]>>;
+    },
+    async saveCompanyTrainingRequest(input, id) {
+      const result = id ? await request("PATCH", `/training/company-requests/${id}`, input) : await request("POST", "/training/company-requests", input);
+      return result.data as Awaited<ReturnType<Services["saveCompanyTrainingRequest"]>>;
+    },
+    async submitCompanyTrainingRequest(id, expectedVersion) {
+      return (await request("POST", `/training/company-requests/${id}/submit`, { expectedVersion })).data as Awaited<ReturnType<Services["submitCompanyTrainingRequest"]>>;
+    },
+    async adminCompanyTrainingRequests() {
+      return (await request("GET", "/admin/training/company-requests")).data as Awaited<ReturnType<Services["adminCompanyTrainingRequests"]>>;
+    },
+    async reviewCompanyTrainingRequest(id, input) {
+      return (await request("POST", `/admin/training/company-requests/${id}/review`, input)).data as Awaited<ReturnType<Services["reviewCompanyTrainingRequest"]>>;
+    },
+    async registerTrainingCertificate(input) {
+      return (await request("POST", "/admin/training/certificates", input)).data as Awaited<ReturnType<Services["registerTrainingCertificate"]>>;
+    },
     async certifications() {
       return (await request("GET", "/certifications/mine")).data as Awaited<ReturnType<Services["certifications"]>>;
     },

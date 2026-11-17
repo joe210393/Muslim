@@ -56,6 +56,14 @@ export const enrollmentStatusLabels = record<EnrollmentStatus>({
   [EnrollmentStatus.CANCELLED]: { label: "已取消", tone: "neutral" },
 });
 
+export const companyTrainingRequestStatusLabels = {
+  DRAFT: { label: "草稿", tone: "neutral" as const },
+  SUBMITTED: { label: "待審核", tone: "warning" as const },
+  APPROVED: { label: "已核准", tone: "success" as const },
+  REJECTED: { label: "未通過", tone: "danger" as const },
+  CANCELLED: { label: "已取消", tone: "neutral" as const },
+};
+
 export const attendanceStatusLabels = record<AttendanceStatus>({
   [AttendanceStatus.NOT_RECORDED]: { label: "待登錄", tone: "warning" },
   [AttendanceStatus.PRESENT]: { label: "出席", tone: "success" },

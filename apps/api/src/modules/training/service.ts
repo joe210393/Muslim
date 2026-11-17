@@ -325,7 +325,7 @@ export async function updateAttendance(actor: SessionActor, enrollmentId: string
 async function mapEnrollment(id: string) {
   const row = await prisma.enrollment.findUnique({
     where: { id },
-    include: { course: true, user: { include: { organization: true } } },
+    include: { course: true, user: { include: { organization: true } }, trainingCertificate: true },
   });
   if (!row) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
   const learning = buildLearningRecord({
@@ -366,6 +366,9 @@ async function mapEnrollment(id: string) {
     completion: learning.completion,
     countsTowardTotal: learning.countsTowardTotal,
     attendedHoursLabel: minutesToHourLabel(row.attendedMinutes),
+    trainingCertificateNo: row.trainingCertificate?.certificateNo ?? null,
+    trainingCertificateIssuedOn: row.trainingCertificate?.issuedOnDate ?? null,
+    trainingCertificateValidUntil: row.trainingCertificate?.validUntilDate ?? null,
     version: row.version,
     enrolledAt: row.enrolledAt.toISOString(),
     cancelledAt: row.cancelledAt?.toISOString() ?? null,

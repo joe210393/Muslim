@@ -1,4 +1,4 @@
-import { reviewTargets, type ApplicationDetail, type FieldReview } from "@mf/contracts";
+import { attachmentIsVisible, fieldIsVisible, reviewTargets, type ApplicationDetail, type FieldReview } from "@mf/contracts";
 import { AttachmentImages } from "../../components/AttachmentImages";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,7 +54,15 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
   });
   const [openActionNote, setOpenActionNote] = useState(false);
   useEffect(() => { setMarks(marksFrom(item)); }, [item.id, item.version]);
-  const targets = reviewTargets(item.definition);
+  const targets = reviewTargets(item.definition).filter((target) => {
+    const field = item.definition.fields.find((entry) => entry.key === target.key);
+    if (field) return fieldIsVisible(field, item.formData);
+    if (target.key.startsWith("attachment:")) {
+      const requirement = item.definition.attachmentRequirements.find((entry) => `attachment:${entry.key}` === target.key);
+      return requirement ? attachmentIsVisible(requirement, item.formData) : true;
+    }
+    return true;
+  });
   const isAssignee = item.assignedToId === session.user?.id;
   const canMark = (session.user?.role === "ADMIN" || isAssignee)
     && (item.status === "INITIAL_REVIEW" || item.status === "SECOND_REVIEW" || (item.status === "FINAL_REVIEW" && canDecide));

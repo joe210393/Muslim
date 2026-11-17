@@ -9,6 +9,14 @@ import { sanitizeCsvCell, toCsv } from "./csv";
 import { acceptWatchProgress, buildLearningRecord, canEnroll } from "./training";
 import { CourseStatus } from "@mf/db/enums";
 import { applicationStatusLabels, userRoleLabels } from "./status-labels";
+import {
+  canStartVerificationApplication,
+  quizPassed,
+  requiredModulesComplete,
+  scoreBasicQuiz,
+  validateCompanyTrainingRequest,
+  validateTrainingPolicy,
+} from "./basic-training";
 
 const filled = {
   organizationName: "星月廚房示範店",
@@ -41,8 +49,7 @@ describe("申請驗證", () => {
   it("未使用肉品時不必上傳肉品證書", () => {
     const definition = officialCategoryDefinition("CAT_01");
     const formData = {
-      applicationItem: "halal_kitchen",
-      mealKind: "meals",
+      scopeKitchen: true,
       certificateNameEn: "Star Kitchen",
       certificateAddressEn: "1 Demo Road",
       certificatePhone: "02-12345678",
@@ -64,8 +71,10 @@ describe("申請驗證", () => {
     };
     const issues = validateSubmit({ ...filled, formData }, definition, []);
     expect(issues.some((issue) => issue.path === "attachments.meat_certificate")).toBe(false);
-    expect(issues.some((issue) => issue.path === "attachments.photo_cooking")).toBe(true);
-    expect(issues.some((issue) => issue.path === "attachments.check_menu")).toBe(true);
+    expect(issues.some((issue) => issue.path === "attachments.photo_kitchen_set")).toBe(true);
+    expect(issues.some((issue) => issue.path === "attachments.menu_bilingual")).toBe(true);
+    expect(issues.some((issue) => issue.path === "attachments.photo_shop_zone")).toBe(false);
+    expect(issues.some((issue) => issue.path === "attachments.check_menu")).toBe(false);
   });
 });
 
@@ -203,12 +212,63 @@ describe("證書與 CSV", () => {
   });
 });
 
+describe("基礎教育訓練與專班", () => {
+  it("門檻開啟時未通過不可申請", () => {
+    expect(canStartVerificationApplication({ requireBasicBeforeApply: true, basicPassed: false }).ok).toBe(false);
+    expect(canStartVerificationApplication({ requireBasicBeforeApply: true, basicPassed: true }).ok).toBe(true);
+    expect(canStartVerificationApplication({ requireBasicBeforeApply: false, basicPassed: false }).ok).toBe(true);
+  });
+
+  it("必做模組與測驗分數", () => {
+    expect(requiredModulesComplete({ requiredModuleIds: ["a", "b"], completedModuleIds: ["a"] })).toBe(false);
+    expect(requiredModulesComplete({ requiredModuleIds: ["a", "b"], completedModuleIds: ["b", "a"] })).toBe(true);
+    const scored = scoreBasicQuiz(
+      [
+        { id: "q1", correctIndex: 1, options: ["x", "y"] },
+        { id: "q2", correctIndex: 0, options: ["a", "b"] },
+      ],
+      [
+        { questionId: "q1", selectedIndex: 1 },
+        { questionId: "q2", selectedIndex: 1 },
+      ],
+    );
+    expect(scored.scorePercent).toBe(50);
+    expect(quizPassed(80, 80)).toBe(true);
+    expect(quizPassed(79, 80)).toBe(false);
+  });
+
+  it("專班人數與政策驗證", () => {
+    expect(validateTrainingPolicy({ requireBasicBeforeApply: true, quizPassPercent: 80, privateRequestMinHeadcount: 20 })).toEqual([]);
+    expect(validateCompanyTrainingRequest({
+      headcount: 19,
+      minHeadcount: 20,
+      preferredStartsOn: "2026-12-01",
+      preferredEndsOn: "2026-12-02",
+      delivery: "ONLINE",
+      location: "",
+      note: "",
+    }).some((issue) => issue.path === "headcount")).toBe(true);
+    expect(validateCompanyTrainingRequest({
+      headcount: 20,
+      minHeadcount: 20,
+      preferredStartsOn: "2026-12-01",
+      preferredEndsOn: "2026-12-02",
+      delivery: "ONLINE",
+      location: "",
+      note: "",
+    })).toEqual([]);
+  });
+});
+
 describe("示範資料", () => {
   it("含 8 家業者、6 門課程，且標籤覆蓋角色與狀態", () => {
     const data = buildDemoDataset();
     expect(data.organizations).toHaveLength(8);
     expect(data.applications).toHaveLength(0);
     expect(data.courses).toHaveLength(6);
+    expect(data.basicModules.length).toBeGreaterThanOrEqual(2);
+    expect(data.basicQuestions.length).toBeGreaterThanOrEqual(3);
+    expect(data.trainingPolicy?.privateRequestMinHeadcount).toBe(20);
     expect(data.users.filter((user) => user.role === UserRole.ADMIN)).toHaveLength(1);
     expect(data.users.filter((user) => user.role === UserRole.CASE_OFFICER)).toHaveLength(2);
     expect(Object.keys(applicationStatusLabels).length).toBe(Object.values(ApplicationStatus).length);

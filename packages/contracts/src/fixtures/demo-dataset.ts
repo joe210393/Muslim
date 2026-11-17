@@ -6,10 +6,12 @@ import {
   CourseStatus,
   CourseDelivery,
   EnrollmentStatus,
+  CompanyTrainingRequestStatus,
   NotificationJobStatus,
   NotificationType,
   UserRole,
 } from "@mf/db/enums";
+import { DEFAULT_TRAINING_POLICY } from "../domain/basic-training";
 import { resolveTransition } from "../domain/application-workflow";
 import type { CategoryDefinition } from "../domain/category-definition";
 import { formatApplicationNo } from "../domain/hash";
@@ -200,6 +202,93 @@ export type DemoDataset = {
     registeredAt: string;
     updatedAt: string;
   }[];
+  trainingPolicy: {
+    id: string;
+    requireBasicBeforeApply: boolean;
+    quizPassPercent: number;
+    privateRequestMinHeadcount: number;
+    updatedById: string | null;
+    version: number;
+    createdAt: string;
+    updatedAt: string;
+  };
+  basicModules: {
+    id: string;
+    title: string;
+    body: string;
+    sortOrder: number;
+    isRequired: boolean;
+    isActive: boolean;
+    videoFileId: string | null;
+    updatedById: string | null;
+    version: number;
+    createdAt: string;
+    updatedAt: string;
+  }[];
+  basicQuestions: {
+    id: string;
+    moduleId: string;
+    prompt: string;
+    options: string[];
+    correctIndex: number;
+    sortOrder: number;
+    createdAt: string;
+    updatedAt: string;
+  }[];
+  basicProgress: {
+    id: string;
+    userId: string;
+    moduleId: string;
+    completedAt: string;
+  }[];
+  basicAttempts: {
+    id: string;
+    userId: string;
+    scorePercent: number;
+    passed: boolean;
+    answers: Array<{ questionId: string; selectedIndex: number }>;
+    quizPassPercentSnapshot: number;
+    createdAt: string;
+  }[];
+  userBasicTrainings: {
+    id: string;
+    userId: string;
+    passedAt: string | null;
+    certificateNo: string | null;
+    certificateFileId: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }[];
+  companyTrainingRequests: {
+    id: string;
+    organizationId: string;
+    requestedById: string;
+    headcount: number;
+    preferredStartsOn: string;
+    preferredEndsOn: string;
+    delivery: CourseDelivery;
+    location: string;
+    note: string;
+    status: CompanyTrainingRequestStatus;
+    adminNote: string;
+    reviewedById: string | null;
+    reviewedAt: string | null;
+    courseId: string | null;
+    version: number;
+    submittedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }[];
+  trainingCertificates: {
+    id: string;
+    enrollmentId: string;
+    certificateNo: string;
+    issuedOnDate: string;
+    validUntilDate: string;
+    registeredById: string;
+    registeredAt: string;
+    updatedAt: string;
+  }[];
   notificationJobs: {
     id: string;
     dedupeKey: string;
@@ -342,7 +431,7 @@ export function buildDemoDataset(): DemoDataset {
     name: item.name,
     description: item.description,
     isActive: true,
-    displayOrder: index + 1,
+    displayOrder: item.displayOrder,
   }));
 
   const formVersions: DemoFormVersion[] = [];
@@ -388,6 +477,14 @@ export function buildDemoDataset(): DemoDataset {
       id: demoUuid(0x430 + index + 1),
       categoryId: category.id,
       version: category.code === "CAT_01" ? 4 : 3,
+      configurationStatus: ConfigurationStatus.CONFIRMED,
+      definition: official,
+      createdAt: isoDaysBefore(0),
+    });
+    formVersions.push({
+      id: demoUuid(0x440 + index + 1),
+      categoryId: category.id,
+      version: category.code === "CAT_01" ? 5 : 4,
       configurationStatus: ConfigurationStatus.CONFIRMED,
       definition: official,
       createdAt: isoDaysBefore(0),
@@ -775,6 +872,79 @@ export function buildDemoDataset(): DemoDataset {
     },
   ];
 
+  const trainingPolicy: DemoDataset["trainingPolicy"] = {
+    id: demoUuid(0x900),
+    requireBasicBeforeApply: DEFAULT_TRAINING_POLICY.requireBasicBeforeApply,
+    quizPassPercent: DEFAULT_TRAINING_POLICY.quizPassPercent,
+    privateRequestMinHeadcount: DEFAULT_TRAINING_POLICY.privateRequestMinHeadcount,
+    updatedById: admin.id,
+    version: 1,
+    createdAt: isoDaysBefore(30),
+    updatedAt: isoDaysBefore(1),
+  };
+
+  const basicModules: DemoDataset["basicModules"] = [
+    {
+      id: demoUuid(0x910),
+      title: "穆斯林友善與 Halal 基礎概念（示範）",
+      body: "示範設定。本模組說明穆斯林友善場域的基本概念、禁止項目與服務注意事項。正式教材待甲方提供後替換。請完整閱讀後再標示已讀。",
+      sortOrder: 1,
+      isRequired: true,
+      isActive: true,
+      videoFileId: null,
+      updatedById: admin.id,
+      version: 1,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+    {
+      id: demoUuid(0x911),
+      title: "申請與現場複審流程概要（示範）",
+      body: "示範設定。說明業者送件附件、初審與現場複審的角色分工。正式流程說明待確認。",
+      sortOrder: 2,
+      isRequired: true,
+      isActive: true,
+      videoFileId: null,
+      updatedById: admin.id,
+      version: 1,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+  ];
+
+  const basicQuestions: DemoDataset["basicQuestions"] = [
+    {
+      id: demoUuid(0x920),
+      moduleId: basicModules[0]!.id,
+      prompt: "示範題：穆斯林友善服務中，酒精類飲料應如何處理？",
+      options: ["可與 Halal 餐點並陳", "應避免提供或以明確方式與 Halal 區隔", "只可在大廳販售", "沒有限制"],
+      correctIndex: 1,
+      sortOrder: 1,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+    {
+      id: demoUuid(0x921),
+      moduleId: basicModules[0]!.id,
+      prompt: "示範題：肉品若要符合 Halal，通常需要什麼？",
+      options: ["只要新鮮即可", "Halal 證書與可追溯採購證明", "進口即可", "廚師口頭保證即可"],
+      correctIndex: 1,
+      sortOrder: 2,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+    {
+      id: demoUuid(0x922),
+      moduleId: basicModules[1]!.id,
+      prompt: "示範題：現場複審主要核對什麼？",
+      options: ["只看合約金額", "業者送件附件，必要時可加拍現場存證", "只看社群貼文", "只看統編"],
+      correctIndex: 1,
+      sortOrder: 1,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+  ];
+
   return {
     generatedAt: NOW,
     organizations,
@@ -789,6 +959,14 @@ export function buildDemoDataset(): DemoDataset {
     courses,
     enrollments,
     certifications: [],
+    trainingPolicy,
+    basicModules,
+    basicQuestions,
+    basicProgress: [],
+    basicAttempts: [],
+    userBasicTrainings: [],
+    companyTrainingRequests: [],
+    trainingCertificates: [],
     notificationJobs: [],
     auditLogs,
   };

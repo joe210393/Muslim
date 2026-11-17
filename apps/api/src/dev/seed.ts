@@ -164,6 +164,66 @@ for (const certification of data.certifications) {
   });
 }
 
+if (data.trainingPolicy) {
+  const existingPolicy = await prisma.trainingPolicy.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!existingPolicy) {
+    await prisma.trainingPolicy.create({
+      data: {
+        id: data.trainingPolicy.id,
+        requireBasicBeforeApply: data.trainingPolicy.requireBasicBeforeApply,
+        quizPassPercent: data.trainingPolicy.quizPassPercent,
+        privateRequestMinHeadcount: data.trainingPolicy.privateRequestMinHeadcount,
+        updatedById: data.trainingPolicy.updatedById,
+        version: data.trainingPolicy.version,
+      },
+    });
+  }
+}
+
+for (const module of data.basicModules) {
+  await prisma.basicTrainingModule.upsert({
+    where: { id: module.id },
+    create: {
+      id: module.id,
+      title: module.title,
+      body: module.body,
+      sortOrder: module.sortOrder,
+      isRequired: module.isRequired,
+      isActive: module.isActive,
+      videoFileId: module.videoFileId,
+      updatedById: module.updatedById,
+      version: module.version,
+    },
+    update: {
+      title: module.title,
+      body: module.body,
+      sortOrder: module.sortOrder,
+      isRequired: module.isRequired,
+      isActive: module.isActive,
+    },
+  });
+}
+
+for (const question of data.basicQuestions) {
+  await prisma.basicTrainingQuestion.upsert({
+    where: { id: question.id },
+    create: {
+      id: question.id,
+      moduleId: question.moduleId,
+      prompt: question.prompt,
+      options: question.options,
+      correctIndex: question.correctIndex,
+      sortOrder: question.sortOrder,
+    },
+    update: {
+      prompt: question.prompt,
+      options: question.options,
+      correctIndex: question.correctIndex,
+      sortOrder: question.sortOrder,
+    },
+  });
+}
+
 for (const job of data.notificationJobs) {
   await prisma.notificationJob.upsert({
     where: { dedupeKey: job.dedupeKey },

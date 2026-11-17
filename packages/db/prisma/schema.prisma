@@ -85,6 +85,16 @@ enum AttendanceStatus {
   @@map("attendance_status")
 }
 
+enum CompanyTrainingRequestStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@map("company_training_request_status")
+}
+
 enum NotificationJobStatus {
   PENDING
   SENT
@@ -187,6 +197,14 @@ model User {
   features                UserFeature[]
   savedReports            SavedReport[]
   recordedPayments        PaymentRecord[] @relation("PaymentRecorder")
+  trainingPoliciesUpdated TrainingPolicy[] @relation("TrainingPolicyEditor")
+  basicModulesUpdated     BasicTrainingModule[] @relation("BasicModuleEditor")
+  basicProgress           BasicTrainingProgress[]
+  basicAttempts           BasicTrainingAttempt[]
+  basicTraining           UserBasicTraining?
+  companyTrainingRequests CompanyTrainingRequest[] @relation("CompanyTrainingRequester")
+  companyTrainingReviews  CompanyTrainingRequest[] @relation("CompanyTrainingReviewer")
+  trainingCertificatesRegistered TrainingCertificate[] @relation("TrainingCertificateRegistrar")
 
   @@index([organizationId])
   @@index([role, isActive])
@@ -204,10 +222,11 @@ model Organization {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  users        User[]
-  applications Application[]
-  contracts    ContractRecord[]
-  payments     PaymentRecord[]
+  users                   User[]
+  applications            Application[]
+  contracts               ContractRecord[]
+  payments                PaymentRecord[]
+  companyTrainingRequests CompanyTrainingRequest[]
 
   @@map("organizations")
 }
@@ -386,6 +405,8 @@ model FileObject {
   contractFaces        ContractRecord[]        @relation("ContractFace")
   contractSignatures   ContractRecord[]        @relation("ContractSignature")
   contractDocuments    ContractRecord[]        @relation("ContractPdf")
+  basicModuleVideos    BasicTrainingModule[]   @relation("BasicModuleVideo")
+  basicCertificates    UserBasicTraining[]     @relation("BasicTrainingCertificate")
 
   @@map("file_objects")
 }
@@ -429,10 +450,11 @@ model Course {
   createdAt                  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  image       FileObject?  @relation("CourseImage", fields: [imageFileId], references: [id], onDelete: Restrict)
-  video       FileObject?  @relation("CourseVideo", fields: [videoFileId], references: [id], onDelete: Restrict)
-  enrollments Enrollment[]
+  createdBy               User                     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  image                   FileObject?              @relation("CourseImage", fields: [imageFileId], references: [id], onDelete: Restrict)
+  video                   FileObject?              @relation("CourseVideo", fields: [videoFileId], references: [id], onDelete: Restrict)
+  enrollments             Enrollment[]
+  companyTrainingRequests CompanyTrainingRequest[]
 
   @@index([status, registrationOpensAt, registrationClosesAt])
   @@map("courses")
@@ -454,13 +476,157 @@ model Enrollment {
   enrolledAt                       DateTime         @default(now()) @map("enrolled_at") @db.Timestamptz(6)
   cancelledAt                      DateTime?        @map("cancelled_at") @db.Timestamptz(6)
 
-  course                 Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  user                   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
-  attendanceRecordedBy   User?  @relation("AttendanceRecordedBy", fields: [attendanceRecordedById], references: [id], onDelete: Restrict)
+  course                 Course               @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  user                   User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  attendanceRecordedBy   User?                @relation("AttendanceRecordedBy", fields: [attendanceRecordedById], references: [id], onDelete: Restrict)
+  trainingCertificate    TrainingCertificate?
 
   @@unique([courseId, userId])
   @@index([userId])
   @@map("enrollments")
+}
+
+model TrainingPolicy {
+  id                         String   @id @default(uuid()) @db.Uuid
+  requireBasicBeforeApply    Boolean  @default(true) @map("require_basic_before_apply")
+  quizPassPercent            Int      @default(80) @map("quiz_pass_percent")
+  privateRequestMinHeadcount Int      @default(20) @map("private_request_min_headcount")
+  updatedById                String?  @map("updated_by_id") @db.Uuid
+  version                    Int      @default(1)
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  updatedBy User? @relation("TrainingPolicyEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("training_policies")
+}
+
+model BasicTrainingModule {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String   @db.VarChar(200)
+  body        String   @db.VarChar(8000)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isRequired  Boolean  @default(true) @map("is_required")
+  isActive    Boolean  @default(true) @map("is_active")
+  videoFileId String?  @unique @map("video_file_id") @db.Uuid
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  video       FileObject?              @relation("BasicModuleVideo", fields: [videoFileId], references: [id], onDelete: Restrict)
+  updatedBy   User?                    @relation("BasicModuleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  questions   BasicTrainingQuestion[]
+  progress    BasicTrainingProgress[]
+
+  @@index([isActive, sortOrder])
+  @@map("basic_training_modules")
+}
+
+model BasicTrainingQuestion {
+  id           String   @id @default(uuid()) @db.Uuid
+  moduleId     String   @map("module_id") @db.Uuid
+  prompt       String   @db.VarChar(1000)
+  options      Json
+  correctIndex Int      @map("correct_index")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  module BasicTrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId, sortOrder])
+  @@map("basic_training_questions")
+}
+
+model BasicTrainingProgress {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  moduleId    String   @map("module_id") @db.Uuid
+  completedAt DateTime @default(now()) @map("completed_at") @db.Timestamptz(6)
+
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module BasicTrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@index([moduleId])
+  @@map("basic_training_progress")
+}
+
+model BasicTrainingAttempt {
+  id                     String   @id @default(uuid()) @db.Uuid
+  userId                 String   @map("user_id") @db.Uuid
+  scorePercent           Int      @map("score_percent")
+  passed                 Boolean
+  answers                Json
+  quizPassPercentSnapshot Int     @map("quiz_pass_percent_snapshot")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("basic_training_attempts")
+}
+
+model UserBasicTraining {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @unique @map("user_id") @db.Uuid
+  passedAt          DateTime? @map("passed_at") @db.Timestamptz(6)
+  certificateNo     String?   @unique @map("certificate_no") @db.VarChar(64)
+  certificateFileId String?   @unique @map("certificate_file_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  certificate FileObject? @relation("BasicTrainingCertificate", fields: [certificateFileId], references: [id], onDelete: Restrict)
+
+  @@map("user_basic_trainings")
+}
+
+model CompanyTrainingRequest {
+  id               String                         @id @default(uuid()) @db.Uuid
+  organizationId   String                         @map("organization_id") @db.Uuid
+  requestedById    String                         @map("requested_by_id") @db.Uuid
+  headcount        Int
+  preferredStartsOn String                        @map("preferred_starts_on") @db.Char(10)
+  preferredEndsOn  String                         @map("preferred_ends_on") @db.Char(10)
+  delivery         CourseDelivery                 @default(OFFLINE)
+  location         String                         @default("") @db.VarChar(200)
+  note             String                         @default("") @db.VarChar(2000)
+  status           CompanyTrainingRequestStatus   @default(DRAFT)
+  adminNote        String                         @default("") @map("admin_note") @db.VarChar(2000)
+  reviewedById     String?                        @map("reviewed_by_id") @db.Uuid
+  reviewedAt       DateTime?                      @map("reviewed_at") @db.Timestamptz(6)
+  courseId         String?                        @map("course_id") @db.Uuid
+  version          Int                            @default(1)
+  submittedAt      DateTime?                      @map("submitted_at") @db.Timestamptz(6)
+  createdAt        DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  requestedBy  User         @relation("CompanyTrainingRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy   User?        @relation("CompanyTrainingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  course       Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([status, submittedAt])
+  @@map("company_training_requests")
+}
+
+model TrainingCertificate {
+  id             String   @id @default(uuid()) @db.Uuid
+  enrollmentId   String   @unique @map("enrollment_id") @db.Uuid
+  certificateNo  String   @unique @map("certificate_no") @db.VarChar(64)
+  issuedOnDate   String   @map("issued_on_date") @db.Char(10)
+  validUntilDate String   @map("valid_until_date") @db.Char(10)
+  registeredById String   @map("registered_by_id") @db.Uuid
+  registeredAt   DateTime @default(now()) @map("registered_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  registeredBy User       @relation("TrainingCertificateRegistrar", fields: [registeredById], references: [id], onDelete: Restrict)
+
+  @@map("training_certificates")
 }
 
 model Certification {

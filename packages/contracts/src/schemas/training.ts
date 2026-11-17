@@ -86,6 +86,9 @@ export const attendancePatchSchema = z.object({
 export const learningRecordSchema = enrollmentSchema.extend({
   countsTowardTotal: z.boolean(),
   attendedHoursLabel: z.string(),
+  trainingCertificateNo: z.string().nullable().optional(),
+  trainingCertificateIssuedOn: z.string().nullable().optional(),
+  trainingCertificateValidUntil: z.string().nullable().optional(),
 });
 
 export type Course = z.infer<typeof courseSchema>;

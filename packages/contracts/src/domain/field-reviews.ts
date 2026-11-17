@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ApplicationAction } from "@mf/db/enums";
-import type { CategoryDefinition } from "./category-definition";
+import type { CategoryDefinition, CategoryField } from "./category-definition";
 
 export const fieldReviewSchema = z.object({
   key: z.string().trim().min(1).max(80),
@@ -22,11 +22,16 @@ const CONTACT_FIELDS = [
   { key: "organizationAddress", label: "地址" },
 ] as const;
 
-const CONTENT_FIELDS = [
-  { key: "siteName", label: "場所名稱" },
-  { key: "siteAddress", label: "場所地址" },
-  { key: "applicationDescription", label: "申請說明" },
-] as const;
+const CERTIFICATE_NAME_EN = "certificateNameEn";
+const CERTIFICATE_ADDRESS_EN = "certificateAddressEn";
+
+export function splitCertificateFields(fields: CategoryField[]) {
+  return {
+    nameEn: fields.find((field) => field.key === CERTIFICATE_NAME_EN),
+    addressEn: fields.find((field) => field.key === CERTIFICATE_ADDRESS_EN),
+    rest: fields.filter((field) => field.key !== CERTIFICATE_NAME_EN && field.key !== CERTIFICATE_ADDRESS_EN),
+  };
+}
 
 export function attachmentReviewKey(requirementKey: string) {
   return `attachment:${requirementKey}`;
@@ -35,12 +40,19 @@ export function attachmentReviewKey(requirementKey: string) {
 export type ReviewTarget = { key: string; label: string; section: string };
 
 export function reviewTargets(definition: CategoryDefinition): ReviewTarget[] {
+  const certificate = splitCertificateFields(definition.fields);
   return [
     { key: "category", label: "申請類別", section: "申請類別" },
     ...CONTACT_FIELDS.map((field) => ({ ...field, section: "業者與聯絡資料" })),
-    ...CONTENT_FIELDS.map((field) => ({ ...field, section: "申請內容" })),
-    ...definition.fields.map((field) => ({ key: field.key, label: field.label, section: "申請內容" })),
-    ...definition.attachmentRequirements.map((item) => ({ key: attachmentReviewKey(item.key), label: item.label, section: item.group === "checklist" ? "檢查表照片" : "附件資料" })),
+    { key: "siteName", label: "單位名稱（中文）", section: "申請內容" },
+    ...(certificate.nameEn ? [{ key: certificate.nameEn.key, label: certificate.nameEn.label, section: "申請內容" }] : []),
+    { key: "siteAddress", label: "單位地址（中文）", section: "申請內容" },
+    ...(certificate.addressEn ? [{ key: certificate.addressEn.key, label: certificate.addressEn.label, section: "申請內容" }] : []),
+    { key: "applicationDescription", label: "申請說明", section: "申請內容" },
+    ...certificate.rest.map((field) => ({ key: field.key, label: field.label, section: "申請內容" })),
+    ...definition.attachmentRequirements
+      .filter((item) => item.group !== "checklist")
+      .map((item) => ({ key: attachmentReviewKey(item.key), label: item.label, section: "附件資料" })),
     { key: "declarationAccepted", label: "資料聲明", section: "確認送件" },
   ];
 }

@@ -6,6 +6,7 @@ export {
   CourseStatus,
   CourseDelivery,
   EnrollmentStatus,
+  CompanyTrainingRequestStatus,
   ContentSlot,
   EditorialKind,
   ContractStatus,
@@ -24,6 +25,7 @@ export * from "./domain/category-definition";
 export * from "./domain/application-validation";
 export * from "./domain/field-reviews";
 export * from "./domain/training";
+export * from "./domain/basic-training";
 export * from "./domain/certification";
 export * from "./domain/csv";
 export * from "./domain/hash";
@@ -39,6 +41,7 @@ export * from "./schemas/auth";
 export * from "./schemas/organization";
 export * from "./schemas/application";
 export * from "./schemas/training";
+export * from "./schemas/basic-training";
 export * from "./schemas/admin";
 export * from "./schemas/platform";
 export * from "./schemas/report";

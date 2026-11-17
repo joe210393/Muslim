@@ -7,6 +7,7 @@ export {
   CourseDelivery,
   EnrollmentStatus,
   AttendanceStatus,
+  CompanyTrainingRequestStatus,
   NotificationJobStatus,
   NotificationType,
   ImportBatchType,

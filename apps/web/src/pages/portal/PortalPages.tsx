@@ -1,10 +1,9 @@
-import { applicationStatusLabels, attachmentIsRequired, fieldIsRequired, reviewTargets, validateSubmit, type ApplicationDetail } from "@mf/contracts";
+import { applicationStatusLabels, attachmentIsRequired, attachmentIsVisible, fieldIsRequired, fieldIsVisible, reviewTargets, splitCertificateFields, validateSubmit, VERIFICATION_EXCLUSIVE, VERIFICATION_PICK_KEYS, type ApplicationDetail, type CategoryField } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useServices } from "../../app/session";
 import { AttachmentImages } from "../../components/AttachmentImages";
-import { SquareCropDialog } from "../../components/SquareCropDialog";
 import { TrainingPage } from "./TrainingPage";
 import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatBytes, formatTaipei, labels } from "../../lib/format";
@@ -14,6 +13,7 @@ export function PortalHome() {
   const services = useServices();
   const summary = useQuery({ queryKey: ["summary"], queryFn: () => services.summary() });
   const apps = useQuery({ queryKey: ["applications"], queryFn: () => services.applications({ page: 1 }) });
+  const basic = useQuery({ queryKey: ["basic-training"], queryFn: () => services.basicTrainingStatus() });
   if (summary.isLoading) return <p>載入中…</p>;
   if (summary.error) return <ErrorText message="無法載入總覽" />;
   const data = summary.data!;
@@ -26,6 +26,13 @@ export function PortalHome() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">總覽</h1>
+      {basic.data && basic.data.policy.requireBasicBeforeApply && !basic.data.passed ? (
+        <Card className="space-y-2">
+          <p className="font-medium">請先完成基礎教育訓練</p>
+          <p className="text-sm text-[var(--muted)]">通過內容與測驗後，才能建立驗證申請。</p>
+          <Link className="btn btn-primary inline-flex rounded-md px-3 py-2 text-sm no-underline" to="/portal/enrollments">前往基礎教育訓練</Link>
+        </Card>
+      ) : null}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{cards.map(([label, count]) => <Card key={String(label)}><p className="text-sm text-[var(--muted)]">{label}</p><p className="text-2xl font-semibold">{count}</p></Card>)}</div>
       <Card>
         <h2 className="font-medium">待辦案件</h2>
@@ -156,26 +163,37 @@ export function NewApplicationPage() {
   const services = useServices();
   const navigate = useNavigate();
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
+  const basic = useQuery({ queryKey: ["basic-training"], queryFn: () => services.basicTrainingStatus() });
   const [categoryId, setCategoryId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const blocked = Boolean(basic.data?.policy.requireBasicBeforeApply && !basic.data.passed);
   return (
     <Card className="space-y-3">
       <h1 className="text-xl font-semibold">新增申請</h1>
-      <Field label="申請類別" hint="建立後會取得案件編號。未確認的類別在正式環境不能送件。">
-        <SelectInput value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-          <option value="">請選擇</option>
-          {categories.data?.map((category) => <option key={category.id} value={category.id}>{category.code} {category.name}</option>)}
-        </SelectInput>
-      </Field>
-      {error ? <ErrorText message={error} /> : null}
-      <Button disabled={!categoryId} onClick={async () => {
-        try {
-          const created = await services.createApplication(categoryId);
-          navigate(`/portal/applications/${created.id}/edit`);
-        } catch (reason) {
-          setError(reason instanceof ClientError ? reason.message : "建立失敗");
-        }
-      }}>建立草稿</Button>
+      {blocked ? (
+        <div className="space-y-2 text-sm">
+          <p>請先完成基礎教育訓練（內容與測驗）後再建立申請。</p>
+          <Link className="text-[var(--link)]" to="/portal/enrollments">前往基礎教育訓練</Link>
+        </div>
+      ) : (
+        <>
+          <Field label="申請類別" hint="建立後會取得案件編號。未確認的類別在正式環境不能送件。">
+            <SelectInput value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+              <option value="">請選擇</option>
+              {categories.data?.map((category) => <option key={category.id} value={category.id}>{category.code} {category.name}</option>)}
+            </SelectInput>
+          </Field>
+          {error ? <ErrorText message={error} /> : null}
+          <Button disabled={!categoryId} onClick={async () => {
+            try {
+              const created = await services.createApplication(categoryId);
+              navigate(`/portal/applications/${created.id}/edit`);
+            } catch (reason) {
+              setError(reason instanceof ClientError ? reason.message : "建立失敗");
+            }
+          }}>建立草稿</Button>
+        </>
+      )}
     </Card>
   );
 }
@@ -193,7 +211,6 @@ export function ApplicationEditPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [crop, setCrop] = useState<{ key: string; files: File[] } | null>(null);
   const [previewed, setPreviewed] = useState(false);
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
   useEffect(() => { if (query.data) setDraft(query.data); }, [query.data]);
@@ -204,9 +221,9 @@ export function ApplicationEditPage() {
   }, [dirty]);
   if (query.isLoading) return <p>載入中…</p>;
   if (query.isError || !draft) return <ErrorText message="找不到申請或沒有權限" />;
-  const steps = ["申請類別", "業者與聯絡資料", "申請內容", "附件資料", "檢查表照片", "線上預覽", "確認送件"];
-  const previewStep = 5;
-  const confirmStep = 6;
+  const steps = ["申請類別", "業者與聯絡資料", "申請內容", "附件資料", "線上預覽", "確認送件"];
+  const previewStep = 4;
+  const confirmStep = 5;
   const supplements = (draft.fieldReviews ?? []).filter((item) => item.needsSupplement);
   function supplementFor(key: string) {
     return supplements.find((item) => item.key === key);
@@ -287,25 +304,12 @@ export function ApplicationEditPage() {
         </div>
       ) : null}
       {step === 2 ? (
-        <div className="space-y-3">
-          <Field required label="單位名稱（中文）" hint="印在證書上的名稱。">{supplementFor("siteName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteName")?.publicComment}</p> : null}<TextInput value={draft.siteName ?? ""} onChange={(event) => { setDraft({ ...draft, siteName: event.target.value }); setDirty(true); }} /></Field>
-          <Field required label="單位地址（中文）" hint="印在證書上的地址。">{supplementFor("siteAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteAddress")?.publicComment}</p> : null}<TextInput value={draft.siteAddress ?? ""} onChange={(event) => { setDraft({ ...draft, siteAddress: event.target.value }); setDirty(true); }} /></Field>
-          <Field required label="申請說明" hint="申請表沒有獨立的說明欄。這裡留給審查閱讀，送件仍要填。">{supplementFor("applicationDescription") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("applicationDescription")?.publicComment}</p> : null}<TextArea value={draft.applicationDescription ?? ""} onChange={(event) => { setDraft({ ...draft, applicationDescription: event.target.value }); setDirty(true); }} /></Field>
-          {draft.definition.fields.map((field) => (
-            <Field key={field.key} required={fieldIsRequired(field, draft.formData)} label={field.label} hint={field.helpText}>
-              {supplementFor(field.key) ? <p className="mb-1 text-sm">審查請補件：{supplementFor(field.key)?.publicComment}</p> : null}
-              {field.inputType === "textarea" ? <TextArea value={String(draft.formData[field.key] ?? "")} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: event.target.value } }); setDirty(true); }} /> : null}
-              {field.inputType === "select" ? <SelectInput value={String(draft.formData[field.key] ?? "")} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: event.target.value } }); setDirty(true); }}><option value="">請選擇</option>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectInput> : null}
-              {field.inputType === "checkbox" ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.formData[field.key] === true} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: event.target.checked } }); setDirty(true); }} />{field.label}</label> : null}
-              {field.inputType !== "textarea" && field.inputType !== "select" && field.inputType !== "checkbox" ? <TextInput type={field.inputType === "number" ? "number" : field.inputType === "date" ? "date" : "text"} value={String(draft.formData[field.key] ?? "")} onChange={(event) => { setDraft({ ...draft, formData: { ...draft.formData, [field.key]: field.inputType === "number" ? Number(event.target.value) : event.target.value } }); setDirty(true); }} /> : null}
-            </Field>
-          ))}
-        </div>
+        <ApplicationContentStep draft={draft} setDraft={setDraft} setDirty={setDirty} supplementFor={supplementFor} />
       ) : null}
-      {step === 3 || step === 4 ? (
+      {step === 3 ? (
         <div className="space-y-3">
-          {step === 4 ? <p className="text-sm text-[var(--muted)]">每一項可以一次選多張照片。上傳前會裁成正方形，請自己拖曳方框決定位置。</p> : null}
-          {draft.definition.attachmentRequirements.filter((requirement) => (requirement.group === "checklist") === (step === 4)).map((requirement) => {
+          {draft.definition.fields.some((field) => field.key === "mealBreakfast") && draft.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist" && attachmentIsVisible(requirement, draft.formData)).length === 0 ? <p className="text-sm text-[var(--muted)]">請先回到申請內容，勾選這次要驗證的項目。勾了以後，這裡才出現要上傳的檔案。</p> : null}
+          {draft.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist" && attachmentIsVisible(requirement, draft.formData)).map((requirement) => {
             const files = draft.attachments.filter((item) => item.requirementKey === requirement.key && !item.capturedOnSite);
             const needed = attachmentIsRequired(requirement, draft.formData);
             const image = requirement.accept === "image";
@@ -313,7 +317,7 @@ export function ApplicationEditPage() {
               <Card key={requirement.key}>
                 <p className="font-medium">{needed ? <span className="text-[var(--danger)]">* </span> : null}{requirement.label}</p>
                 {supplementFor(`attachment:${requirement.key}`) ? <p className="text-sm">審查請補件：{supplementFor(`attachment:${requirement.key}`)?.publicComment}</p> : null}
-                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。" : "PDF、JPEG、PNG。"}單檔 10 MiB。可一次選擇多個檔案。{step === 4 ? "每張都會先裁成正方形。" : ""}{requirement.helpText}</p>
+                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。" : "PDF、JPEG、PNG。"}單檔 10 MiB。可一次選擇多個檔案。{requirement.helpText}</p>
                 {files.length === 0 ? <p className="text-sm text-[var(--muted)]">尚未上傳</p> : files.map((file) => (
                   <div key={file.id} className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                     {file.mimeType === "application/pdf" ? <OpenPdfButton fileId={file.fileId} name={file.originalName} /> : <span>{file.originalName}</span>}
@@ -331,15 +335,6 @@ export function ApplicationEditPage() {
                     try {
                       const saved = await save();
                       if (!saved) return;
-                      if (step === 4) {
-                        const images = selected.filter((file) => file.type === "image/jpeg" || file.type === "image/png");
-                        if (!images.length) {
-                          setError("請選擇 JPEG 或 PNG");
-                          return;
-                        }
-                        setCrop({ key: requirement.key, files: images });
-                        return;
-                      }
                       for (const file of selected) await services.upload(draft.id, requirement.key, file);
                       setMessage(image ? "照片已上傳，可以在下方查看。" : "附件已上傳");
                       await client.invalidateQueries({ queryKey: ["application", applicationId] });
@@ -351,7 +346,6 @@ export function ApplicationEditPage() {
               </Card>
             );
           })}
-          {step === 4 && draft.definition.attachmentRequirements.every((requirement) => requirement.group !== "checklist") ? <p className="text-sm">這一版表單還沒有檢查表照片。新建立的草稿才有。</p> : null}
         </div>
       ) : null}
       {step === previewStep ? (
@@ -382,17 +376,6 @@ export function ApplicationEditPage() {
       </div>
       {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
       {error ? <ErrorText message={error} /> : null}
-      {crop ? (
-        <SquareCropDialog
-          files={crop.files}
-          onClose={() => setCrop(null)}
-          onUse={async (file) => {
-            await services.upload(draft.id, crop.key, file);
-            setMessage("照片已裁成正方形並上傳。");
-            await client.invalidateQueries({ queryKey: ["application", applicationId] });
-          }}
-        />
-      ) : null}
       {deleteOpen ? (
         <Modal title="刪除草稿" onClose={() => setDeleteOpen(false)}>
           <p className="text-sm">刪除 {draft.applicationNo} 後不能復原。</p>
@@ -536,7 +519,64 @@ function fieldText(item: ApplicationDetail, key: string) {
   return String(raw);
 }
 
+function setChecked(formData: ApplicationDetail["formData"], key: string, checked: boolean) {
+  const next = { ...formData, [key]: checked };
+  if (checked) {
+    for (const [left, right] of VERIFICATION_EXCLUSIVE) {
+      if (key === left) next[right] = false;
+      if (key === right) next[left] = false;
+    }
+  }
+  return next;
+}
+
+function DefinitionField({ field, draft, setDraft, setDirty, supplementFor }: { field: CategoryField; draft: ApplicationDetail; setDraft: (value: ApplicationDetail) => void; setDirty: (value: boolean) => void; supplementFor: (key: string) => { publicComment: string } | undefined }) {
+  const write = (value: string | number | boolean) => {
+    setDraft({ ...draft, formData: { ...draft.formData, [field.key]: value } });
+    setDirty(true);
+  };
+  return (
+    <Field required={fieldIsRequired(field, draft.formData)} label={field.label} hint={field.helpText}>
+      {supplementFor(field.key) ? <p className="mb-1 text-sm">審查請補件：{supplementFor(field.key)?.publicComment}</p> : null}
+      {field.inputType === "textarea" ? <TextArea value={String(draft.formData[field.key] ?? "")} onChange={(event) => write(event.target.value)} /> : null}
+      {field.inputType === "select" ? <SelectInput value={String(draft.formData[field.key] ?? "")} onChange={(event) => write(event.target.value)}><option value="">請選擇</option>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectInput> : null}
+      {field.inputType === "checkbox" ? <input type="checkbox" checked={draft.formData[field.key] === true} onChange={(event) => { setDraft({ ...draft, formData: setChecked(draft.formData, field.key, event.target.checked) }); setDirty(true); }} /> : null}
+      {field.inputType !== "textarea" && field.inputType !== "select" && field.inputType !== "checkbox" ? <TextInput type={field.inputType === "number" ? "number" : field.inputType === "date" ? "date" : "text"} value={String(draft.formData[field.key] ?? "")} onChange={(event) => write(field.inputType === "number" ? Number(event.target.value) : event.target.value)} /> : null}
+    </Field>
+  );
+}
+
+function ApplicationContentStep({ draft, setDraft, setDirty, supplementFor }: { draft: ApplicationDetail; setDraft: (value: ApplicationDetail) => void; setDirty: (value: boolean) => void; supplementFor: (key: string) => { publicComment: string } | undefined }) {
+  const certificate = splitCertificateFields(draft.definition.fields);
+  const picks = new Set<string>(VERIFICATION_PICK_KEYS);
+  const rest = certificate.rest.filter((field) => fieldIsVisible(field, draft.formData) && !picks.has(field.key));
+  const pickFields = certificate.rest.filter((field) => picks.has(field.key));
+  return (
+    <div className="space-y-3">
+      <Field required label="單位名稱（中文）" hint="印在證書上的名稱。">{supplementFor("siteName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteName")?.publicComment}</p> : null}<TextInput value={draft.siteName ?? ""} onChange={(event) => { setDraft({ ...draft, siteName: event.target.value }); setDirty(true); }} /></Field>
+      {certificate.nameEn ? <DefinitionField field={certificate.nameEn} draft={draft} setDraft={setDraft} setDirty={setDirty} supplementFor={supplementFor} /> : null}
+      <Field required label="單位地址（中文）" hint="印在證書上的地址。">{supplementFor("siteAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteAddress")?.publicComment}</p> : null}<TextInput value={draft.siteAddress ?? ""} onChange={(event) => { setDraft({ ...draft, siteAddress: event.target.value }); setDirty(true); }} /></Field>
+      {certificate.addressEn ? <DefinitionField field={certificate.addressEn} draft={draft} setDraft={setDraft} setDirty={setDirty} supplementFor={supplementFor} /> : null}
+      <Field required label="申請說明" hint="申請表沒有獨立的說明欄。這裡留給審查閱讀，送件仍要填。">{supplementFor("applicationDescription") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("applicationDescription")?.publicComment}</p> : null}<TextArea value={draft.applicationDescription ?? ""} onChange={(event) => { setDraft({ ...draft, applicationDescription: event.target.value }); setDirty(true); }} /></Field>
+      {pickFields.length ? (
+        <Card className="space-y-2">
+          <p className="font-medium">驗證項目</p>
+          <p className="text-sm text-[var(--muted)]">可複選。早餐、午餐、晚餐、飲品、點心各自勾。旅宿含早餐與不含早餐只能擇一。體驗活動含食用品與不含食用品只能擇一。沒勾的附件不會出現。</p>
+          {pickFields.map((field) => (
+            <label key={field.key} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={draft.formData[field.key] === true} onChange={(event) => { setDraft({ ...draft, formData: setChecked(draft.formData, field.key, event.target.checked) }); setDirty(true); }} />
+              {field.label}
+            </label>
+          ))}
+        </Card>
+      ) : null}
+      {rest.map((field) => <DefinitionField key={field.key} field={field} draft={draft} setDraft={setDraft} setDirty={setDirty} supplementFor={supplementFor} />)}
+    </div>
+  );
+}
+
 export function ApplicationPreview({ item, categoryName }: { item: ApplicationDetail; categoryName: string }) {
+  const certificate = splitCertificateFields(item.definition.fields);
   const rows: Array<[string, string]> = [
     ["申請類別", categoryName],
     ["業者名稱", item.organizationName ?? ""],
@@ -546,9 +586,11 @@ export function ApplicationPreview({ item, categoryName }: { item: ApplicationDe
     ["Email", item.contactEmail ?? ""],
     ["地址", item.organizationAddress ?? ""],
     ["單位名稱（中文）", item.siteName ?? ""],
+    ...(certificate.nameEn ? [[certificate.nameEn.label, fieldText(item, certificate.nameEn.key)] as [string, string]] : []),
     ["單位地址（中文）", item.siteAddress ?? ""],
+    ...(certificate.addressEn ? [[certificate.addressEn.label, fieldText(item, certificate.addressEn.key)] as [string, string]] : []),
     ["申請說明", item.applicationDescription ?? ""],
-    ...item.definition.fields.map((field) => [field.label, fieldText(item, field.key)] as [string, string]),
+    ...certificate.rest.filter((field) => fieldIsVisible(field, item.formData)).map((field) => [field.label, fieldText(item, field.key)] as [string, string]),
   ];
   return (
     <div className="space-y-4">
@@ -562,26 +604,45 @@ export function ApplicationPreview({ item, categoryName }: { item: ApplicationDe
           ))}
         </div>
       </Card>
-      {(["application", "checklist"] as const).map((group) => {
-        const requirements = item.definition.attachmentRequirements.filter((requirement) => (requirement.group === "checklist") === (group === "checklist"));
-        if (requirements.length === 0) return null;
+      {(() => {
+        const requirements = item.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist" && attachmentIsVisible(requirement, item.formData));
+        const legacyChecklist = item.definition.attachmentRequirements.filter((requirement) => requirement.group === "checklist" && item.attachments.some((file) => file.requirementKey === requirement.key && !file.capturedOnSite));
+        if (requirements.length === 0 && legacyChecklist.length === 0) return null;
         return (
-      <Card key={group} className="space-y-4">
-        <h2 className="font-medium">{group === "checklist" ? "檢查表照片" : "附件與照片"}</h2>
-        {requirements.map((requirement) => {
-          const files = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
-          return (
-            <div key={requirement.key}>
-              <p className="text-sm">{requirement.label}{files.length === 0 ? "：尚未上傳" : ""}</p>
-              {files.filter((file) => file.mimeType === "application/pdf").map((file) => <OpenPdfButton key={file.id} fileId={file.fileId} name={file.originalName} />)}
-              {files.filter((file) => file.mimeType !== "application/pdf" && !file.mimeType.startsWith("image/")).map((file) => <p key={file.id} className="text-sm text-[var(--muted)]">{file.originalName}</p>)}
-              <AttachmentImages files={files} />
-            </div>
-          );
-        })}
-      </Card>
+          <>
+            {requirements.length ? (
+              <Card className="space-y-4">
+                <h2 className="font-medium">附件與照片</h2>
+                {requirements.map((requirement) => {
+                  const files = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
+                  return (
+                    <div key={requirement.key}>
+                      <p className="text-sm">{requirement.label}{files.length === 0 ? "：尚未上傳" : ""}</p>
+                      {files.filter((file) => file.mimeType === "application/pdf").map((file) => <OpenPdfButton key={file.id} fileId={file.fileId} name={file.originalName} />)}
+                      {files.filter((file) => file.mimeType !== "application/pdf" && !file.mimeType.startsWith("image/")).map((file) => <p key={file.id} className="text-sm text-[var(--muted)]">{file.originalName}</p>)}
+                      <AttachmentImages files={files} />
+                    </div>
+                  );
+                })}
+              </Card>
+            ) : null}
+            {legacyChecklist.length ? (
+              <Card className="space-y-4">
+                <h2 className="font-medium">舊版檢查表照片</h2>
+                {legacyChecklist.map((requirement) => {
+                  const files = item.attachments.filter((file) => file.requirementKey === requirement.key && !file.capturedOnSite);
+                  return (
+                    <div key={requirement.key}>
+                      <p className="text-sm">{requirement.label}</p>
+                      <AttachmentImages files={files} />
+                    </div>
+                  );
+                })}
+              </Card>
+            ) : null}
+          </>
         );
-      })}
+      })()}
     </div>
   );
 }

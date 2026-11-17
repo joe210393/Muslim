@@ -101,6 +101,7 @@ import {
   contractCapture,
   type PlatformState,
 } from "./platform";
+import { assertCanApply, ensureTrainingData, trainingDesk } from "./training-desk";
 
 type State = {
   data: DemoDataset;
@@ -111,7 +112,7 @@ type State = {
   platform: PlatformState;
 };
 
-const KEY = "mf-demo-state-v2";
+const KEY = "mf-demo-state-v3";
 
 function ensureSiteReview(state: State) {
   for (const app of state.data.applications) {
@@ -140,8 +141,18 @@ function ensureOfficialCategories(state: State) {
       try { return [parseCategoryDefinition(item.definition)]; } catch { return []; }
     });
     const hasForm = parsed.some((definition) => definition.fields.some((field) => field.key === "certificateNameEn"));
-    const hasChecklist = parsed.some((definition) => definition.attachmentRequirements.some((item) => item.group === "checklist"));
-    if (hasForm && hasChecklist) continue;
+    const newest = [...versions].sort((a, b) => b.version - a.version)[0];
+    let newestHasApplicantChecklist = false;
+    if (newest) {
+      try {
+        newestHasApplicantChecklist = parseCategoryDefinition(newest.definition).attachmentRequirements.some((item) => item.group === "checklist");
+      } catch {
+        newestHasApplicantChecklist = false;
+      }
+    }
+    const sharedPicks = new Set(["CAT_01", "CAT_03", "CAT_04", "CAT_06", "CAT_07"]);
+    const hasPicks = parsed.some((definition) => definition.fields.some((field) => field.key === "mealBreakfast"));
+    if (hasForm && !newestHasApplicantChecklist && (!sharedPicks.has(blueprint.code) || hasPicks)) continue;
     const nextVersion = versions.reduce((max, item) => Math.max(max, item.version), 0) + 1;
     state.data.formVersions.push({
       id: crypto.randomUUID(),
@@ -369,6 +380,9 @@ function learningOf(state: State, enrollment: DemoDataset["enrollments"][number]
     startsAt: course.startsAt,
     endsAt: course.endsAt,
     location: course.location,
+    trainingCertificateNo: state.data.trainingCertificates?.find((item) => item.enrollmentId === enrollment.id)?.certificateNo ?? null,
+    trainingCertificateIssuedOn: state.data.trainingCertificates?.find((item) => item.enrollmentId === enrollment.id)?.issuedOnDate ?? null,
+    trainingCertificateValidUntil: state.data.trainingCertificates?.find((item) => item.enrollmentId === enrollment.id)?.validUntilDate ?? null,
   };
 }
 
@@ -470,6 +484,7 @@ export async function createMockServices(): Promise<Services> {
   state.platform.payments ??= [];
   ensureOfficialCategories(state);
   ensureSiteReview(state);
+  ensureTrainingData(state.data);
   ensureAccountFeatures(state.platform, state.data.users);
   ensureEditorial(state.platform);
   fixHalalSpelling(state.platform);
@@ -571,7 +586,7 @@ export async function createMockServices(): Promise<Services> {
         const versions = state.data.formVersions.filter((item) => item.categoryId === category.id).sort((a, b) => b.version - a.version);
         const latest = versions[0]!;
         return { ...category, latestVersion: { id: latest.id, version: latest.version, configurationStatus: latest.configurationStatus, definition: parseCategoryDefinition(latest.definition) } };
-      });
+      }).sort((a, b) => a.displayOrder - b.displayOrder);
     },
     async applications(query = {}) {
       const actor = requireActor(state);
@@ -595,6 +610,7 @@ export async function createMockServices(): Promise<Services> {
     async createApplication(categoryId) {
       const actor = requireActor(state);
       if (actor.role !== UserRole.APPLICANT || !actor.organizationId) throw new ClientError("只有業者可以建立申請", { status: 403 });
+      assertCanApply(state.data, actor);
       const org = state.data.organizations.find((item) => item.id === actor.organizationId)!;
       const versions = state.data.formVersions.filter((item) => item.categoryId === categoryId).sort((a, b) => b.version - a.version);
       const latest = versions[0];
@@ -799,7 +815,7 @@ export async function createMockServices(): Promise<Services> {
       if (actor.role !== UserRole.ADMIN && app.siteReviewerId !== actor.id) throw new ClientError("只有指定的複審人員或管理員可以上傳現場照片", { status: 403 });
       const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
       const requirement = parseCategoryDefinition(version?.definition ?? { schemaVersion: 1, fields: [], attachmentRequirements: [], helpText: "" }).attachmentRequirements.find((item) => item.key === requirementKey);
-      if (!requirement || requirement.group !== "checklist") throw new ClientError("只能在檢查表照片上補現場拍攝");
+      if (!requirement || requirement.group === "checklist") throw new ClientError("只能在送件附件項目上補現場拍攝");
       if (file.size > FILE_POLICY.maxFileBytes) throw new ClientError("檔案超過 10 MiB", { code: "FILE_TOO_LARGE" });
       const bytes = new Uint8Array(await file.arrayBuffer());
       const signature = detectFileSignature(bytes);
@@ -1447,6 +1463,64 @@ export async function createMockServices(): Promise<Services> {
       updateIntegration(state.platform, requireActor(state), input);
       await save();
     },
+    async basicTrainingStatus() {
+      return desk().basicStatus();
+    },
+    async completeBasicModule(moduleId) {
+      const result = await desk().completeBasicModule(moduleId);
+      await save();
+      return result;
+    },
+    async submitBasicQuiz(input) {
+      const result = await desk().submitBasicQuiz(input);
+      await save();
+      return result;
+    },
+    async downloadBasicCertificate() {
+      return desk().downloadBasicCertificate();
+    },
+    async trainingPolicy() {
+      return desk().trainingPolicy();
+    },
+    async saveTrainingPolicy(input) {
+      const result = await desk().saveTrainingPolicy(input);
+      await save();
+      return result;
+    },
+    async adminBasicModules() {
+      return desk().adminBasicModules();
+    },
+    async saveBasicModule(input, id) {
+      const result = await desk().saveBasicModule(input, id);
+      await save();
+      return result;
+    },
+    async myCompanyTrainingRequests() {
+      return desk().myCompanyTrainingRequests();
+    },
+    async saveCompanyTrainingRequest(input, id) {
+      const result = await desk().saveCompanyTrainingRequest(input, id);
+      await save();
+      return result;
+    },
+    async submitCompanyTrainingRequest(id, expectedVersion) {
+      const result = await desk().submitCompanyTrainingRequest(id, expectedVersion);
+      await save();
+      return result;
+    },
+    async adminCompanyTrainingRequests() {
+      return desk().adminCompanyTrainingRequests();
+    },
+    async reviewCompanyTrainingRequest(id, input) {
+      const result = await desk().reviewCompanyTrainingRequest(id, input);
+      await save();
+      return result;
+    },
+    async registerTrainingCertificate(input) {
+      const result = await desk().registerTrainingCertificate(input);
+      await save();
+      return result;
+    },
     async resetDemo() {
       state = blank();
       sessionStorage.removeItem("mf-demo-user");
@@ -1467,12 +1541,18 @@ export async function createMockServices(): Promise<Services> {
     },
   };
 
+  function desk() {
+    const actor = requireActor(state);
+    return trainingDesk(state.data, actor, hasFeature(state.platform, actor.id, "training.manage"));
+  }
+
   async function transition(id: string, expectedVersion: number, requestId: string, action: typeof ApplicationAction.SUBMIT | typeof ApplicationAction.RESUBMIT) {
     const actor = requireActor(state);
     const existing = state.data.events.find((event) => event.applicationId === id && event.requestId === requestId);
     if (existing) return toDetail(state, id, actor);
     const app = state.data.applications.find((item) => item.id === id);
     if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
+    if (action === ApplicationAction.SUBMIT) assertCanApply(state.data, actor);
     const decision = resolveTransition({ action, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, isSiteReviewer: app.siteReviewerId === actor.id, hasAssignee: Boolean(app.assignedToId) });
     if (!decision.ok) throw new ClientError(decision.message, { code: "INVALID_TRANSITION" });
     if (app.version !== expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });

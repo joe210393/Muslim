@@ -205,6 +205,8 @@ export async function createDraft(actor: Actor, categoryId: string) {
   if (actor.role !== UserRole.APPLICANT || !actor.organizationId) {
     throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可以建立申請");
   }
+  const { assertBasicTrainingGate } = await import("../training/basic");
+  await assertBasicTrainingGate(actor);
   const [category, organization] = await Promise.all([
     prisma.applicationCategory.findUnique({
       where: { id: categoryId },
@@ -340,6 +342,10 @@ export async function updateDraft(actor: Actor, id: string, patch: ApplicationPa
 }
 
 async function writeSubmission(env: Env, actor: Actor, id: string, action: typeof ApplicationAction.SUBMIT | typeof ApplicationAction.RESUBMIT, expectedVersion: number, requestId: string) {
+  if (action === ApplicationAction.SUBMIT) {
+    const { assertBasicTrainingGate } = await import("../training/basic");
+    await assertBasicTrainingGate(actor);
+  }
   const requestHash = await sha256Hex(JSON.stringify({ action, expectedVersion, id }));
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.applicationEvent.findUnique({ where: { applicationId_requestId: { applicationId: id, requestId } } });

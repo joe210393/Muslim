@@ -1,8 +1,9 @@
-import { courseDeliveryLabels, studyStatusLabel, type LearningRecord } from "@mf/contracts";
+import { companyTrainingRequestStatusLabels, courseDeliveryLabels, studyStatusLabel, type LearningRecord } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { useServices } from "../../app/session";
-import { Button, Empty, ErrorText, Modal, SelectInput } from "../../components/ui";
+import { Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError } from "../../services/types";
 
 const filters = [
@@ -13,6 +14,7 @@ const filters = [
 ] as const;
 
 type FilterId = (typeof filters)[number][0];
+type Tab = "basic" | "general" | "company";
 
 function matches(row: LearningRecord, filter: FilterId) {
   if (filter === "ENROLLED") return row.status === "CONFIRMED" && row.completion !== "COMPLETED";
@@ -36,6 +38,109 @@ function clock(seconds: number) {
 }
 
 export function TrainingPage() {
+  const [tab, setTab] = useState<Tab>("basic");
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold">教育訓練</h1>
+      <div className="flex flex-wrap gap-2">
+        {([["basic", "基礎教育訓練"], ["general", "線上／線下課程"], ["company", "申請專班"]] as const).map(([id, label]) => (
+          <button key={id} type="button" className={`btn rounded-full px-3 py-1 text-sm ${tab === id ? "is-selected" : ""}`} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+      {tab === "basic" ? <BasicTrainingPanel /> : null}
+      {tab === "general" ? <GeneralTrainingPanel /> : null}
+      {tab === "company" ? <CompanyTrainingPanel /> : null}
+    </div>
+  );
+}
+
+function BasicTrainingPanel() {
+  const services = useServices();
+  const client = useQueryClient();
+  const status = useQuery({ queryKey: ["basic-training"], queryFn: () => services.basicTrainingStatus() });
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const data = status.data;
+  async function refresh() {
+    await client.invalidateQueries({ queryKey: ["basic-training"] });
+  }
+  if (status.isLoading) return <p>載入中…</p>;
+  if (!data) return <ErrorText message="無法載入基礎教育訓練" />;
+  return (
+    <div className="space-y-4">
+      <Card className="space-y-2 text-sm">
+        <p>{data.policy.requireBasicBeforeApply ? "完成基礎課內容與測驗後，才能建立驗證申請。" : "目前後台未強制基礎課才可申請；仍建議先完成。"}</p>
+        <p>及格分數：{data.policy.quizPassPercent}%。狀態：{data.passed ? "已通過" : data.requiredComplete ? "可參加測驗" : "請先讀完必做模組"}。</p>
+        {data.lastScorePercent != null ? <p>最近一次測驗：{data.lastScorePercent} 分</p> : null}
+        {data.passed && data.hasCertificate ? (
+          <Button variant="secondary" onClick={async () => {
+            const file = await services.downloadBasicCertificate();
+            const url = URL.createObjectURL(file.blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = file.name;
+            link.click();
+          }}>下載基礎課證書{data.certificateNo ? `（${data.certificateNo}）` : ""}</Button>
+        ) : null}
+      </Card>
+      {data.modules.map((module) => (
+        <Card key={module.id} className="space-y-2">
+          <h2 className="font-medium">{module.title}{module.isRequired ? "（必做）" : ""}</h2>
+          <p className="whitespace-pre-wrap text-sm">{module.body}</p>
+          {module.completed ? <p className="text-sm text-emerald-800">已標示讀完</p> : (
+            <Button onClick={async () => {
+              try {
+                await services.completeBasicModule(module.id);
+                setError(null);
+                setMessage(`已讀完：${module.title}`);
+                await refresh();
+              } catch (reason) {
+                setError(reason instanceof ClientError ? reason.message : "無法標記");
+              }
+            }}>標示已讀完</Button>
+          )}
+        </Card>
+      ))}
+      {data.canTakeQuiz ? (
+        <Card className="space-y-3">
+          <h2 className="font-medium">基礎測驗</h2>
+          {data.modules.flatMap((module) => module.questions).map((question) => (
+            <div key={question.id} className="space-y-2 border-t border-[var(--line)] pt-3">
+              <p className="text-sm">{question.prompt}</p>
+              {question.options.map((option, index) => (
+                <label key={`${question.id}-${index}`} className="flex items-center gap-2 text-sm">
+                  <input type="radio" name={question.id} checked={answers[question.id] === index} onChange={() => setAnswers((current) => ({ ...current, [question.id]: index }))} />
+                  {option}
+                </label>
+              ))}
+            </div>
+          ))}
+          <Button onClick={async () => {
+            try {
+              const payload = data.modules.flatMap((module) => module.questions).map((question) => ({ questionId: question.id, selectedIndex: answers[question.id] ?? -1 }));
+              if (payload.some((item) => item.selectedIndex < 0)) {
+                setError("請答完所有題目");
+                return;
+              }
+              const result = await services.submitBasicQuiz({ answers: payload });
+              setError(null);
+              setMessage(result.justPassed ? `測驗通過（${result.scorePercent} 分），已產生證書。` : `尚未及格（${result.scorePercent} 分），請再試。`);
+              await refresh();
+            } catch (reason) {
+              setError(reason instanceof ClientError ? reason.message : "交卷失敗");
+            }
+          }}>交卷</Button>
+        </Card>
+      ) : null}
+      {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
+      {error ? <ErrorText message={error} /> : null}
+      <p className="text-sm"><Link className="text-[var(--link)]" to="/portal/applications">前往驗證申請</Link></p>
+    </div>
+  );
+}
+
+function GeneralTrainingPanel() {
   const services = useServices();
   const client = useQueryClient();
   const rows = useQuery({ queryKey: ["learning"], queryFn: () => services.learning() });
@@ -46,7 +151,7 @@ export function TrainingPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">教育訓練</h1>
+        <p className="text-sm text-[var(--muted)]">公開線上／線下課程報名與學習紀錄。</p>
         <SelectInput className="w-36" value={filter} aria-label="篩選報名狀態" onChange={(event) => setFilter(event.target.value as FilterId)}>
           {filters.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </SelectInput>
@@ -58,7 +163,7 @@ export function TrainingPage() {
           <table className="min-w-[960px] w-full text-sm">
             <thead className="bg-[var(--accent-deep)] text-left text-white">
               <tr>
-                {["課程類別", "課程名稱", "認證時數", "開課期間", "學習狀態", "申請退選", "課程回饋", "學習證明", "閱讀時數"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}
+                {["課程類別", "課程名稱", "認證時數", "開課期間", "學習狀態", "申請退選", "課程回饋", "學習證明", "訓練證書", "閱讀時數"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -76,6 +181,7 @@ export function TrainingPage() {
                     </td>
                     <td className="px-3 py-3"><button type="button" className="text-[#d4657a]" disabled title="課程回饋尚未開放" aria-label="課程回饋尚未開放">✕</button></td>
                     <td className="px-3 py-3">{row.completion === "COMPLETED" ? <button type="button" className="text-[var(--link)]" aria-label="下載學習紀錄" onClick={() => downloadRecord(row)}>↓</button> : null}</td>
+                    <td className="px-3 py-3">{row.trainingCertificateNo ? <span className="text-sm">{row.trainingCertificateNo}</span> : <span className="text-[var(--muted)]">—</span>}</td>
                     <td className="px-3 py-3"><button type="button" className="text-[var(--link)]" aria-label="查看閱讀時數" onClick={() => setReading(row)}>◎</button></td>
                   </tr>
                 );
@@ -84,70 +190,135 @@ export function TrainingPage() {
           </table>
         </div>
       ) : null}
-      {cancelId ? <Modal title="申請退選" onClose={() => setCancelId(null)}><p className="text-sm">確定取消這筆報名？名額會釋放。已通過的課程不能退選。</p><Button className="mt-3" onClick={async () => { await services.cancelEnrollment(cancelId); setCancelId(null); await client.invalidateQueries({ queryKey: ["learning"] }); }}>確認退選</Button></Modal> : null}
-      {reading ? <ReadingDialog row={reading} onClose={() => setReading(null)} onProgress={(next) => { setReading(next); void client.invalidateQueries({ queryKey: ["learning"] }); }} /> : null}
+      {cancelId ? (
+        <Modal title="確認退選" onClose={() => setCancelId(null)}>
+          <p className="text-sm">退選後名額會釋出。若已通過則不能退選。</p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="danger" onClick={async () => {
+              await services.cancelEnrollment(cancelId);
+              setCancelId(null);
+              await client.invalidateQueries({ queryKey: ["learning"] });
+            }}>確認退選</Button>
+            <Button variant="secondary" onClick={() => setCancelId(null)}>取消</Button>
+          </div>
+        </Modal>
+      ) : null}
+      {reading ? <ReadingModal row={reading} onClose={() => setReading(null)} onChanged={async () => { await client.invalidateQueries({ queryKey: ["learning"] }); }} /> : null}
+    </div>
+  );
+}
+
+function CompanyTrainingPanel() {
+  const services = useServices();
+  const client = useQueryClient();
+  const policy = useQuery({ queryKey: ["training-policy"], queryFn: () => services.trainingPolicy() });
+  const rows = useQuery({ queryKey: ["company-training"], queryFn: () => services.myCompanyTrainingRequests() });
+  const [form, setForm] = useState({ headcount: 20, preferredStartsOn: "", preferredEndsOn: "", delivery: "OFFLINE" as "ONLINE" | "OFFLINE", location: "", note: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const min = policy.data?.privateRequestMinHeadcount ?? 20;
+  return (
+    <div className="space-y-4">
+      <Card className="space-y-3">
+        <h2 className="font-medium">申請單獨開班</h2>
+        <p className="text-sm text-[var(--muted)]">人數至少 {min} 人才能送出，由管理員評估是否為貴公司單獨開立。初版核准後不會自動建課。</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="預計人數" required><TextInput type="number" value={form.headcount} onChange={(event) => setForm({ ...form, headcount: Number(event.target.value) })} /></Field>
+          <Field label="上課方式" required>
+            <SelectInput value={form.delivery} onChange={(event) => setForm({ ...form, delivery: event.target.value as "ONLINE" | "OFFLINE" })}>
+              <option value="OFFLINE">線下</option>
+              <option value="ONLINE">線上</option>
+            </SelectInput>
+          </Field>
+          <Field label="希望開始日" required><TextInput type="date" value={form.preferredStartsOn} onChange={(event) => setForm({ ...form, preferredStartsOn: event.target.value })} /></Field>
+          <Field label="希望結束日" required><TextInput type="date" value={form.preferredEndsOn} onChange={(event) => setForm({ ...form, preferredEndsOn: event.target.value })} /></Field>
+          {form.delivery === "OFFLINE" ? <Field label="希望地點" required><TextInput value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></Field> : null}
+          <Field label="說明"><TextArea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></Field>
+        </div>
+        <Button onClick={async () => {
+          try {
+            if (form.headcount < min) {
+              setError(`專班申請至少需要 ${min} 人`);
+              setMessage(null);
+              return;
+            }
+            const saved = await services.saveCompanyTrainingRequest(form);
+            await services.submitCompanyTrainingRequest(saved.id, saved.version);
+            setError(null);
+            setMessage("已送出專班申請");
+            await client.invalidateQueries({ queryKey: ["company-training"] });
+          } catch (reason) {
+            setError(reason instanceof ClientError ? reason.message : "送出失敗");
+          }
+        }}>儲存並送出</Button>
+        {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
+        {error ? <ErrorText message={error} /> : null}
+      </Card>
+      <div className="space-y-2">
+        <h2 className="font-medium">我的專班申請</h2>
+        {rows.isLoading ? <p>載入中…</p> : null}
+        {(rows.data ?? []).length === 0 ? <Empty title="還沒有專班申請" body="上方填寫後即可送出。" /> : null}
+        {(rows.data ?? []).map((item) => (
+          <Card key={item.id} className="space-y-1 text-sm">
+            <p className="font-medium">{companyTrainingRequestStatusLabels[item.status].label} · {item.headcount} 人</p>
+            <p>{item.preferredStartsOn} 至 {item.preferredEndsOn} · {courseDeliveryLabels[item.delivery].label}{item.location ? ` · ${item.location}` : ""}</p>
+            {item.adminNote ? <p>管理員意見：{item.adminNote}</p> : null}
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
 
 function downloadRecord(row: LearningRecord) {
-  const text = [`學習紀錄`, `這不是正式證書。`, `課程：${row.courseTitle}`, `類別：${courseDeliveryLabels[row.delivery].label}`, `認證時數：${creditHours(row.durationMinutes)}`, `狀態：通過`].join("\n");
-  const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  const content = [`課程,${row.courseTitle}`, `狀態,${studyStatusLabel(row.completion).label}`, `時數,${row.attendedHoursLabel}`].join("\n");
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${row.courseTitle}-學習紀錄.txt`;
+  link.download = `${row.courseTitle}-learning.csv`;
   link.click();
-  URL.revokeObjectURL(url);
 }
 
-function ReadingDialog({ row, onClose, onProgress }: { row: LearningRecord; onClose: () => void; onProgress: (row: LearningRecord) => void }) {
+function ReadingModal({ row, onClose, onChanged }: { row: LearningRecord; onClose: () => void; onChanged: () => Promise<void> }) {
   const services = useServices();
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const played = useRef(row.watchedSeconds);
-  const last = useRef(0);
-  const version = useRef(row.version);
-  const onProgressRef = useRef(onProgress);
-  onProgressRef.current = onProgress;
+  const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
-    if (row.delivery !== "ONLINE") return;
-    let cancelled = false;
-    let url = "";
-    void services.courseVideo(row.id).then((file) => {
-      if (cancelled) return;
-      url = URL.createObjectURL(file.blob);
-      setSrc(url);
-    }).catch((reason) => { if (!cancelled) setError(reason instanceof ClientError ? reason.message : "無法載入影片"); });
-    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
-  }, [row.delivery, row.id, services]);
-  useEffect(() => {
-    if (row.delivery !== "ONLINE") return;
-    const timer = window.setInterval(() => {
-      void services.recordWatch(row.id, { expectedVersion: version.current, watchedSeconds: Math.floor(played.current) }).then((saved) => {
-        version.current = saved.version;
-        played.current = Math.max(played.current, saved.watchedSeconds);
-        onProgressRef.current(saved);
-      }).catch(() => undefined);
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [row.delivery, row.id, services]);
+    let active = true;
+    let objectUrl: string | null = null;
+    if (row.delivery === "ONLINE") {
+      void services.courseVideo(row.courseId).then((file) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(file.blob);
+        setUrl(objectUrl);
+      }).catch((reason) => setError(reason instanceof ClientError ? reason.message : "無法載入影片"));
+    }
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [row.courseId, row.delivery, services]);
   return (
-    <Modal title="閱讀時數" onClose={onClose}>
-      <p className="text-sm">{row.courseTitle}</p>
-      {row.delivery === "ONLINE" ? (
-        <div className="mt-3 space-y-2">
-          <p className="text-sm">已看 {clock(row.watchedSeconds)}，需看 {clock(row.passSeconds)}（影片時間的三分之二）才算通過。</p>
-          {src ? <video ref={videoRef} className="w-full rounded-md bg-black" controls src={src} onTimeUpdate={(event) => {
-            const video = event.currentTarget;
-            if (video.seeking || video.paused) return;
-            const delta = video.currentTime - last.current;
-            if (delta > 0 && delta < 1.5) played.current += delta;
-            last.current = video.currentTime;
-          }} onSeeked={(event) => { last.current = event.currentTarget.currentTime; }} /> : <p className="text-sm text-[var(--muted)]">影片載入中…</p>}
-        </div>
-      ) : <p className="mt-3 text-sm">線下課程的出席時數：{row.attendedHoursLabel}。完課門檻 {row.requiredAttendanceMinutesSnapshot} 分鐘。</p>}
-      {error ? <ErrorText message={error} /> : null}
+    <Modal title={row.courseTitle} onClose={onClose}>
+      <div className="space-y-3 text-sm">
+        <p>已累計 {row.attendedHoursLabel}{row.delivery === "ONLINE" ? `（通過門檻 ${clock(row.passSeconds)}）` : ""}</p>
+        {row.delivery === "ONLINE" && url ? (
+          <video
+            ref={videoRef}
+            className="w-full rounded-md bg-black"
+            controls
+            src={url}
+            onTimeUpdate={() => {
+              const video = videoRef.current;
+              if (!video) return;
+              void services.recordWatch(row.id, { expectedVersion: row.version, watchedSeconds: Math.floor(video.currentTime) }).then(onChanged).catch((reason) => setError(reason instanceof ClientError ? reason.message : "進度沒有寫入"));
+            }}
+          />
+        ) : null}
+        {error ? <ErrorText message={error} /> : null}
+      </div>
     </Modal>
   );
 }

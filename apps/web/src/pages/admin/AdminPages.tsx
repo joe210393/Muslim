@@ -126,7 +126,7 @@ export function CourseListPage() {
   const courses = useQuery({ queryKey: ["courses", "manage"], queryFn: () => services.courses("manage") });
   return (
     <div className="space-y-3">
-      <div className="flex justify-between"><h1 className="text-2xl font-semibold">教育訓練管理</h1><Link className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline" to="/admin/courses/new">新增課程</Link></div>
+      <div className="flex justify-between"><h2 className="text-xl font-semibold">課程梯次</h2><Link className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline" to="/admin/courses/new">新增課程</Link></div>
       {courses.data?.map((course) => <Card key={course.id}><div className="flex justify-between"><Link className="font-medium text-[var(--link)]" to={`/admin/courses/${course.id}/edit`}>{course.title}</Link><Badge tone={courseStatusLabels[course.status].tone}>{courseStatusLabels[course.status].label}</Badge></div><p className="text-sm">{courseDeliveryLabels[course.delivery].label} · 名額 {course.confirmedCount}/{course.capacity}</p><Link className="text-sm" to={`/admin/courses/${course.id}/enrollments`}>報名名單</Link></Card>)}
     </div>
   );

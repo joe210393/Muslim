@@ -6,6 +6,7 @@ import {
   CourseStatus,
   CourseDelivery,
   EnrollmentStatus,
+  CompanyTrainingRequestStatus,
   ImportBatchStatus,
   ImportBatchType,
   NotificationJobStatus,
@@ -26,6 +27,7 @@ export const ErrorCodes = {
   FILE_TOO_LARGE: "FILE_TOO_LARGE",
   UNSUPPORTED_FILE_TYPE: "UNSUPPORTED_FILE_TYPE",
   CATEGORY_NOT_CONFIRMED: "CATEGORY_NOT_CONFIRMED",
+  BASIC_TRAINING_REQUIRED: "BASIC_TRAINING_REQUIRED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -42,6 +44,7 @@ export const courseStatusSchema = enumSchema(CourseStatus);
 export const courseDeliverySchema = enumSchema(CourseDelivery);
 export const enrollmentStatusSchema = enumSchema(EnrollmentStatus);
 export const attendanceStatusSchema = enumSchema(AttendanceStatus);
+export const companyTrainingRequestStatusSchema = enumSchema(CompanyTrainingRequestStatus);
 export const notificationJobStatusSchema = enumSchema(NotificationJobStatus);
 export const notificationTypeSchema = enumSchema(NotificationType);
 export const importBatchTypeSchema = enumSchema(ImportBatchType);

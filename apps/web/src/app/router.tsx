@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, useParams } from "react-router";
 import { Guard, Shell } from "../components/shell/Shell";
-import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, CourseListPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
+import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
+import { TrainingAdminHub } from "../pages/admin/TrainingAdminPages";
 import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, FileWindowPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
 import { CmsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage } from "../pages/admin/InfoAdminPages";
 import { PaymentsPage } from "../pages/admin/PaymentsPage";
@@ -65,7 +66,7 @@ export const router = createBrowserRouter([
       { path: "/admin/reports", element: <ReportsPage /> },
       { path: "/admin/permissions", element: <PermissionsPage /> },
       { path: "/admin/applications/:applicationId", element: <AdminApplicationDetail /> },
-      { path: "/admin/courses", element: <CourseListPage /> },
+      { path: "/admin/courses", element: <TrainingAdminHub /> },
       { path: "/admin/courses/new", element: <CourseFormPage /> },
       { path: "/admin/courses/:courseId/edit", element: <CourseFormPage /> },
       { path: "/admin/courses/:courseId/enrollments", element: <EnrollmentAdminPage /> },

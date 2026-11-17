@@ -57,6 +57,31 @@ export function paintContract(
   write("本檔於簽署當下產生，已嵌入手寫簽名與當時的人像。已簽署內容不隨後續範本修改而改變。", 22);
 }
 
+export type BasicCertificatePainter = {
+  fillText: (text: string, x: number, y: number, size: number) => void;
+};
+
+export function paintBasicCertificate(
+  painter: BasicCertificatePainter,
+  input: { title: string; certificateNo: string; holderName: string; organizationName: string; passedAtLabel: string },
+) {
+  const margin = 80;
+  let y = 160;
+  const write = (text: string, size: number) => {
+    painter.fillText(text, margin, y, size);
+    y += size + 28;
+  };
+  write(input.title, 40);
+  y += 12;
+  write(`證書編號 ${input.certificateNo}`, 26);
+  y += 20;
+  write(`受訓人：${input.holderName}`, 30);
+  write(`業者：${input.organizationName || "—"}`, 28);
+  write(`通過時間（台北時間）：${input.passedAtLabel}`, 26);
+  y += 24;
+  write("本證書於基礎教育訓練內容與測驗通過後自動產生。正式版式與效力仍待確認。", 22);
+}
+
 export async function pngPagesToPdf(pages: Uint8Array[]): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   for (const bytes of pages) {

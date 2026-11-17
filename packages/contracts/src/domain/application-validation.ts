@@ -1,3 +1,4 @@
+import { VERIFICATION_EXCLUSIVE, VERIFICATION_PICK_KEYS } from "../fixtures/categories";
 import type { CategoryDefinition, CategoryField } from "./category-definition";
 
 export type CommonApplicationInput = {
@@ -59,14 +60,41 @@ function checkEmail(value: string | null, issues: FieldIssue[], required: boolea
   if (!EMAIL_DEMO.test(value.trim())) issues.push({ path: "contactEmail", message: "Email 格式不正確" });
 }
 
+export function whenMatches(formData: Record<string, unknown>, when: { field: string; equals: string }) {
+  const raw = formData[when.field];
+  if (typeof raw === "boolean") return when.equals === "true" ? raw : when.equals === "false" ? !raw : false;
+  return String(raw ?? "") === when.equals;
+}
+
+export function anyWhenMatches(formData: Record<string, unknown>, clauses: { field: string; equals: string }[] | undefined) {
+  return (clauses ?? []).some((when) => whenMatches(formData, when));
+}
+
+export function fieldIsVisible(field: CategoryField, formData: Record<string, unknown>): boolean {
+  if (field.visibleWhenAny?.length) return anyWhenMatches(formData, field.visibleWhenAny);
+  return true;
+}
+
+export function attachmentIsVisible(requirement: CategoryDefinition["attachmentRequirements"][number], formData: Record<string, unknown>): boolean {
+  if (requirement.visibleWhenAny?.length) return anyWhenMatches(formData, requirement.visibleWhenAny);
+  return true;
+}
+
+function conditionsRequire(formData: Record<string, unknown>, requiredWhen: { field: string; equals: string } | undefined, requiredWhenAny: { field: string; equals: string }[] | undefined, requiredOnSubmit: boolean) {
+  if (requiredWhenAny?.length && !anyWhenMatches(formData, requiredWhenAny)) return false;
+  if (requiredWhen && !whenMatches(formData, requiredWhen)) return false;
+  if (requiredWhenAny?.length || requiredWhen) return true;
+  return requiredOnSubmit;
+}
+
 export function fieldIsRequired(field: CategoryField, formData: Record<string, unknown>): boolean {
-  if (field.requiredWhen) return String(formData[field.requiredWhen.field] ?? "") === field.requiredWhen.equals;
-  return field.requiredOnSubmit;
+  if (!fieldIsVisible(field, formData)) return false;
+  return conditionsRequire(formData, field.requiredWhen, field.requiredWhenAny, field.requiredOnSubmit);
 }
 
 export function attachmentIsRequired(requirement: CategoryDefinition["attachmentRequirements"][number], formData: Record<string, unknown>): boolean {
-  if (requirement.requiredWhen) return String(formData[requirement.requiredWhen.field] ?? "") === requirement.requiredWhen.equals;
-  return requirement.requiredOnSubmit;
+  if (!attachmentIsVisible(requirement, formData)) return false;
+  return conditionsRequire(formData, requirement.requiredWhen, requirement.requiredWhenAny, requirement.requiredOnSubmit);
 }
 
 function checkFieldValue(field: CategoryField, raw: unknown, issues: FieldIssue[], required: boolean, formData: Record<string, unknown>) {
@@ -147,7 +175,19 @@ export function validateSubmit(
   for (const field of definition.fields) {
     checkFieldValue(field, input.formData[field.key], issues, true, input.formData);
   }
+  if (definition.fields.some((field) => field.key === "mealBreakfast")) {
+    const picked = VERIFICATION_PICK_KEYS.some((key) => input.formData[key] === true);
+    if (!picked) issues.push({ path: "formData.mealBreakfast", message: "請至少勾選一項驗證項目" });
+  }
+  for (const [left, right] of VERIFICATION_EXCLUSIVE) {
+    if (input.formData[left] === true && input.formData[right] === true) {
+      const leftLabel = definition.fields.find((field) => field.key === left)?.label ?? left;
+      const rightLabel = definition.fields.find((field) => field.key === right)?.label ?? right;
+      issues.push({ path: `formData.${left}`, message: `${leftLabel}與${rightLabel}只能擇一` });
+    }
+  }
   for (const requirement of definition.attachmentRequirements) {
+    if (requirement.group === "checklist") continue;
     if (attachmentIsRequired(requirement, input.formData) && !activeAttachmentKeys.includes(requirement.key)) {
       issues.push({ path: `attachments.${requirement.key}`, message: `請上傳${requirement.label}` });
     }

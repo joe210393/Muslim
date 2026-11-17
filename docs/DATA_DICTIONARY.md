@@ -25,7 +25,7 @@
 | Application | 補件返回階段 | resumeStatus | resume_status | ApplicationStatus；只允許三種審查階段 | 是 | 否 | 補件時寫入 | 低 | 補件結束清空 |
 | Application | 承辦人 | assignedToId | assigned_to_id | uuid；必須是承辦或管理員 | 是 | 否 | 開始初審前需要 | 中 | 管理員派案。初審維持這位承辦 |
 | Application | 複審人員 | siteReviewerId | site_reviewer_id | uuid；必須是啟用中的承辦或管理員 | 是 | 否 | 初審通過時必填 | 中 | 初審通過時指定。之後現場複審由這位人員或管理員處理 |
-| Application | 現場附件結果 | siteChecks | site_checks | json；只記附件項目的通過或沒通過。檢查表照片不記在這裡 | 否 | 否 | 現場複審時寫入 | 中 | 現場複審人員或管理員可改 |
+| Application | 現場附件結果 | siteChecks | site_checks | json；現場複審對送件附件點通過或沒通過 | 否 | 否 | 現場複審時寫入 | 中 | 現場複審人員或管理員可改 |
 | Application | 編輯版本 | version | version | int；不符回 409 | 否 | 是 | 每次更新比對 | 低 | server 遞增 |
 | Application | 業者名稱快照 | organizationName | organization_name_snapshot | string；API 欄位 organizationName | 是 | 否 | 送件必填 | 中 | 草稿／補件可改 |
 | Application | 統編快照 | taxId | tax_id_snapshot | string；API 欄位 taxId | 是 | 否 | 空白申請表寫無則免填；有填仍檢查 8 位數字 | 高 | 草稿／補件可改 |
@@ -45,6 +45,19 @@
 | Enrollment | 已看秒數 | watchedSeconds | watched_seconds | int；不可一次跳到結尾；須達影片秒數的三分之二才算通過 | 否 | 否 | 線上播放時累加 | 中 | 只有本人播放會增加 |
 | Enrollment | 完課門檻快照 | requiredAttendanceMinutes | required_attendance_minutes_snapshot | int；歷史完課不隨課程門檻默默改變 | 否 | 報名時寫入 | 報名時寫入 | 低 | 報名時固定 |
 | Enrollment | 出席狀態 | attendanceStatus | attendance_status | AttendanceStatus；未登錄不算不合格 | 否 | 否 | 否 | 低 | 承辦登錄 |
+| TrainingPolicy | 擋申請 | requireBasicBeforeApply | require_basic_before_apply | boolean；開啟時須先通過基礎教育訓練才能建立或送出驗證申請 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| TrainingPolicy | 及格分數 | quizPassPercent | quiz_pass_percent | int；1–100；基礎課測驗及格百分比 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| TrainingPolicy | 專班最低人數 | privateRequestMinHeadcount | private_request_min_headcount | int；正整數；業者專班申請送出門檻 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 模組標題 | title | title | string；1–200 字；示範教材可替換 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 模組內容 | body | body | string；最多 8000 字 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 是否必做 | isRequired | is_required | boolean；必做模組都讀完才能測驗 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| UserBasicTraining | 通過時間 | passedAt | passed_at | datetime；通過後可下載自動證書 | 是 | 否 | 測驗通過時寫入 | 低 | 系統寫入 |
+| UserBasicTraining | 基礎證書編號 | certificateNo | certificate_no | string；unique；自動證書 | 是 | 否 | 通過時產生 | 低 | 系統寫入 |
+| CompanyTrainingRequest | 預計人數 | headcount | headcount | int；送出時比對 TrainingPolicy.privateRequestMinHeadcount | 否 | 必填 | 送出時須達門檻 | 中 | 草稿可改 |
+| CompanyTrainingRequest | 狀態 | status | status | CompanyTrainingRequestStatus；DRAFT / SUBMITTED / APPROVED / REJECTED / CANCELLED | 否 | 必填 | 否 | 低 | 業者送出；員工審核 |
+| TrainingCertificate | 證書編號 | certificateNo | certificate_no | string；一般課人工登錄；與案件 Certification 分離 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
+| TrainingCertificate | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
+| TrainingCertificate | 到期日 | validUntilDate | valid_until_date | date；不可早於核發日 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | Certification | 證書編號 | certificateNo | certificate_no | string；unique；初版人工登錄 | 否 | 核定後登錄必填 | 必填 | 低 | 管理員可更正並留紀錄 |
 | Certification | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD，不可晚於到期日 | 否 | 必填 | 必填 | 低 | 管理員可更正 |
 | Certification | 到期日 | validUntilDate | valid_until_date | date；date-only；是否有效依 Asia/Taipei 計算 | 否 | 必填 | 必填 | 低 | 管理員可更正 |
@@ -60,7 +73,7 @@
 | Course | 圖片 | imageFileId | image_file_id | uuid；JPEG 或 PNG。前台顯示為 imageUrl | 是 | 否 | 否 | 低 | 管理端可換圖 |
 | FileObject | 儲存鍵 | storageKey | storage_key | string；不可覆寫；阻擋路徑穿越 | 否 | server 產生 | 不回傳實體路徑 | 高 | 不可改 |
 | ApplicationAttachment | 附件要求代碼 | requirementKey | requirement_key | string；必須存在於該表單版本 | 否 | 上傳必填 | 依類別版本 | 低 | 移除只標 removedAt |
-| ApplicationAttachment | 現場拍攝 | capturedOnSite | captured_on_site | boolean；只有檢查表照片可在現場複審再上傳。不取代業者原照，也不能拿來通過送件 | 否 | 否 | 否 | 低 | 現場複審人員或管理員上傳 |
+| ApplicationAttachment | 現場拍攝 | capturedOnSite | captured_on_site | boolean；現場複審可選上傳存證，掛在同一送件附件項。不取代業者原照，也不能拿來通過送件 | 否 | 否 | 否 | 低 | 現場複審人員或管理員上傳 |
 | SiteContent | 版位 | slot | slot | ContentSlot；同一版位只有一筆 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | SiteContent | 眉題 | eyebrow | eyebrow | string；1–80 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | SiteContent | 標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |

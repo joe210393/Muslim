@@ -4,8 +4,10 @@ import type {
   ApplicationListItem,
   ApplicationPatch,
   AuditLog,
+  BasicTrainingStatus,
   CategorySummary,
   Certification,
+  CompanyTrainingRequest,
   Course,
   CourseWrite,
   DashboardCounts,
@@ -26,6 +28,8 @@ import type {
   ServicePlanItem,
   ServicePlanUpdate,
   ServicePlanWrite,
+  TrainingCertificate,
+  TrainingPolicy,
 } from "@mf/contracts";
 
 export type Page<T> = { items: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number } };
@@ -163,6 +167,36 @@ export type Services = {
   learning: () => Promise<LearningRecord[]>;
   courseEnrollments: (courseId: string) => Promise<LearningRecord[]>;
   attendance: (id: string, input: { expectedVersion: number; attendanceStatus: "NOT_RECORDED" | "PRESENT" | "ABSENT"; attendedMinutes: number }) => Promise<LearningRecord>;
+  basicTrainingStatus: () => Promise<BasicTrainingStatus>;
+  completeBasicModule: (moduleId: string) => Promise<BasicTrainingStatus>;
+  submitBasicQuiz: (input: { answers: Array<{ questionId: string; selectedIndex: number }> }) => Promise<BasicTrainingStatus & { justPassed: boolean; scorePercent: number }>;
+  downloadBasicCertificate: () => Promise<{ blob: Blob; name: string }>;
+  trainingPolicy: () => Promise<TrainingPolicy>;
+  saveTrainingPolicy: (input: { requireBasicBeforeApply: boolean; quizPassPercent: number; privateRequestMinHeadcount: number; expectedVersion: number }) => Promise<TrainingPolicy>;
+  adminBasicModules: () => Promise<BasicTrainingStatus["modules"]>;
+  saveBasicModule: (input: {
+    title: string;
+    body: string;
+    sortOrder: number;
+    isRequired: boolean;
+    isActive: boolean;
+    questions: Array<{ id?: string; prompt: string; options: string[]; correctIndex: number; sortOrder: number }>;
+    expectedVersion?: number;
+  }, id?: string) => Promise<BasicTrainingStatus["modules"][number]>;
+  myCompanyTrainingRequests: () => Promise<CompanyTrainingRequest[]>;
+  saveCompanyTrainingRequest: (input: {
+    headcount: number;
+    preferredStartsOn: string;
+    preferredEndsOn: string;
+    delivery: "ONLINE" | "OFFLINE";
+    location: string;
+    note: string;
+    expectedVersion?: number;
+  }, id?: string) => Promise<CompanyTrainingRequest>;
+  submitCompanyTrainingRequest: (id: string, expectedVersion: number) => Promise<CompanyTrainingRequest>;
+  adminCompanyTrainingRequests: () => Promise<CompanyTrainingRequest[]>;
+  reviewCompanyTrainingRequest: (id: string, input: { action: "APPROVE" | "REJECT"; adminNote: string; courseId?: string | null; expectedVersion: number }) => Promise<CompanyTrainingRequest>;
+  registerTrainingCertificate: (input: { enrollmentId: string; certificateNo: string; issuedOnDate: string; validUntilDate: string }) => Promise<TrainingCertificate>;
   certifications: () => Promise<Certification[]>;
   saveCertification: (applicationId: string, input: { certificateNo: string; issuedOnDate: string; validUntilDate: string }) => Promise<Certification>;
   users: (q?: string) => Promise<Array<{ id: string; email: string; displayName: string; role: string; organizationName: string | null; isActive: boolean }>>;
