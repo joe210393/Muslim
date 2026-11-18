@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useServices } from "../../app/session";
-import { Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Button, Card, Empty, ErrorText, Field, Modal, PageMedia, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError } from "../../services/types";
 
 const filters = [
@@ -59,20 +59,28 @@ function BasicTrainingPanel() {
   const client = useQueryClient();
   const status = useQuery({ queryKey: ["basic-training"], queryFn: () => services.basicTrainingStatus() });
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [quiz, setQuiz] = useState<NonNullable<Awaited<ReturnType<typeof services.startBasicQuiz>>> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const data = status.data;
   async function refresh() {
     await client.invalidateQueries({ queryKey: ["basic-training"] });
   }
+  useEffect(() => {
+    if (data?.activeAttempt) {
+      setQuiz(data.activeAttempt);
+      setAnswers({});
+    }
+  }, [data?.activeAttempt?.attemptId]);
   if (status.isLoading) return <p>載入中…</p>;
   if (!data) return <ErrorText message="無法載入基礎教育訓練" />;
+  const activeQuiz = quiz ?? data.activeAttempt;
   return (
     <div className="space-y-4">
       <Card className="space-y-2 text-sm">
         <p>{data.policy.requireBasicBeforeApply ? "完成基礎課內容與測驗後，才能建立驗證申請。" : "目前後台未強制基礎課才可申請；仍建議先完成。"}</p>
-        <p>及格分數：{data.policy.quizPassPercent}%。狀態：{data.passed ? "已通過" : data.requiredComplete ? "可參加測驗" : "請先讀完必做模組"}。</p>
-        {data.lastScorePercent != null ? <p>最近一次測驗：{data.lastScorePercent} 分</p> : null}
+        <p>抽 {data.policy.quizDrawCount} 題，答對 {data.policy.quizPassCount} 題及格。狀態：{data.passed ? "已通過" : data.requiredComplete ? (data.canTakeQuiz || activeQuiz ? "可參加測驗" : "題庫不足，請聯絡管理員") : "請先讀完必做基礎課"}。</p>
+        {data.lastCorrectCount != null && data.lastDrawCount != null ? <p>最近一次測驗：答對 {data.lastCorrectCount}/{data.lastDrawCount}</p> : null}
         {data.passed && data.hasCertificate ? (
           <Button variant="secondary" onClick={async () => {
             const file = await services.downloadBasicCertificate();
@@ -87,7 +95,18 @@ function BasicTrainingPanel() {
       {data.modules.map((module) => (
         <Card key={module.id} className="space-y-2">
           <h2 className="font-medium">{module.title}{module.isRequired ? "（必做）" : ""}</h2>
-          <p className="whitespace-pre-wrap text-sm">{module.body}</p>
+          {module.description ? <p className="whitespace-pre-wrap text-sm">{module.description}</p> : null}
+          {module.youtubeUrl ? <PageMedia youtubeUrl={module.youtubeUrl} /> : null}
+          {module.hasMaterial ? (
+            <Button variant="secondary" onClick={async () => {
+              const file = await services.downloadBasicModuleMaterial(module.id);
+              const url = URL.createObjectURL(file.blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = file.name;
+              link.click();
+            }}>下載教材{module.materialName ? `（${module.materialName}）` : ""}</Button>
+          ) : null}
           {module.completed ? <p className="text-sm text-emerald-800">已標示讀完</p> : (
             <Button onClick={async () => {
               try {
@@ -102,10 +121,27 @@ function BasicTrainingPanel() {
           )}
         </Card>
       ))}
-      {data.canTakeQuiz ? (
+      {!data.passed && data.canTakeQuiz && !activeQuiz ? (
         <Card className="space-y-3">
           <h2 className="font-medium">基礎測驗</h2>
-          {data.modules.flatMap((module) => module.questions).map((question) => (
+          <p className="text-sm text-[var(--muted)]">系統會從題庫隨機抽出 {data.policy.quizDrawCount} 題，答對 {data.policy.quizPassCount} 題即通過。</p>
+          <Button onClick={async () => {
+            try {
+              const session = await services.startBasicQuiz();
+              setQuiz(session);
+              setAnswers({});
+              setError(null);
+              await refresh();
+            } catch (reason) {
+              setError(reason instanceof ClientError ? reason.message : "無法開始測驗");
+            }
+          }}>開始測驗</Button>
+        </Card>
+      ) : null}
+      {activeQuiz ? (
+        <Card className="space-y-3">
+          <h2 className="font-medium">基礎測驗（抽 {activeQuiz.drawCount} 題，答對 {activeQuiz.passCount} 題及格）</h2>
+          {activeQuiz.questions.map((question) => (
             <div key={question.id} className="space-y-2 border-t border-[var(--line)] pt-3">
               <p className="text-sm">{question.prompt}</p>
               {question.options.map((option, index) => (
@@ -118,14 +154,18 @@ function BasicTrainingPanel() {
           ))}
           <Button onClick={async () => {
             try {
-              const payload = data.modules.flatMap((module) => module.questions).map((question) => ({ questionId: question.id, selectedIndex: answers[question.id] ?? -1 }));
+              const payload = activeQuiz.questions.map((question) => ({ questionId: question.id, selectedIndex: answers[question.id] ?? -1 }));
               if (payload.some((item) => item.selectedIndex < 0)) {
                 setError("請答完所有題目");
                 return;
               }
-              const result = await services.submitBasicQuiz({ answers: payload });
+              const result = await services.submitBasicQuiz({ attemptId: activeQuiz.attemptId, answers: payload });
+              setQuiz(null);
+              setAnswers({});
               setError(null);
-              setMessage(result.justPassed ? `測驗通過（${result.scorePercent} 分），已產生證書。` : `尚未及格（${result.scorePercent} 分），請再試。`);
+              setMessage(result.justPassed
+                ? `測驗通過（答對 ${result.correctCount}/${result.drawCount}），已產生證書。`
+                : `尚未及格（答對 ${result.correctCount}/${result.drawCount}），可再考一次。`);
               await refresh();
             } catch (reason) {
               setError(reason instanceof ClientError ? reason.message : "交卷失敗");

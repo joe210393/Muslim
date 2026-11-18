@@ -211,12 +211,19 @@ export function createHttpServices(): Services {
     async completeBasicModule(moduleId) {
       return (await request("POST", `/training/basic/modules/${moduleId}/complete`)).data as Awaited<ReturnType<Services["completeBasicModule"]>>;
     },
+    async startBasicQuiz() {
+      return (await request("POST", "/training/basic/quiz/start")).data as Awaited<ReturnType<Services["startBasicQuiz"]>>;
+    },
     async submitBasicQuiz(input) {
       return (await request("POST", "/training/basic/quiz", input)).data as Awaited<ReturnType<Services["submitBasicQuiz"]>>;
     },
     async downloadBasicCertificate() {
       const result = await request("GET", "/training/basic/certificate");
       return { blob: result.data as Blob, name: "basic-certificate.pdf" };
+    },
+    async downloadBasicModuleMaterial(moduleId) {
+      const result = await request("GET", `/training/basic/modules/${moduleId}/material`);
+      return { blob: result.data as Blob, name: "basic-material" };
     },
     async trainingPolicy() {
       return (await request("GET", "/training/policy")).data as Awaited<ReturnType<Services["trainingPolicy"]>>;
@@ -230,6 +237,22 @@ export function createHttpServices(): Services {
     async saveBasicModule(input, id) {
       const result = id ? await request("PUT", `/admin/training/basic-modules/${id}`, input) : await request("POST", "/admin/training/basic-modules", input);
       return result.data as Awaited<ReturnType<Services["saveBasicModule"]>>;
+    },
+    async uploadBasicModuleMaterial(id, file) {
+      const form = new FormData();
+      form.append("file", file);
+      return (await request("POST", `/admin/training/basic-modules/${id}/material`, form)).data as Awaited<ReturnType<Services["uploadBasicModuleMaterial"]>>;
+    },
+    async adminQuestionBank() {
+      return (await request("GET", "/admin/training/question-bank")).data as Awaited<ReturnType<Services["adminQuestionBank"]>>;
+    },
+    async replaceQuestionBank(input) {
+      return (await request("PUT", "/admin/training/question-bank", input)).data as Awaited<ReturnType<Services["replaceQuestionBank"]>>;
+    },
+    async uploadQuestionBank(file) {
+      const form = new FormData();
+      form.append("file", file);
+      return (await request("POST", "/admin/training/question-bank/upload", form)).data as Awaited<ReturnType<Services["uploadQuestionBank"]>>;
     },
     async myCompanyTrainingRequests() {
       return (await request("GET", "/training/company-requests")).data as Awaited<ReturnType<Services["myCompanyTrainingRequests"]>>;

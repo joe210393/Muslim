@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { companyTrainingRequestStatusSchema, courseDeliverySchema } from "./common";
+import { youtubeVideoId } from "../domain/platform-defaults";
 
 export const trainingPolicySchema = z.object({
   id: z.string().uuid(),
   requireBasicBeforeApply: z.boolean(),
-  quizPassPercent: z.number().int(),
+  quizDrawCount: z.number().int(),
+  quizPassCount: z.number().int(),
   privateRequestMinHeadcount: z.number().int(),
   version: z.number().int(),
   updatedAt: z.string().datetime(),
@@ -12,66 +14,83 @@ export const trainingPolicySchema = z.object({
 
 export const trainingPolicyWriteSchema = z.object({
   requireBasicBeforeApply: z.boolean(),
-  quizPassPercent: z.number().int().min(1).max(100),
+  quizDrawCount: z.number().int().min(1).max(100),
+  quizPassCount: z.number().int().min(1).max(100),
   privateRequestMinHeadcount: z.number().int().positive(),
   expectedVersion: z.number().int(),
 });
 
 export const basicTrainingQuestionSchema = z.object({
   id: z.string().uuid(),
-  moduleId: z.string().uuid(),
   prompt: z.string(),
   options: z.array(z.string()).min(2).max(8),
   correctIndex: z.number().int().nonnegative().optional(),
   sortOrder: z.number().int(),
+  isActive: z.boolean().optional(),
 });
 
 export const basicTrainingModuleSchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
-  body: z.string(),
+  description: z.string(),
+  youtubeUrl: z.string(),
   sortOrder: z.number().int(),
   isRequired: z.boolean(),
   isActive: z.boolean(),
-  hasVideo: z.boolean(),
+  hasMaterial: z.boolean(),
+  materialFileId: z.string().uuid().nullable().optional(),
+  materialName: z.string().nullable().optional(),
   version: z.number().int(),
-  questions: z.array(basicTrainingQuestionSchema),
   completed: z.boolean().optional(),
 });
 
 export const basicTrainingModuleWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  body: z.string().trim().min(1).max(8000),
+  description: z.string().trim().max(4000).default(""),
+  youtubeUrl: z.string().trim().max(200).default("").refine((value) => value === "" || youtubeVideoId(value) !== null, "請貼 YouTube 影片連結"),
   sortOrder: z.number().int().nonnegative().default(0),
   isRequired: z.boolean().default(true),
   isActive: z.boolean().default(true),
-  questions: z.array(z.object({
-    id: z.string().uuid().optional(),
-    prompt: z.string().trim().min(1).max(1000),
-    options: z.array(z.string().trim().min(1).max(200)).min(2).max(8),
-    correctIndex: z.number().int().nonnegative(),
-    sortOrder: z.number().int().nonnegative().default(0),
-  })).max(40),
   expectedVersion: z.number().int().optional(),
+});
+
+export const basicQuizSessionSchema = z.object({
+  attemptId: z.string().uuid(),
+  drawCount: z.number().int(),
+  passCount: z.number().int(),
+  questions: z.array(basicTrainingQuestionSchema),
 });
 
 export const basicTrainingStatusSchema = z.object({
   policy: trainingPolicySchema,
   modules: z.array(basicTrainingModuleSchema),
+  questionBankCount: z.number().int(),
   requiredComplete: z.boolean(),
   passed: z.boolean(),
   passedAt: z.string().datetime().nullable(),
   certificateNo: z.string().nullable(),
   hasCertificate: z.boolean(),
+  lastCorrectCount: z.number().int().nullable(),
+  lastDrawCount: z.number().int().nullable(),
   lastScorePercent: z.number().int().nullable(),
   canTakeQuiz: z.boolean(),
+  activeAttempt: basicQuizSessionSchema.nullable(),
 });
 
 export const basicQuizSubmitSchema = z.object({
+  attemptId: z.string().uuid(),
   answers: z.array(z.object({
     questionId: z.string().uuid(),
     selectedIndex: z.number().int().nonnegative(),
-  })).min(1).max(80),
+  })).min(1).max(100),
+});
+
+export const basicQuestionBankReplaceSchema = z.object({
+  questions: z.array(z.object({
+    prompt: z.string().trim().min(1).max(1000),
+    options: z.array(z.string().trim().min(1).max(200)).min(2).max(8),
+    correctIndex: z.number().int().nonnegative(),
+  })).min(1).max(500),
 });
 
 export const companyTrainingRequestSchema = z.object({
@@ -135,5 +154,8 @@ export const trainingCertificateWriteSchema = z.object({
 
 export type TrainingPolicy = z.infer<typeof trainingPolicySchema>;
 export type BasicTrainingStatus = z.infer<typeof basicTrainingStatusSchema>;
+export type BasicTrainingModule = z.infer<typeof basicTrainingModuleSchema>;
+export type BasicTrainingQuestion = z.infer<typeof basicTrainingQuestionSchema>;
+export type BasicQuizSession = z.infer<typeof basicQuizSessionSchema>;
 export type CompanyTrainingRequest = z.infer<typeof companyTrainingRequestSchema>;
 export type TrainingCertificate = z.infer<typeof trainingCertificateSchema>;

@@ -11,7 +11,10 @@ import { CourseStatus } from "@mf/db/enums";
 import { applicationStatusLabels, userRoleLabels } from "./status-labels";
 import {
   canStartVerificationApplication,
+  drawRandomQuestions,
+  parseQuestionBankUpload,
   quizPassed,
+  quizPassedByCount,
   requiredModulesComplete,
   scoreBasicQuiz,
   validateCompanyTrainingRequest,
@@ -237,8 +240,19 @@ describe("基礎教育訓練與專班", () => {
     expect(quizPassed(79, 80)).toBe(false);
   });
 
+  it("抽題與題庫上傳解析", () => {
+    const pool = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }, { id: "e" }];
+    expect(drawRandomQuestions(pool, 3, () => 0)).toHaveLength(3);
+    expect(quizPassedByCount(4, 4)).toBe(true);
+    expect(quizPassedByCount(3, 4)).toBe(false);
+    const csv = parseQuestionBankUpload("題目,選項,正解\n示範題,甲|乙|丙,1");
+    expect(csv.error).toBeUndefined();
+    expect(csv.rows[0]?.correctIndex).toBe(1);
+    expect(validateTrainingPolicy({ requireBasicBeforeApply: true, quizDrawCount: 5, quizPassCount: 6, privateRequestMinHeadcount: 20 }).some((issue) => issue.path === "quizPassCount")).toBe(true);
+  });
+
   it("專班人數與政策驗證", () => {
-    expect(validateTrainingPolicy({ requireBasicBeforeApply: true, quizPassPercent: 80, privateRequestMinHeadcount: 20 })).toEqual([]);
+    expect(validateTrainingPolicy({ requireBasicBeforeApply: true, quizDrawCount: 5, quizPassCount: 4, privateRequestMinHeadcount: 20 })).toEqual([]);
     expect(validateCompanyTrainingRequest({
       headcount: 19,
       minHeadcount: 20,

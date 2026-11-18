@@ -8,18 +8,22 @@ import {
   pngPagesToPdf,
   requiredModulesComplete,
   scoreBasicQuiz,
-  quizPassed,
+  quizPassedByCount,
   validateCompanyTrainingRequest,
   validateTrainingPolicy,
   nextBasicCertificateNo,
+  drawRandomQuestions,
+  parseQuestionBankUpload,
   DEFAULT_TRAINING_POLICY,
   type DemoDataset,
   basicTrainingModuleWriteSchema,
+  basicQuestionBankReplaceSchema,
   companyTrainingRequestWriteSchema,
   companyTrainingReviewSchema,
   trainingCertificateWriteSchema,
   trainingPolicyWriteSchema,
   basicQuizSubmitSchema,
+  youtubeVideoId,
 } from "@mf/contracts";
 import { ClientError } from "../services/types";
 import { ZodError } from "zod";
@@ -28,6 +32,7 @@ type Data = DemoDataset;
 type Actor = DemoDataset["users"][number];
 
 function policyOf(data: Data) {
+  migrateTrainingShape(data);
   if (!data.trainingPolicy) {
     data.trainingPolicy = {
       id: crypto.randomUUID(),
@@ -48,42 +53,101 @@ function policyOf(data: Data) {
   return data.trainingPolicy;
 }
 
+function migrateTrainingShape(data: Data) {
+  const policy = data.trainingPolicy as (Data["trainingPolicy"] & { quizPassPercent?: number }) | undefined;
+  if (policy && ("quizPassPercent" in policy || policy.quizDrawCount == null)) {
+    const percent = policy.quizPassPercent ?? 80;
+    policy.quizDrawCount = policy.quizDrawCount ?? 5;
+    policy.quizPassCount = policy.quizPassCount ?? Math.max(1, Math.ceil((percent / 100) * policy.quizDrawCount));
+    delete policy.quizPassPercent;
+  }
+  if (policy) {
+    const bankSize = (data.basicQuestions ?? []).filter((item) => item.isActive !== false).length;
+    if (bankSize > 0 && policy.quizDrawCount > bankSize) {
+      policy.quizDrawCount = bankSize;
+      policy.quizPassCount = Math.min(policy.quizPassCount, policy.quizDrawCount);
+    }
+  }
+  for (const module of data.basicModules ?? []) {
+    const legacy = module as Data["basicModules"][number] & { body?: string; videoFileId?: string | null };
+    if (legacy.description == null && legacy.body != null) legacy.description = legacy.body;
+    if (legacy.youtubeUrl == null) legacy.youtubeUrl = "";
+    if (legacy.materialFileId === undefined) legacy.materialFileId = null;
+    delete legacy.body;
+    delete legacy.videoFileId;
+  }
+  for (const question of data.basicQuestions ?? []) {
+    const legacy = question as Data["basicQuestions"][number] & { moduleId?: string };
+    if (legacy.isActive == null) legacy.isActive = true;
+    delete legacy.moduleId;
+  }
+  for (const attempt of data.basicAttempts ?? []) {
+    const legacy = attempt as Data["basicAttempts"][number] & { quizPassPercentSnapshot?: number };
+    if (legacy.drawCount == null) legacy.drawCount = Array.isArray(legacy.answers) ? legacy.answers.length : 0;
+    if (legacy.correctCount == null) {
+      legacy.correctCount = legacy.drawCount ? Math.round((legacy.scorePercent * legacy.drawCount) / 100) : 0;
+    }
+    if (legacy.passCountSnapshot == null) legacy.passCountSnapshot = legacy.quizPassPercentSnapshot ?? 4;
+    if (legacy.drawnQuestionIds == null) legacy.drawnQuestionIds = Array.isArray(legacy.answers) ? legacy.answers.map((item) => item.questionId) : [];
+    if (legacy.submittedAt === undefined) legacy.submittedAt = legacy.createdAt;
+    delete legacy.quizPassPercentSnapshot;
+  }
+}
+
 function presentPolicy(data: Data) {
   const policy = policyOf(data);
   return {
     id: policy.id,
     requireBasicBeforeApply: policy.requireBasicBeforeApply,
-    quizPassPercent: policy.quizPassPercent,
+    quizDrawCount: policy.quizDrawCount,
+    quizPassCount: policy.quizPassCount,
     privateRequestMinHeadcount: policy.privateRequestMinHeadcount,
     version: policy.version,
     updatedAt: policy.updatedAt,
   };
 }
 
-function moduleDto(data: Data, module: Data["basicModules"][number], actor: Actor | null, includeAnswers: boolean) {
-  const questions = data.basicQuestions
-    .filter((item) => item.moduleId === module.id)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((item) => ({
-      id: item.id,
-      moduleId: item.moduleId,
-      prompt: item.prompt,
-      options: item.options,
-      sortOrder: item.sortOrder,
-      ...(includeAnswers ? { correctIndex: item.correctIndex } : {}),
-    }));
+function moduleDto(data: Data, module: Data["basicModules"][number], actor: Actor | null) {
   const completed = actor ? data.basicProgress.some((item) => item.userId === actor.id && item.moduleId === module.id) : false;
+  const material = module.materialFileId ? data.files.find((item) => item.id === module.materialFileId) : null;
   return {
     id: module.id,
     title: module.title,
-    body: module.body,
+    description: module.description,
+    youtubeUrl: module.youtubeUrl,
     sortOrder: module.sortOrder,
     isRequired: module.isRequired,
     isActive: module.isActive,
-    hasVideo: Boolean(module.videoFileId),
+    hasMaterial: Boolean(module.materialFileId),
+    materialFileId: module.materialFileId,
+    materialName: material?.originalName ?? null,
     version: module.version,
-    questions,
     completed,
+  };
+}
+
+function questionDto(item: Data["basicQuestions"][number], includeAnswers: boolean) {
+  return {
+    id: item.id,
+    prompt: item.prompt,
+    options: item.options,
+    sortOrder: item.sortOrder,
+    isActive: item.isActive,
+    ...(includeAnswers ? { correctIndex: item.correctIndex } : {}),
+  };
+}
+
+function activeAttempt(data: Data, actor: Actor) {
+  const attempt = [...data.basicAttempts]
+    .filter((item) => item.userId === actor.id && item.submittedAt == null)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (!attempt) return null;
+  const byId = new Map(data.basicQuestions.map((item) => [item.id, item]));
+  return {
+    attemptId: attempt.id,
+    drawCount: attempt.drawCount,
+    passCount: attempt.passCountSnapshot,
+    questions: attempt.drawnQuestionIds.map((id) => byId.get(id)).filter(Boolean).map((item) => questionDto(item!, false)),
   };
 }
 
@@ -92,22 +156,29 @@ function basicStatus(data: Data, actor: Actor) {
   const modules = data.basicModules
     .filter((item) => item.isActive)
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((item) => moduleDto(data, item, actor, false));
+    .map((item) => moduleDto(data, item, actor));
   const requiredIds = modules.filter((item) => item.isRequired).map((item) => item.id);
   const completedIds = modules.filter((item) => item.completed).map((item) => item.id);
   const requiredComplete = requiredModulesComplete({ requiredModuleIds: requiredIds, completedModuleIds: completedIds });
   const record = data.userBasicTrainings.find((item) => item.userId === actor.id);
-  const last = [...data.basicAttempts].filter((item) => item.userId === actor.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const last = [...data.basicAttempts]
+    .filter((item) => item.userId === actor.id && item.submittedAt != null)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const bankCount = data.basicQuestions.filter((item) => item.isActive).length;
   return {
     policy,
     modules,
+    questionBankCount: bankCount,
     requiredComplete,
     passed: Boolean(record?.passedAt),
     passedAt: record?.passedAt ?? null,
     certificateNo: record?.certificateNo ?? null,
     hasCertificate: Boolean(record?.certificateFileId),
+    lastCorrectCount: last?.correctCount ?? null,
+    lastDrawCount: last?.drawCount ?? null,
     lastScorePercent: last?.scorePercent ?? null,
-    canTakeQuiz: requiredComplete && !record?.passedAt,
+    canTakeQuiz: requiredComplete && !record?.passedAt && bankCount >= policy.quizDrawCount,
+    activeAttempt: activeAttempt(data, actor),
   };
 }
 
@@ -139,26 +210,22 @@ async function renderBasicPdf(input: { certificateNo: string; holderName: string
   return pngPagesToPdf([png]);
 }
 
-function rememberPdf(data: Data, actorId: string, name: string, bytes: Uint8Array) {
+function rememberFile(data: Data, actorId: string, name: string, mimeType: string, bytes: Uint8Array, folder: string) {
   const id = crypto.randomUUID();
   let binary = "";
   for (const value of bytes) binary += String.fromCharCode(value);
   data.files.push({
     id,
     uploadedById: actorId,
-    storageKey: `basic-certificates/${id}.pdf`,
+    storageKey: `${folder}/${id}`,
     originalName: name,
-    mimeType: "application/pdf",
+    mimeType,
     sizeBytes: bytes.byteLength,
     sha256: "mock",
     contentBase64: btoa(binary),
     createdAt: new Date().toISOString(),
   });
   return id;
-}
-
-function assertManage(actor: Actor) {
-  if (actor.role === UserRole.APPLICANT) throw new ClientError("沒有權限", { status: 403 });
 }
 
 function presentCompanyRequest(data: Data, row: Data["companyTrainingRequests"][number]) {
@@ -191,16 +258,19 @@ export function ensureTrainingData(data: Data) {
   policyOf(data);
   if (data.basicModules.length === 0) {
     const now = new Date().toISOString();
-    const moduleA = crypto.randomUUID();
-    const moduleB = crypto.randomUUID();
     data.basicModules.push(
-      { id: moduleA, title: "穆斯林友善與 Halal 基礎概念（示範）", body: "示範設定。請完整閱讀後再標示已讀。", sortOrder: 1, isRequired: true, isActive: true, videoFileId: null, updatedById: null, version: 1, createdAt: now, updatedAt: now },
-      { id: moduleB, title: "申請與現場複審流程概要（示範）", body: "示範設定。說明送件與複審分工。", sortOrder: 2, isRequired: true, isActive: true, videoFileId: null, updatedById: null, version: 1, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), title: "基礎課1：穆斯林友善與 Halal 基礎概念（示範）", description: "示範設定。請完整閱讀後再標示已讀。", youtubeUrl: "", sortOrder: 1, isRequired: true, isActive: true, materialFileId: null, updatedById: null, version: 1, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), title: "基礎課2：申請與現場複審流程概要（示範）", description: "示範設定。說明送件與複審分工。", youtubeUrl: "", sortOrder: 2, isRequired: true, isActive: true, materialFileId: null, updatedById: null, version: 1, createdAt: now, updatedAt: now },
     );
+  }
+  if (data.basicQuestions.length === 0) {
+    const now = new Date().toISOString();
     data.basicQuestions.push(
-      { id: crypto.randomUUID(), moduleId: moduleA, prompt: "示範題：酒精類飲料應如何處理？", options: ["可並陳", "應避免或以明確方式區隔", "只在大廳販售", "沒有限制"], correctIndex: 1, sortOrder: 1, createdAt: now, updatedAt: now },
-      { id: crypto.randomUUID(), moduleId: moduleA, prompt: "示範題：肉品若要符合 Halal，通常需要什麼？", options: ["只要新鮮", "Halal 證書與可追溯採購證明", "進口即可", "口頭保證"], correctIndex: 1, sortOrder: 2, createdAt: now, updatedAt: now },
-      { id: crypto.randomUUID(), moduleId: moduleB, prompt: "示範題：現場複審主要核對什麼？", options: ["只看合約", "業者送件附件，必要時可加拍現場存證", "只看社群", "只看統編"], correctIndex: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), prompt: "示範題：酒精類飲料應如何處理？", options: ["可並陳", "應避免或以明確方式區隔", "只在大廳販售", "沒有限制"], correctIndex: 1, sortOrder: 1, isActive: true, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), prompt: "示範題：肉品若要符合 Halal，通常需要什麼？", options: ["只要新鮮", "Halal 證書與可追溯採購證明", "進口即可", "口頭保證"], correctIndex: 1, sortOrder: 2, isActive: true, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), prompt: "示範題：現場複審主要核對什麼？", options: ["只看合約", "業者送件附件，必要時可加拍現場存證", "只看社群", "只看統編"], correctIndex: 1, sortOrder: 3, isActive: true, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), prompt: "示範題：驗證申請前通常需要先完成什麼？", options: ["廣告投放", "基礎教育訓練內容與測驗", "只填統編", "現場拍照即可"], correctIndex: 1, sortOrder: 4, isActive: true, createdAt: now, updatedAt: now },
+      { id: crypto.randomUUID(), prompt: "示範題：Halal 相關證明文件建議如何保存？", options: ["口頭告知即可", "妥善保存並可供查核", "只放社群", "不必保存"], correctIndex: 1, sortOrder: 5, isActive: true, createdAt: now, updatedAt: now },
     );
   }
 }
@@ -223,31 +293,63 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
     async completeBasicModule(moduleId: string) {
       if (actor.role !== UserRole.APPLICANT) throw new ClientError("只有業者可完成基礎課閱讀", { status: 403 });
       const module = data.basicModules.find((item) => item.id === moduleId && item.isActive);
-      if (!module) throw new ClientError("找不到模組", { status: 404 });
+      if (!module) throw new ClientError("找不到基礎課", { status: 404 });
       if (!data.basicProgress.some((item) => item.userId === actor.id && item.moduleId === moduleId)) {
         data.basicProgress.push({ id: crypto.randomUUID(), userId: actor.id, moduleId, completedAt: new Date().toISOString() });
       }
       return basicStatus(data, actor);
+    },
+    async startBasicQuiz() {
+      if (actor.role !== UserRole.APPLICANT) throw new ClientError("只有業者可參加測驗", { status: 403 });
+      const status = basicStatus(data, actor);
+      if (status.passed) throw new ClientError("已通過基礎教育訓練");
+      if (status.activeAttempt) return status.activeAttempt;
+      if (!status.canTakeQuiz) throw new ClientError("請先讀完所有必做基礎課，並確認題庫足夠");
+      const policy = policyOf(data);
+      const bank = data.basicQuestions.filter((item) => item.isActive);
+      if (bank.length < policy.quizDrawCount) throw new ClientError(`題庫至少需要 ${policy.quizDrawCount} 題才能抽題`);
+      const drawn = drawRandomQuestions(bank, policy.quizDrawCount);
+      const now = new Date().toISOString();
+      const attempt = {
+        id: crypto.randomUUID(),
+        userId: actor.id,
+        scorePercent: 0,
+        correctCount: 0,
+        drawCount: drawn.length,
+        passCountSnapshot: policy.quizPassCount,
+        passed: false,
+        drawnQuestionIds: drawn.map((item) => item.id),
+        answers: null,
+        submittedAt: null,
+        createdAt: now,
+      };
+      data.basicAttempts.push(attempt);
+      return {
+        attemptId: attempt.id,
+        drawCount: attempt.drawCount,
+        passCount: attempt.passCountSnapshot,
+        questions: drawn.map((item) => questionDto(item, false)),
+      };
     },
     async submitBasicQuiz(input: unknown) {
       if (actor.role !== UserRole.APPLICANT) throw new ClientError("只有業者可參加測驗", { status: 403 });
       const parsed = basicQuizSubmitSchema.parse(input);
       const status = basicStatus(data, actor);
       if (status.passed) throw new ClientError("已通過基礎教育訓練");
-      if (!status.canTakeQuiz) throw new ClientError("請先讀完所有必做模組");
-      const questions = data.basicQuestions.filter((item) => status.modules.some((module) => module.id === item.moduleId && module.isActive));
+      const attempt = data.basicAttempts.find((item) => item.id === parsed.attemptId && item.userId === actor.id && item.submittedAt == null);
+      if (!attempt) throw new ClientError("找不到進行中的測驗，請重新開始");
+      if (parsed.answers.length !== attempt.drawnQuestionIds.length || !attempt.drawnQuestionIds.every((id) => parsed.answers.some((answer) => answer.questionId === id))) {
+        throw new ClientError("請答完本次抽出的全部題目");
+      }
+      const questions = data.basicQuestions.filter((item) => attempt.drawnQuestionIds.includes(item.id));
       const scored = scoreBasicQuiz(questions, parsed.answers);
-      const passed = quizPassed(scored.scorePercent, status.policy.quizPassPercent);
+      const passed = quizPassedByCount(scored.correct, attempt.passCountSnapshot);
       const now = new Date().toISOString();
-      data.basicAttempts.push({
-        id: crypto.randomUUID(),
-        userId: actor.id,
-        scorePercent: scored.scorePercent,
-        passed,
-        answers: parsed.answers,
-        quizPassPercentSnapshot: status.policy.quizPassPercent,
-        createdAt: now,
-      });
+      attempt.scorePercent = scored.scorePercent;
+      attempt.correctCount = scored.correct;
+      attempt.passed = passed;
+      attempt.answers = parsed.answers;
+      attempt.submittedAt = now;
       if (passed) {
         const org = data.organizations.find((item) => item.id === actor.organizationId);
         const certificateNo = nextBasicCertificateNo(data.userBasicTrainings.filter((item) => item.certificateNo).length + 1);
@@ -258,7 +360,7 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
           organizationName: org?.organizationName ?? "",
           passedAtLabel,
         });
-        const fileId = rememberPdf(data, actor.id, `${certificateNo}.pdf`, pdf);
+        const fileId = rememberFile(data, actor.id, `${certificateNo}.pdf`, "application/pdf", pdf, "basic-certificates");
         const existing = data.userBasicTrainings.find((item) => item.userId === actor.id);
         if (existing) {
           existing.passedAt = now;
@@ -277,7 +379,7 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
           });
         }
       }
-      return { ...basicStatus(data, actor), justPassed: passed, scorePercent: scored.scorePercent };
+      return { ...basicStatus(data, actor), justPassed: passed, scorePercent: scored.scorePercent, correctCount: scored.correct, drawCount: scored.total };
     },
     async downloadBasicCertificate() {
       const record = data.userBasicTrainings.find((item) => item.userId === actor.id);
@@ -286,6 +388,15 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
       if (!file) throw new ClientError("找不到證書檔", { status: 404 });
       const bytes = Uint8Array.from(atob(file.contentBase64), (char) => char.charCodeAt(0));
       return { blob: new Blob([bytes], { type: "application/pdf" }), name: file.originalName };
+    },
+    async downloadBasicModuleMaterial(moduleId: string) {
+      const module = data.basicModules.find((item) => item.id === moduleId);
+      if (!module?.materialFileId) throw new ClientError("這門基礎課還沒有教材", { status: 404 });
+      if (actor.role === UserRole.APPLICANT && !module.isActive) throw new ClientError("找不到基礎課", { status: 404 });
+      const file = data.files.find((item) => item.id === module.materialFileId);
+      if (!file) throw new ClientError("找不到教材檔", { status: 404 });
+      const bytes = Uint8Array.from(atob(file.contentBase64), (char) => char.charCodeAt(0));
+      return { blob: new Blob([bytes], { type: file.mimeType }), name: file.originalName };
     },
     async trainingPolicy() {
       return presentPolicy(data);
@@ -297,8 +408,11 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
       if (policy.version !== parsed.expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
       const issues = validateTrainingPolicy(parsed);
       if (issues[0]) throw new ClientError(issues[0].message, { fieldErrors: issues });
+      const bankCount = data.basicQuestions.filter((item) => item.isActive).length;
+      if (parsed.quizDrawCount > bankCount) throw new ClientError(`抽題數不可大於目前題庫（${bankCount} 題）`);
       policy.requireBasicBeforeApply = parsed.requireBasicBeforeApply;
-      policy.quizPassPercent = parsed.quizPassPercent;
+      policy.quizDrawCount = parsed.quizDrawCount;
+      policy.quizPassCount = parsed.quizPassCount;
       policy.privateRequestMinHeadcount = parsed.privateRequestMinHeadcount;
       policy.updatedById = actor.id;
       policy.version += 1;
@@ -307,69 +421,85 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
     },
     async adminBasicModules() {
       if (!canManage) throw new ClientError("沒有權限", { status: 403 });
-      return data.basicModules.sort((a, b) => a.sortOrder - b.sortOrder).map((item) => moduleDto(data, item, null, true));
+      return data.basicModules.sort((a, b) => a.sortOrder - b.sortOrder).map((item) => moduleDto(data, item, null));
     },
     async saveBasicModule(input: unknown, id?: string) {
       if (!canManage) throw new ClientError("沒有權限", { status: 403 });
       const parsed = basicTrainingModuleWriteSchema.parse(input);
+      if (parsed.youtubeUrl && !youtubeVideoId(parsed.youtubeUrl)) throw new ClientError("請貼 YouTube 影片連結");
       const now = new Date().toISOString();
       if (id) {
         const current = data.basicModules.find((item) => item.id === id);
-        if (!current) throw new ClientError("找不到模組", { status: 404 });
+        if (!current) throw new ClientError("找不到基礎課", { status: 404 });
         if (parsed.expectedVersion != null && current.version !== parsed.expectedVersion) {
           throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
         }
         current.title = parsed.title;
-        current.body = parsed.body;
+        current.description = parsed.description;
+        current.youtubeUrl = parsed.youtubeUrl;
         current.sortOrder = parsed.sortOrder;
         current.isRequired = parsed.isRequired;
         current.isActive = parsed.isActive;
         current.updatedById = actor.id;
         current.version += 1;
         current.updatedAt = now;
-        data.basicQuestions = data.basicQuestions.filter((item) => item.moduleId !== id);
-        for (const [index, question] of parsed.questions.entries()) {
-          data.basicQuestions.push({
-            id: question.id ?? crypto.randomUUID(),
-            moduleId: id,
-            prompt: question.prompt,
-            options: question.options,
-            correctIndex: question.correctIndex,
-            sortOrder: question.sortOrder || index + 1,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-        return moduleDto(data, current, null, true);
+        return moduleDto(data, current, null);
       }
-      const moduleId = crypto.randomUUID();
       const created = {
-        id: moduleId,
+        id: crypto.randomUUID(),
         title: parsed.title,
-        body: parsed.body,
+        description: parsed.description,
+        youtubeUrl: parsed.youtubeUrl,
         sortOrder: parsed.sortOrder,
         isRequired: parsed.isRequired,
         isActive: parsed.isActive,
-        videoFileId: null,
+        materialFileId: null,
         updatedById: actor.id,
         version: 1,
         createdAt: now,
         updatedAt: now,
       };
       data.basicModules.push(created);
-      for (const [index, question] of parsed.questions.entries()) {
-        data.basicQuestions.push({
-          id: crypto.randomUUID(),
-          moduleId,
-          prompt: question.prompt,
-          options: question.options,
-          correctIndex: question.correctIndex,
-          sortOrder: question.sortOrder || index + 1,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-      return moduleDto(data, created, null, true);
+      return moduleDto(data, created, null);
+    },
+    async uploadBasicModuleMaterial(id: string, file: File) {
+      if (!canManage) throw new ClientError("沒有權限", { status: 403 });
+      const current = data.basicModules.find((item) => item.id === id);
+      if (!current) throw new ClientError("找不到基礎課", { status: 404 });
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const fileId = rememberFile(data, actor.id, file.name, file.type || "application/octet-stream", bytes, "basic-materials");
+      current.materialFileId = fileId;
+      current.updatedById = actor.id;
+      current.version += 1;
+      current.updatedAt = new Date().toISOString();
+      return moduleDto(data, current, null);
+    },
+    async adminQuestionBank() {
+      if (!canManage) throw new ClientError("沒有權限", { status: 403 });
+      return data.basicQuestions.sort((a, b) => a.sortOrder - b.sortOrder).map((item) => questionDto(item, true));
+    },
+    async replaceQuestionBank(input: unknown) {
+      if (!canManage) throw new ClientError("沒有權限", { status: 403 });
+      const parsed = basicQuestionBankReplaceSchema.parse(input);
+      const now = new Date().toISOString();
+      data.basicQuestions = parsed.questions.map((question, index) => ({
+        id: crypto.randomUUID(),
+        prompt: question.prompt,
+        options: question.options,
+        correctIndex: question.correctIndex,
+        sortOrder: index + 1,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      return data.basicQuestions.map((item) => questionDto(item, true));
+    },
+    async uploadQuestionBank(file: File) {
+      if (!canManage) throw new ClientError("沒有權限", { status: 403 });
+      const raw = await file.text();
+      const parsed = parseQuestionBankUpload(raw);
+      if (parsed.error) throw new ClientError(parsed.error);
+      return this.replaceQuestionBank({ questions: parsed.rows });
     },
     async myCompanyTrainingRequests() {
       if (actor.role !== UserRole.APPLICANT || !actor.organizationId) throw new ClientError("只有業者可查看", { status: 403 });
@@ -381,7 +511,6 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
     async saveCompanyTrainingRequest(input: unknown, id?: string) {
       if (actor.role !== UserRole.APPLICANT || !actor.organizationId) throw new ClientError("只有業者可申請專班", { status: 403 });
       const parsed = companyTrainingRequestWriteSchema.parse(input);
-      const policy = policyOf(data);
       const issues = validateCompanyTrainingRequest({ ...parsed, minHeadcount: 1, note: parsed.note });
       if (issues[0]) throw new ClientError(issues[0].message, { fieldErrors: issues });
       const now = new Date().toISOString();
@@ -543,5 +672,3 @@ export function rejectZod(error: unknown): never {
   if (error instanceof ZodError) throw new ClientError(error.issues[0]?.message ?? "內容不正確", { status: 400, code: "VALIDATION_ERROR" });
   throw error;
 }
-
-void assertManage;

@@ -4,24 +4,28 @@ import {
   DEFAULT_TRAINING_POLICY,
   ErrorCodes,
   UserRole,
+  basicQuestionBankReplaceSchema,
   basicQuizSubmitSchema,
   basicTrainingModuleWriteSchema,
   buildLearningRecord,
   canStartVerificationApplication,
   companyTrainingRequestWriteSchema,
   companyTrainingReviewSchema,
+  drawRandomQuestions,
   nextBasicCertificateNo,
   paintBasicCertificate,
+  parseQuestionBankUpload,
   pngPagesToPdf,
-  quizPassed,
+  quizPassedByCount,
   requiredModulesComplete,
   scoreBasicQuiz,
   trainingCertificateWriteSchema,
   trainingPolicyWriteSchema,
   validateCompanyTrainingRequest,
   validateTrainingPolicy,
+  youtubeVideoId,
 } from "@mf/contracts";
-import { prisma, type Prisma } from "@mf/db/server";
+import { prisma, Prisma } from "@mf/db/server";
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -45,7 +49,8 @@ async function ensurePolicy() {
   return prisma.trainingPolicy.create({
     data: {
       requireBasicBeforeApply: DEFAULT_TRAINING_POLICY.requireBasicBeforeApply,
-      quizPassPercent: DEFAULT_TRAINING_POLICY.quizPassPercent,
+      quizDrawCount: DEFAULT_TRAINING_POLICY.quizDrawCount,
+      quizPassCount: DEFAULT_TRAINING_POLICY.quizPassCount,
       privateRequestMinHeadcount: DEFAULT_TRAINING_POLICY.privateRequestMinHeadcount,
     },
   });
@@ -55,7 +60,8 @@ function presentPolicy(row: Awaited<ReturnType<typeof ensurePolicy>>) {
   return {
     id: row.id,
     requireBasicBeforeApply: row.requireBasicBeforeApply,
-    quizPassPercent: row.quizPassPercent,
+    quizDrawCount: row.quizDrawCount,
+    quizPassCount: row.quizPassCount,
     privateRequestMinHeadcount: row.privateRequestMinHeadcount,
     version: row.version,
     updatedAt: row.updatedAt.toISOString(),
@@ -76,30 +82,57 @@ export async function assertBasicTrainingGate(actor: SessionActor) {
 async function moduleRows(includeInactive: boolean) {
   return prisma.basicTrainingModule.findMany({
     where: includeInactive ? undefined : { isActive: true },
-    include: { questions: { orderBy: { sortOrder: "asc" } } },
+    include: { material: true },
     orderBy: { sortOrder: "asc" },
   });
 }
 
-function presentModule(row: Awaited<ReturnType<typeof moduleRows>>[number], completed: boolean, includeAnswers: boolean) {
+function presentModule(row: Awaited<ReturnType<typeof moduleRows>>[number], completed: boolean) {
   return {
     id: row.id,
     title: row.title,
-    body: row.body,
+    description: row.description,
+    youtubeUrl: row.youtubeUrl,
     sortOrder: row.sortOrder,
     isRequired: row.isRequired,
     isActive: row.isActive,
-    hasVideo: Boolean(row.videoFileId),
+    hasMaterial: Boolean(row.materialFileId),
+    materialFileId: row.materialFileId,
+    materialName: row.material?.originalName ?? null,
     version: row.version,
     completed,
-    questions: row.questions.map((question) => ({
-      id: question.id,
-      moduleId: question.moduleId,
-      prompt: question.prompt,
-      options: question.options as string[],
-      sortOrder: question.sortOrder,
-      ...(includeAnswers ? { correctIndex: question.correctIndex } : {}),
-    })),
+  };
+}
+
+function presentQuestion(row: { id: string; prompt: string; options: Prisma.JsonValue; sortOrder: number; isActive?: boolean; correctIndex?: number }, includeAnswers: boolean) {
+  return {
+    id: row.id,
+    prompt: row.prompt,
+    options: row.options as string[],
+    sortOrder: row.sortOrder,
+    isActive: row.isActive ?? true,
+    ...(includeAnswers && row.correctIndex != null ? { correctIndex: row.correctIndex } : {}),
+  };
+}
+
+async function activeAttemptFor(userId: string) {
+  return prisma.basicTrainingAttempt.findFirst({
+    where: { userId, submittedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+async function presentActiveAttempt(userId: string) {
+  const attempt = await activeAttemptFor(userId);
+  if (!attempt) return null;
+  const ids = attempt.drawnQuestionIds as string[];
+  const rows = await prisma.basicTrainingQuestion.findMany({ where: { id: { in: ids } } });
+  const byId = new Map(rows.map((item) => [item.id, item]));
+  return {
+    attemptId: attempt.id,
+    drawCount: attempt.drawCount,
+    passCount: attempt.passCountSnapshot,
+    questions: ids.map((id) => byId.get(id)).filter(Boolean).map((item) => presentQuestion(item!, false)),
   };
 }
 
@@ -108,28 +141,37 @@ export async function basicStatus(actor: SessionActor) {
   const modules = await moduleRows(false);
   const progress = await prisma.basicTrainingProgress.findMany({ where: { userId: actor.id } });
   const done = new Set(progress.map((item) => item.moduleId));
-  const presented = modules.map((item) => presentModule(item, done.has(item.id), false));
+  const presented = modules.map((item) => presentModule(item, done.has(item.id)));
   const requiredIds = presented.filter((item) => item.isRequired).map((item) => item.id);
   const record = await prisma.userBasicTraining.findUnique({ where: { userId: actor.id } });
-  const last = await prisma.basicTrainingAttempt.findFirst({ where: { userId: actor.id }, orderBy: { createdAt: "desc" } });
+  const last = await prisma.basicTrainingAttempt.findFirst({
+    where: { userId: actor.id, submittedAt: { not: null } },
+    orderBy: { createdAt: "desc" },
+  });
+  const bankCount = await prisma.basicTrainingQuestion.count({ where: { isActive: true } });
   const requiredComplete = requiredModulesComplete({ requiredModuleIds: requiredIds, completedModuleIds: [...done] });
+  const activeAttempt = await presentActiveAttempt(actor.id);
   return {
     policy,
     modules: presented,
+    questionBankCount: bankCount,
     requiredComplete,
     passed: Boolean(record?.passedAt),
     passedAt: record?.passedAt?.toISOString() ?? null,
     certificateNo: record?.certificateNo ?? null,
     hasCertificate: Boolean(record?.certificateFileId),
+    lastCorrectCount: last?.correctCount ?? null,
+    lastDrawCount: last?.drawCount ?? null,
     lastScorePercent: last?.scorePercent ?? null,
-    canTakeQuiz: requiredComplete && !record?.passedAt,
+    canTakeQuiz: requiredComplete && !record?.passedAt && bankCount >= policy.quizDrawCount,
+    activeAttempt,
   };
 }
 
 export async function completeModule(actor: SessionActor, moduleId: string) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可完成基礎課閱讀");
   const module = await prisma.basicTrainingModule.findFirst({ where: { id: moduleId, isActive: true } });
-  if (!module) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到模組");
+  if (!module) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
   await prisma.basicTrainingProgress.upsert({
     where: { userId_moduleId: { userId: actor.id, moduleId } },
     create: { userId: actor.id, moduleId },
@@ -159,28 +201,72 @@ async function renderBasicPdf(repoRoot: string, input: { certificateNo: string; 
   return pngPagesToPdf([canvas.toBuffer("image/png")]);
 }
 
+export async function startQuiz(actor: SessionActor) {
+  if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可參加測驗");
+  const status = await basicStatus(actor);
+  if (status.passed) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "已通過基礎教育訓練");
+  if (!status.canTakeQuiz && !status.activeAttempt) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請先讀完所有必做基礎課，並確認題庫足夠");
+  if (status.activeAttempt) return status.activeAttempt;
+  const policy = await ensurePolicy();
+  const bank = await prisma.basicTrainingQuestion.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } });
+  if (bank.length < policy.quizDrawCount) {
+    throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, `題庫至少需要 ${policy.quizDrawCount} 題才能抽題`);
+  }
+  const drawn = drawRandomQuestions(bank, policy.quizDrawCount);
+  const attempt = await prisma.basicTrainingAttempt.create({
+    data: {
+      userId: actor.id,
+      scorePercent: 0,
+      correctCount: 0,
+      drawCount: drawn.length,
+      passCountSnapshot: policy.quizPassCount,
+      passed: false,
+      drawnQuestionIds: drawn.map((item) => item.id),
+      answers: Prisma.DbNull,
+      submittedAt: null,
+    },
+  });
+  return {
+    attemptId: attempt.id,
+    drawCount: attempt.drawCount,
+    passCount: attempt.passCountSnapshot,
+    questions: drawn.map((item) => presentQuestion(item, false)),
+  };
+}
+
 export async function submitQuiz(actor: SessionActor, storage: StorageAdapter, repoRoot: string, body: unknown) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可參加測驗");
   const input = basicQuizSubmitSchema.parse(body);
   const status = await basicStatus(actor);
   if (status.passed) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "已通過基礎教育訓練");
-  if (!status.canTakeQuiz) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請先讀完所有必做模組");
-  const rows = await prisma.basicTrainingQuestion.findMany({ where: { module: { isActive: true } } });
-  const scored = scoreBasicQuiz(rows.map((item) => ({ id: item.id, correctIndex: item.correctIndex, options: item.options as string[] })), input.answers);
-  const passed = quizPassed(scored.scorePercent, status.policy.quizPassPercent);
-  await prisma.basicTrainingAttempt.create({
+  const attempt = await prisma.basicTrainingAttempt.findFirst({
+    where: { id: input.attemptId, userId: actor.id, submittedAt: null },
+  });
+  if (!attempt) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "找不到進行中的測驗，請重新開始");
+  const drawnIds = attempt.drawnQuestionIds as string[];
+  if (input.answers.length !== drawnIds.length || !drawnIds.every((id) => input.answers.some((answer) => answer.questionId === id))) {
+    throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請答完本次抽出的全部題目");
+  }
+  const rows = await prisma.basicTrainingQuestion.findMany({ where: { id: { in: drawnIds } } });
+  const scored = scoreBasicQuiz(
+    rows.map((item) => ({ id: item.id, correctIndex: item.correctIndex, options: item.options as string[] })),
+    input.answers,
+  );
+  const passed = quizPassedByCount(scored.correct, attempt.passCountSnapshot);
+  const now = new Date();
+  await prisma.basicTrainingAttempt.update({
+    where: { id: attempt.id },
     data: {
-      userId: actor.id,
       scorePercent: scored.scorePercent,
+      correctCount: scored.correct,
       passed,
       answers: input.answers as Prisma.InputJsonValue,
-      quizPassPercentSnapshot: status.policy.quizPassPercent,
+      submittedAt: now,
     },
   });
   if (passed) {
     const count = await prisma.userBasicTraining.count({ where: { certificateNo: { not: null } } });
     const certificateNo = nextBasicCertificateNo(count + 1);
-    const now = new Date();
     const org = actor.organizationId ? await prisma.organization.findUnique({ where: { id: actor.organizationId } }) : null;
     const passedAtLabel = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(now);
     const pdf = await renderBasicPdf(repoRoot, {
@@ -209,7 +295,13 @@ export async function submitQuiz(actor: SessionActor, storage: StorageAdapter, r
       update: { passedAt: now, certificateNo, certificateFileId: fileId },
     });
   }
-  return { ...(await basicStatus(actor)), justPassed: passed, scorePercent: scored.scorePercent };
+  return {
+    ...(await basicStatus(actor)),
+    justPassed: passed,
+    scorePercent: scored.scorePercent,
+    correctCount: scored.correct,
+    drawCount: scored.total,
+  };
 }
 
 export async function downloadBasicCertificate(actor: SessionActor, storage: StorageAdapter) {
@@ -232,11 +324,16 @@ export async function savePolicy(actor: SessionActor, body: unknown) {
   if (issues[0]) fieldFailure(issues);
   const current = await ensurePolicy();
   if (current.version !== input.expectedVersion) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
+  const bankCount = await prisma.basicTrainingQuestion.count({ where: { isActive: true } });
+  if (input.quizDrawCount > bankCount) {
+    throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, `抽題數不可大於目前題庫（${bankCount} 題）`);
+  }
   const updated = await prisma.trainingPolicy.update({
     where: { id: current.id },
     data: {
       requireBasicBeforeApply: input.requireBasicBeforeApply,
-      quizPassPercent: input.quizPassPercent,
+      quizDrawCount: input.quizDrawCount,
+      quizPassCount: input.quizPassCount,
       privateRequestMinHeadcount: input.privateRequestMinHeadcount,
       updatedById: actor.id,
       version: { increment: 1 },
@@ -248,70 +345,130 @@ export async function savePolicy(actor: SessionActor, body: unknown) {
 export async function adminModules(actor: SessionActor) {
   await assertFeature(actor, "training.manage");
   const rows = await moduleRows(true);
-  return rows.map((item) => presentModule(item, false, true));
+  return rows.map((item) => presentModule(item, false));
 }
 
 export async function saveModule(actor: SessionActor, body: unknown, id?: string) {
   await assertFeature(actor, "training.manage");
   const input = basicTrainingModuleWriteSchema.parse(body);
+  if (input.youtubeUrl && !youtubeVideoId(input.youtubeUrl)) {
+    throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請貼 YouTube 影片連結");
+  }
   if (id) {
-    const current = await prisma.basicTrainingModule.findUnique({ where: { id } });
-    if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到模組");
+    const current = await prisma.basicTrainingModule.findUnique({ where: { id }, include: { material: true } });
+    if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
     if (input.expectedVersion != null && current.version !== input.expectedVersion) {
       throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
     }
-    await prisma.$transaction(async (tx) => {
-      await tx.basicTrainingModule.update({
-        where: { id },
-        data: {
-          title: input.title,
-          body: input.body,
-          sortOrder: input.sortOrder,
-          isRequired: input.isRequired,
-          isActive: input.isActive,
-          updatedById: actor.id,
-          version: { increment: 1 },
-        },
-      });
-      await tx.basicTrainingQuestion.deleteMany({ where: { moduleId: id } });
-      for (const [index, question] of input.questions.entries()) {
-        await tx.basicTrainingQuestion.create({
-          data: {
-            moduleId: id,
-            prompt: question.prompt,
-            options: question.options,
-            correctIndex: question.correctIndex,
-            sortOrder: question.sortOrder || index + 1,
-          },
-        });
-      }
+    const updated = await prisma.basicTrainingModule.update({
+      where: { id },
+      data: {
+        title: input.title,
+        description: input.description,
+        youtubeUrl: input.youtubeUrl,
+        sortOrder: input.sortOrder,
+        isRequired: input.isRequired,
+        isActive: input.isActive,
+        updatedById: actor.id,
+        version: { increment: 1 },
+      },
+      include: { material: true },
     });
-  } else {
-    await prisma.$transaction(async (tx) => {
-      const created = await tx.basicTrainingModule.create({
-        data: {
-          title: input.title,
-          body: input.body,
-          sortOrder: input.sortOrder,
-          isRequired: input.isRequired,
-          isActive: input.isActive,
-          updatedById: actor.id,
-        },
-      });
-      for (const [index, question] of input.questions.entries()) {
-        await tx.basicTrainingQuestion.create({
-          data: {
-            moduleId: created.id,
-            prompt: question.prompt,
-            options: question.options,
-            correctIndex: question.correctIndex,
-            sortOrder: question.sortOrder || index + 1,
-          },
-        });
-      }
-    });
+    return presentModule(updated, false);
   }
-  return adminModules(actor).then((rows) => rows.find((item) => item.title === input.title) ?? rows[0]!);
+  const created = await prisma.basicTrainingModule.create({
+    data: {
+      title: input.title,
+      description: input.description,
+      youtubeUrl: input.youtubeUrl,
+      sortOrder: input.sortOrder,
+      isRequired: input.isRequired,
+      isActive: input.isActive,
+      updatedById: actor.id,
+    },
+    include: { material: true },
+  });
+  return presentModule(created, false);
+}
+
+export async function uploadModuleMaterial(
+  actor: SessionActor,
+  storage: StorageAdapter,
+  id: string,
+  file: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+) {
+  await assertFeature(actor, "training.manage");
+  const current = await prisma.basicTrainingModule.findUnique({ where: { id } });
+  if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
+  const fileId = randomUUID();
+  const storageKey = `basic-materials/${fileId}-${file.originalname}`;
+  await storage.save(storageKey, file.buffer);
+  await prisma.fileObject.create({
+    data: {
+      id: fileId,
+      uploadedById: actor.id,
+      storageKey,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      sha256: await sha256Hex(file.buffer),
+    },
+  });
+  const updated = await prisma.basicTrainingModule.update({
+    where: { id },
+    data: { materialFileId: fileId, updatedById: actor.id, version: { increment: 1 } },
+    include: { material: true },
+  });
+  return presentModule(updated, false);
+}
+
+export async function downloadModuleMaterial(actor: SessionActor, storage: StorageAdapter, moduleId: string) {
+  const module = await prisma.basicTrainingModule.findFirst({
+    where: { id: moduleId, ...(actor.role === UserRole.APPLICANT ? { isActive: true } : {}) },
+    include: { material: true },
+  });
+  if (!module?.material) throw new ApiError(404, ErrorCodes.NOT_FOUND, "這門基礎課還沒有教材");
+  if (actor.role === UserRole.APPLICANT || actor.role === UserRole.ADMIN || actor.role === UserRole.CASE_OFFICER) {
+    const bytes = await storage.read(module.material.storageKey);
+    return { bytes, mimeType: module.material.mimeType, name: module.material.originalName };
+  }
+  throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有權限");
+}
+
+export async function adminQuestionBank(actor: SessionActor) {
+  await assertFeature(actor, "training.manage");
+  const rows = await prisma.basicTrainingQuestion.findMany({ orderBy: { sortOrder: "asc" } });
+  return rows.map((item) => presentQuestion({ ...item, correctIndex: item.correctIndex }, true));
+}
+
+export async function replaceQuestionBank(actor: SessionActor, body: unknown) {
+  await assertFeature(actor, "training.manage");
+  const input = basicQuestionBankReplaceSchema.parse(body);
+  await prisma.$transaction(async (tx) => {
+    await tx.basicTrainingQuestion.deleteMany({});
+    for (const [index, question] of input.questions.entries()) {
+      await tx.basicTrainingQuestion.create({
+        data: {
+          prompt: question.prompt,
+          options: question.options,
+          correctIndex: question.correctIndex,
+          sortOrder: index + 1,
+          isActive: true,
+        },
+      });
+    }
+  });
+  const policy = await ensurePolicy();
+  if (input.questions.length < policy.quizDrawCount) {
+    // allow upload smaller bank; policy save will block oversized draw later
+  }
+  return adminQuestionBank(actor);
+}
+
+export async function replaceQuestionBankFromText(actor: SessionActor, raw: string) {
+  const parsed = parseQuestionBankUpload(raw);
+  if (parsed.error) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, parsed.error);
+  return replaceQuestionBank(actor, { questions: parsed.rows });
 }
 
 function presentCompany(row: {

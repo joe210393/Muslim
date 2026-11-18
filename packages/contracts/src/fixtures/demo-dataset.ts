@@ -205,7 +205,8 @@ export type DemoDataset = {
   trainingPolicy: {
     id: string;
     requireBasicBeforeApply: boolean;
-    quizPassPercent: number;
+    quizDrawCount: number;
+    quizPassCount: number;
     privateRequestMinHeadcount: number;
     updatedById: string | null;
     version: number;
@@ -215,11 +216,12 @@ export type DemoDataset = {
   basicModules: {
     id: string;
     title: string;
-    body: string;
+    description: string;
+    youtubeUrl: string;
     sortOrder: number;
     isRequired: boolean;
     isActive: boolean;
-    videoFileId: string | null;
+    materialFileId: string | null;
     updatedById: string | null;
     version: number;
     createdAt: string;
@@ -227,11 +229,11 @@ export type DemoDataset = {
   }[];
   basicQuestions: {
     id: string;
-    moduleId: string;
     prompt: string;
     options: string[];
     correctIndex: number;
     sortOrder: number;
+    isActive: boolean;
     createdAt: string;
     updatedAt: string;
   }[];
@@ -245,9 +247,13 @@ export type DemoDataset = {
     id: string;
     userId: string;
     scorePercent: number;
+    correctCount: number;
+    drawCount: number;
+    passCountSnapshot: number;
     passed: boolean;
-    answers: Array<{ questionId: string; selectedIndex: number }>;
-    quizPassPercentSnapshot: number;
+    drawnQuestionIds: string[];
+    answers: Array<{ questionId: string; selectedIndex: number }> | null;
+    submittedAt: string | null;
     createdAt: string;
   }[];
   userBasicTrainings: {
@@ -875,7 +881,8 @@ export function buildDemoDataset(): DemoDataset {
   const trainingPolicy: DemoDataset["trainingPolicy"] = {
     id: demoUuid(0x900),
     requireBasicBeforeApply: DEFAULT_TRAINING_POLICY.requireBasicBeforeApply,
-    quizPassPercent: DEFAULT_TRAINING_POLICY.quizPassPercent,
+    quizDrawCount: DEFAULT_TRAINING_POLICY.quizDrawCount,
+    quizPassCount: DEFAULT_TRAINING_POLICY.quizPassCount,
     privateRequestMinHeadcount: DEFAULT_TRAINING_POLICY.privateRequestMinHeadcount,
     updatedById: admin.id,
     version: 1,
@@ -886,12 +893,13 @@ export function buildDemoDataset(): DemoDataset {
   const basicModules: DemoDataset["basicModules"] = [
     {
       id: demoUuid(0x910),
-      title: "穆斯林友善與 Halal 基礎概念（示範）",
-      body: "示範設定。本模組說明穆斯林友善場域的基本概念、禁止項目與服務注意事項。正式教材待甲方提供後替換。請完整閱讀後再標示已讀。",
+      title: "基礎課1：穆斯林友善與 Halal 基礎概念（示範）",
+      description: "示範設定。說明穆斯林友善場域的基本概念、禁止項目與服務注意事項。可搭配網址與教材檔。正式教材待甲方提供後替換。",
+      youtubeUrl: "",
       sortOrder: 1,
       isRequired: true,
       isActive: true,
-      videoFileId: null,
+      materialFileId: null,
       updatedById: admin.id,
       version: 1,
       createdAt: isoDaysBefore(30),
@@ -899,12 +907,13 @@ export function buildDemoDataset(): DemoDataset {
     },
     {
       id: demoUuid(0x911),
-      title: "申請與現場複審流程概要（示範）",
-      body: "示範設定。說明業者送件附件、初審與現場複審的角色分工。正式流程說明待確認。",
+      title: "基礎課2：申請與現場複審流程概要（示範）",
+      description: "示範設定。說明業者送件附件、初審與現場複審的角色分工。正式流程說明待確認。",
+      youtubeUrl: "",
       sortOrder: 2,
       isRequired: true,
       isActive: true,
-      videoFileId: null,
+      materialFileId: null,
       updatedById: admin.id,
       version: 1,
       createdAt: isoDaysBefore(30),
@@ -915,31 +924,51 @@ export function buildDemoDataset(): DemoDataset {
   const basicQuestions: DemoDataset["basicQuestions"] = [
     {
       id: demoUuid(0x920),
-      moduleId: basicModules[0]!.id,
       prompt: "示範題：穆斯林友善服務中，酒精類飲料應如何處理？",
       options: ["可與 Halal 餐點並陳", "應避免提供或以明確方式與 Halal 區隔", "只可在大廳販售", "沒有限制"],
       correctIndex: 1,
       sortOrder: 1,
+      isActive: true,
       createdAt: isoDaysBefore(30),
       updatedAt: isoDaysBefore(1),
     },
     {
       id: demoUuid(0x921),
-      moduleId: basicModules[0]!.id,
       prompt: "示範題：肉品若要符合 Halal，通常需要什麼？",
       options: ["只要新鮮即可", "Halal 證書與可追溯採購證明", "進口即可", "廚師口頭保證即可"],
       correctIndex: 1,
       sortOrder: 2,
+      isActive: true,
       createdAt: isoDaysBefore(30),
       updatedAt: isoDaysBefore(1),
     },
     {
       id: demoUuid(0x922),
-      moduleId: basicModules[1]!.id,
       prompt: "示範題：現場複審主要核對什麼？",
       options: ["只看合約金額", "業者送件附件，必要時可加拍現場存證", "只看社群貼文", "只看統編"],
       correctIndex: 1,
-      sortOrder: 1,
+      sortOrder: 3,
+      isActive: true,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+    {
+      id: demoUuid(0x923),
+      prompt: "示範題：驗證申請前通常需要先完成什麼？",
+      options: ["廣告投放", "基礎教育訓練內容與測驗", "只填統編", "現場拍照即可"],
+      correctIndex: 1,
+      sortOrder: 4,
+      isActive: true,
+      createdAt: isoDaysBefore(30),
+      updatedAt: isoDaysBefore(1),
+    },
+    {
+      id: demoUuid(0x924),
+      prompt: "示範題：Halal 相關證明文件建議如何保存？",
+      options: ["口頭告知即可", "妥善保存並可供查核", "只放社群", "不必保存"],
+      correctIndex: 1,
+      sortOrder: 5,
+      isActive: true,
       createdAt: isoDaysBefore(30),
       updatedAt: isoDaysBefore(1),
     },

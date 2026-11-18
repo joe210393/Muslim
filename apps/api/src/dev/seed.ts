@@ -171,7 +171,8 @@ if (data.trainingPolicy) {
       data: {
         id: data.trainingPolicy.id,
         requireBasicBeforeApply: data.trainingPolicy.requireBasicBeforeApply,
-        quizPassPercent: data.trainingPolicy.quizPassPercent,
+        quizDrawCount: data.trainingPolicy.quizDrawCount,
+        quizPassCount: data.trainingPolicy.quizPassCount,
         privateRequestMinHeadcount: data.trainingPolicy.privateRequestMinHeadcount,
         updatedById: data.trainingPolicy.updatedById,
         version: data.trainingPolicy.version,
@@ -186,17 +187,19 @@ for (const module of data.basicModules) {
     create: {
       id: module.id,
       title: module.title,
-      body: module.body,
+      description: module.description,
+      youtubeUrl: module.youtubeUrl,
       sortOrder: module.sortOrder,
       isRequired: module.isRequired,
       isActive: module.isActive,
-      videoFileId: module.videoFileId,
+      materialFileId: module.materialFileId,
       updatedById: module.updatedById,
       version: module.version,
     },
     update: {
       title: module.title,
-      body: module.body,
+      description: module.description,
+      youtubeUrl: module.youtubeUrl,
       sortOrder: module.sortOrder,
       isRequired: module.isRequired,
       isActive: module.isActive,
@@ -209,17 +212,18 @@ for (const question of data.basicQuestions) {
     where: { id: question.id },
     create: {
       id: question.id,
-      moduleId: question.moduleId,
       prompt: question.prompt,
       options: question.options,
       correctIndex: question.correctIndex,
       sortOrder: question.sortOrder,
+      isActive: question.isActive,
     },
     update: {
       prompt: question.prompt,
       options: question.options,
       correctIndex: question.correctIndex,
       sortOrder: question.sortOrder,
+      isActive: question.isActive,
     },
   });
 }

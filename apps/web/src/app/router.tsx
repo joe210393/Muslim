@@ -1,7 +1,14 @@
 import { createBrowserRouter, Navigate, useParams } from "react-router";
 import { Guard, Shell } from "../components/shell/Shell";
 import { AdminApplicationDetail, AdminApplicationList, AdminHome, AuditPage, CourseFormPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
-import { TrainingAdminHub } from "../pages/admin/TrainingAdminPages";
+import {
+  BasicCoursesAdminPage,
+  CompanyTrainingAdminPage,
+  CourseTrainingPage,
+  QuestionBankAdminPage,
+  TrainingCertificatesAdminPage,
+  TrainingPolicyAdminPage,
+} from "../pages/admin/TrainingAdminPages";
 import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, FileWindowPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
 import { CmsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage } from "../pages/admin/InfoAdminPages";
 import { PaymentsPage } from "../pages/admin/PaymentsPage";
@@ -66,10 +73,15 @@ export const router = createBrowserRouter([
       { path: "/admin/reports", element: <ReportsPage /> },
       { path: "/admin/permissions", element: <PermissionsPage /> },
       { path: "/admin/applications/:applicationId", element: <AdminApplicationDetail /> },
-      { path: "/admin/courses", element: <TrainingAdminHub /> },
+      { path: "/admin/courses", element: <CourseTrainingPage /> },
       { path: "/admin/courses/new", element: <CourseFormPage /> },
       { path: "/admin/courses/:courseId/edit", element: <CourseFormPage /> },
       { path: "/admin/courses/:courseId/enrollments", element: <EnrollmentAdminPage /> },
+      { path: "/admin/training/basic", element: <BasicCoursesAdminPage /> },
+      { path: "/admin/training/question-bank", element: <QuestionBankAdminPage /> },
+      { path: "/admin/training/policy", element: <TrainingPolicyAdminPage /> },
+      { path: "/admin/training/company-requests", element: <CompanyTrainingAdminPage /> },
+      { path: "/admin/training/certificates", element: <TrainingCertificatesAdminPage /> },
       { path: "/admin/users", element: <UsersPage /> },
       { path: "/admin/organizations", element: <OrganizationsPage /> },
       { path: "/admin/imports", element: <ImportsPage /> },

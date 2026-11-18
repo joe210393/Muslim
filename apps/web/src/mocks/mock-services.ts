@@ -1471,6 +1471,11 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return result;
     },
+    async startBasicQuiz() {
+      const result = await desk().startBasicQuiz();
+      await save();
+      return result;
+    },
     async submitBasicQuiz(input) {
       const result = await desk().submitBasicQuiz(input);
       await save();
@@ -1478,6 +1483,9 @@ export async function createMockServices(): Promise<Services> {
     },
     async downloadBasicCertificate() {
       return desk().downloadBasicCertificate();
+    },
+    async downloadBasicModuleMaterial(moduleId) {
+      return desk().downloadBasicModuleMaterial(moduleId);
     },
     async trainingPolicy() {
       return desk().trainingPolicy();
@@ -1492,6 +1500,24 @@ export async function createMockServices(): Promise<Services> {
     },
     async saveBasicModule(input, id) {
       const result = await desk().saveBasicModule(input, id);
+      await save();
+      return result;
+    },
+    async uploadBasicModuleMaterial(id, file) {
+      const result = await desk().uploadBasicModuleMaterial(id, file);
+      await save();
+      return result;
+    },
+    async adminQuestionBank() {
+      return desk().adminQuestionBank();
+    },
+    async replaceQuestionBank(input) {
+      const result = await desk().replaceQuestionBank(input);
+      await save();
+      return result;
+    },
+    async uploadQuestionBank(file) {
+      const result = await desk().uploadQuestionBank(file);
       await save();
       return result;
     },

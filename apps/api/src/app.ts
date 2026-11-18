@@ -229,6 +229,13 @@ export function createApp() {
   }));
   api.get("/training/basic", route(async (req, res) => ok(res, req, await basicTraining.basicStatus(await requireActor(req)))));
   api.post("/training/basic/modules/:moduleId/complete", route(async (req, res) => ok(res, req, await basicTraining.completeModule(await requireActor(req), String(req.params.moduleId)))));
+  api.get("/training/basic/modules/:moduleId/material", route(async (req, res) => {
+    const file = await basicTraining.downloadModuleMaterial(await requireActor(req), storage, String(req.params.moduleId));
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.post("/training/basic/quiz/start", route(async (req, res) => ok(res, req, await basicTraining.startQuiz(await requireActor(req)))));
   api.post("/training/basic/quiz", route(async (req, res) => ok(res, req, await basicTraining.submitQuiz(await requireActor(req), storage, repoRoot(), req.body))));
   api.get("/training/basic/certificate", route(async (req, res) => {
     const file = await basicTraining.downloadBasicCertificate(await requireActor(req), storage);
@@ -384,6 +391,28 @@ export function createApp() {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
     ok(res, req, await basicTraining.saveModule(actor, req.body, String(req.params.id)));
+  }));
+  api.post("/admin/training/basic-modules/:id/material", upload.single("file"), route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇教材檔");
+    ok(res, req, await basicTraining.uploadModuleMaterial(actor, storage, String(req.params.id), req.file));
+  }));
+  api.get("/admin/training/question-bank", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.adminQuestionBank(actor));
+  }));
+  api.put("/admin/training/question-bank", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.replaceQuestionBank(actor, req.body));
+  }));
+  api.post("/admin/training/question-bank/upload", upload.single("file"), route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請上傳題庫檔");
+    ok(res, req, await basicTraining.replaceQuestionBankFromText(actor, req.file.buffer.toString("utf8")));
   }));
   api.get("/admin/training/company-requests", route(async (req, res) => {
     const actor = await requireActor(req);

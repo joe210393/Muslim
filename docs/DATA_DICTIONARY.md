@@ -46,11 +46,15 @@
 | Enrollment | 完課門檻快照 | requiredAttendanceMinutes | required_attendance_minutes_snapshot | int；歷史完課不隨課程門檻默默改變 | 否 | 報名時寫入 | 報名時寫入 | 低 | 報名時固定 |
 | Enrollment | 出席狀態 | attendanceStatus | attendance_status | AttendanceStatus；未登錄不算不合格 | 否 | 否 | 否 | 低 | 承辦登錄 |
 | TrainingPolicy | 擋申請 | requireBasicBeforeApply | require_basic_before_apply | boolean；開啟時須先通過基礎教育訓練才能建立或送出驗證申請 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
-| TrainingPolicy | 及格分數 | quizPassPercent | quiz_pass_percent | int；1–100；基礎課測驗及格百分比 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| TrainingPolicy | 抽題數 | quizDrawCount | quiz_draw_count | int；1–100；從題庫隨機抽出的題數 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| TrainingPolicy | 及格題數 | quizPassCount | quiz_pass_count | int；1–100；答對達此數即通過，不可大於抽題數 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
 | TrainingPolicy | 專班最低人數 | privateRequestMinHeadcount | private_request_min_headcount | int；正整數；業者專班申請送出門檻 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
-| BasicTrainingModule | 模組標題 | title | title | string；1–200 字；示範教材可替換 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可改 |
-| BasicTrainingModule | 模組內容 | body | body | string；最多 8000 字 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
-| BasicTrainingModule | 是否必做 | isRequired | is_required | boolean；必做模組都讀完才能測驗 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 基礎課標題 | title | title | string；1–200 字；可新增多門如基礎課1／2 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 說明 | description | description | string；最多 4000 字 | 否 | 否 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | YouTube 連結 | youtubeUrl | youtube_url | string；空字串或 youtube.com、youtu.be 影片網址 | 否 | 否 | 否 | 低 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 教材檔 | materialFileId | material_file_id | uuid；選填教材附件 | 是 | 否 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 是否必做 | isRequired | is_required | boolean；必做基礎課都讀完才能測驗 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingQuestion | 題庫題目 | prompt | prompt | string；全域題庫，與基礎課脫鉤；上傳更新後抽題 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
 | UserBasicTraining | 通過時間 | passedAt | passed_at | datetime；通過後可下載自動證書 | 是 | 否 | 測驗通過時寫入 | 低 | 系統寫入 |
 | UserBasicTraining | 基礎證書編號 | certificateNo | certificate_no | string；unique；自動證書 | 是 | 否 | 通過時產生 | 低 | 系統寫入 |
 | CompanyTrainingRequest | 預計人數 | headcount | headcount | int；送出時比對 TrainingPolicy.privateRequestMinHeadcount | 否 | 必填 | 送出時須達門檻 | 中 | 草稿可改 |

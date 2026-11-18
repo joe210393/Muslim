@@ -259,11 +259,20 @@ Zeabur 上的容器在遷移完成後執行 `seed:boot`，再用固定編號建�
 
 自動化步驟 47/47 通過。截圖與 HTML：`tmp/full-e2e-out/report.html`（約 56 張）。
 
+## 2026-11-18 基礎課／題庫／門檻拆分
+
+後台教育訓練分頁改為：課程梯次｜基礎課｜題庫｜門檻設定｜專班｜一般課證書。基礎課改為可多門課程（標題、說明、YouTube 網址、教材上傳），題庫改全域並以檔案上傳整批更新；測驗改為隨機抽題＋答對題數及格（`quizDrawCount`／`quizPassCount`）。migration `20261118090000_basic_course_and_bank`。
+
+本地已跑：`rules.test.ts` 17 項通過；`@mf/web`／`@mf/api` typecheck 通過；`pnpm docs:generate` 已更新資料字典。瀏覽器 mock 抽題流程尚未重走。
+
+後續調整：教育訓練改為側欄獨立頁（`/admin/courses`、`/admin/training/basic|question-bank|policy|company-requests|certificates`），不再用同頁分頁；題庫頁可下載 CSV／JSON 範本。
+
 ## 下一步
 
 1. 把 `VITE_DATA_MODE` 改成 `api`，用瀏覽器重走登入、草稿與審查。
 2. 補 T03 到 T10 的 API 測試，失敗就先修再標結果。
 3. 正式 build 後確認產物不含展示捷徑。
+4. mock／API 上重走：新增基礎課、上傳題庫、調整抽題／及格題數、業者抽題測驗。
 
 ## 如實標示
 
