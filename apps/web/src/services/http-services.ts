@@ -208,18 +208,14 @@ export function createHttpServices(): Services {
     async basicTrainingStatus() {
       return (await request("GET", "/training/basic")).data as Awaited<ReturnType<Services["basicTrainingStatus"]>>;
     },
-    async completeBasicModule(moduleId) {
-      return (await request("POST", `/training/basic/modules/${moduleId}/complete`)).data as Awaited<ReturnType<Services["completeBasicModule"]>>;
+    async recordBasicModuleWatch(moduleId, input) {
+      return (await request("POST", `/training/basic/modules/${moduleId}/watch`, input)).data as Awaited<ReturnType<Services["recordBasicModuleWatch"]>>;
     },
     async startBasicQuiz() {
       return (await request("POST", "/training/basic/quiz/start")).data as Awaited<ReturnType<Services["startBasicQuiz"]>>;
     },
     async submitBasicQuiz(input) {
       return (await request("POST", "/training/basic/quiz", input)).data as Awaited<ReturnType<Services["submitBasicQuiz"]>>;
-    },
-    async downloadBasicCertificate() {
-      const result = await request("GET", "/training/basic/certificate");
-      return { blob: result.data as Blob, name: "basic-certificate.pdf" };
     },
     async downloadBasicModuleMaterial(moduleId) {
       const result = await request("GET", `/training/basic/modules/${moduleId}/material`);
@@ -248,6 +244,15 @@ export function createHttpServices(): Services {
     },
     async replaceQuestionBank(input) {
       return (await request("PUT", "/admin/training/question-bank", input)).data as Awaited<ReturnType<Services["replaceQuestionBank"]>>;
+    },
+    async saveQuestion(input, id) {
+      const result = id
+        ? await request("PUT", `/admin/training/question-bank/questions/${id}`, input)
+        : await request("POST", "/admin/training/question-bank/questions", input);
+      return result.data as Awaited<ReturnType<Services["saveQuestion"]>>;
+    },
+    async deleteQuestion(id) {
+      return (await request("DELETE", `/admin/training/question-bank/questions/${id}`)).data as Awaited<ReturnType<Services["deleteQuestion"]>>;
     },
     async uploadQuestionBank(file) {
       const form = new FormData();

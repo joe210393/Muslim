@@ -168,10 +168,9 @@ export type Services = {
   courseEnrollments: (courseId: string) => Promise<LearningRecord[]>;
   attendance: (id: string, input: { expectedVersion: number; attendanceStatus: "NOT_RECORDED" | "PRESENT" | "ABSENT"; attendedMinutes: number }) => Promise<LearningRecord>;
   basicTrainingStatus: () => Promise<BasicTrainingStatus>;
-  completeBasicModule: (moduleId: string) => Promise<BasicTrainingStatus>;
+  recordBasicModuleWatch: (moduleId: string, input: { watchedSeconds: number; videoDurationSeconds: number }) => Promise<BasicTrainingStatus>;
   startBasicQuiz: () => Promise<NonNullable<BasicTrainingStatus["activeAttempt"]>>;
   submitBasicQuiz: (input: { attemptId: string; answers: Array<{ questionId: string; selectedIndex: number }> }) => Promise<BasicTrainingStatus & { justPassed: boolean; scorePercent: number; correctCount: number; drawCount: number }>;
-  downloadBasicCertificate: () => Promise<{ blob: Blob; name: string }>;
   downloadBasicModuleMaterial: (moduleId: string) => Promise<{ blob: Blob; name: string }>;
   trainingPolicy: () => Promise<TrainingPolicy>;
   saveTrainingPolicy: (input: { requireBasicBeforeApply: boolean; quizDrawCount: number; quizPassCount: number; privateRequestMinHeadcount: number; expectedVersion: number }) => Promise<TrainingPolicy>;
@@ -180,6 +179,7 @@ export type Services = {
     title: string;
     description: string;
     youtubeUrl: string;
+    requiredWatchPercent: number;
     sortOrder: number;
     isRequired: boolean;
     isActive: boolean;
@@ -188,6 +188,8 @@ export type Services = {
   uploadBasicModuleMaterial: (id: string, file: File) => Promise<BasicTrainingStatus["modules"][number]>;
   adminQuestionBank: () => Promise<Array<{ id: string; prompt: string; options: string[]; correctIndex?: number; sortOrder: number; isActive?: boolean }>>;
   replaceQuestionBank: (input: { questions: Array<{ prompt: string; options: string[]; correctIndex: number }> }) => Promise<Array<{ id: string; prompt: string; options: string[]; correctIndex?: number; sortOrder: number; isActive?: boolean }>>;
+  saveQuestion: (input: { prompt: string; options: string[]; correctIndex: number; sortOrder?: number; isActive?: boolean }, id?: string) => Promise<Array<{ id: string; prompt: string; options: string[]; correctIndex?: number; sortOrder: number; isActive?: boolean }>>;
+  deleteQuestion: (id: string) => Promise<Array<{ id: string; prompt: string; options: string[]; correctIndex?: number; sortOrder: number; isActive?: boolean }>>;
   uploadQuestionBank: (file: File) => Promise<Array<{ id: string; prompt: string; options: string[]; correctIndex?: number; sortOrder: number; isActive?: boolean }>>;
   myCompanyTrainingRequests: () => Promise<CompanyTrainingRequest[]>;
   saveCompanyTrainingRequest: (input: {

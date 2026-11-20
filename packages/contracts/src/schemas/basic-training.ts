@@ -34,6 +34,7 @@ export const basicTrainingModuleSchema = z.object({
   title: z.string(),
   description: z.string(),
   youtubeUrl: z.string(),
+  requiredWatchPercent: z.number().int(),
   sortOrder: z.number().int(),
   isRequired: z.boolean(),
   isActive: z.boolean(),
@@ -42,16 +43,33 @@ export const basicTrainingModuleSchema = z.object({
   materialName: z.string().nullable().optional(),
   version: z.number().int(),
   completed: z.boolean().optional(),
+  watchedSeconds: z.number().int().optional(),
+  videoDurationSeconds: z.number().int().optional(),
+  requiredWatchSeconds: z.number().int().nullable().optional(),
 });
 
 export const basicTrainingModuleWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(4000).default(""),
   youtubeUrl: z.string().trim().max(200).default("").refine((value) => value === "" || youtubeVideoId(value) !== null, "請貼 YouTube 影片連結"),
+  requiredWatchPercent: z.number().int().min(1).max(100).default(80),
   sortOrder: z.number().int().nonnegative().default(0),
   isRequired: z.boolean().default(true),
   isActive: z.boolean().default(true),
   expectedVersion: z.number().int().optional(),
+});
+
+export const basicWatchProgressSchema = z.object({
+  watchedSeconds: z.number().int().nonnegative().max(60 * 60 * 12),
+  videoDurationSeconds: z.number().int().positive().max(60 * 60 * 12),
+});
+
+export const basicQuestionWriteSchema = z.object({
+  prompt: z.string().trim().min(1).max(1000),
+  options: z.array(z.string().trim().min(1).max(200)).min(2).max(8),
+  correctIndex: z.number().int().nonnegative(),
+  sortOrder: z.number().int().nonnegative().optional(),
+  isActive: z.boolean().default(true),
 });
 
 export const basicQuizSessionSchema = z.object({

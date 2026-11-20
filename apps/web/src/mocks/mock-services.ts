@@ -1466,8 +1466,8 @@ export async function createMockServices(): Promise<Services> {
     async basicTrainingStatus() {
       return desk().basicStatus();
     },
-    async completeBasicModule(moduleId) {
-      const result = await desk().completeBasicModule(moduleId);
+    async recordBasicModuleWatch(moduleId, input) {
+      const result = await desk().recordBasicModuleWatch(moduleId, input);
       await save();
       return result;
     },
@@ -1480,9 +1480,6 @@ export async function createMockServices(): Promise<Services> {
       const result = await desk().submitBasicQuiz(input);
       await save();
       return result;
-    },
-    async downloadBasicCertificate() {
-      return desk().downloadBasicCertificate();
     },
     async downloadBasicModuleMaterial(moduleId) {
       return desk().downloadBasicModuleMaterial(moduleId);
@@ -1513,6 +1510,16 @@ export async function createMockServices(): Promise<Services> {
     },
     async replaceQuestionBank(input) {
       const result = await desk().replaceQuestionBank(input);
+      await save();
+      return result;
+    },
+    async saveQuestion(input, id) {
+      const result = await desk().saveQuestion(input, id);
+      await save();
+      return result;
+    },
+    async deleteQuestion(id) {
+      const result = await desk().deleteQuestion(id);
       await save();
       return result;
     },

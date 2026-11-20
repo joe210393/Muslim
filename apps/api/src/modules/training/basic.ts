@@ -4,18 +4,19 @@ import {
   DEFAULT_TRAINING_POLICY,
   ErrorCodes,
   UserRole,
+  acceptWatchProgress,
   basicQuestionBankReplaceSchema,
+  basicQuestionWriteSchema,
   basicQuizSubmitSchema,
   basicTrainingModuleWriteSchema,
+  basicWatchPassSeconds,
+  basicWatchProgressSchema,
   buildLearningRecord,
   canStartVerificationApplication,
   companyTrainingRequestWriteSchema,
   companyTrainingReviewSchema,
   drawRandomQuestions,
-  nextBasicCertificateNo,
-  paintBasicCertificate,
   parseQuestionBankUpload,
-  pngPagesToPdf,
   quizPassedByCount,
   requiredModulesComplete,
   scoreBasicQuiz,
@@ -26,22 +27,13 @@ import {
   youtubeVideoId,
 } from "@mf/contracts";
 import { prisma, Prisma } from "@mf/db/server";
-import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { ApiError } from "../../lib/errors";
 import { fieldFailure } from "../../lib/http";
 import type { SessionActor } from "../../middleware/auth";
 import type { StorageAdapter } from "../../storage/storage";
 import { assertFeature } from "../platform/access";
 import { sha256Hex } from "@mf/contracts";
-
-let fontReady = false;
-function ensureFont(repoRoot: string) {
-  if (fontReady) return;
-  GlobalFonts.registerFromPath(path.join(repoRoot, "apps/web/public/fonts/NotoSansTC-Subset.otf"), "NotoSansTC");
-  fontReady = true;
-}
 
 async function ensurePolicy() {
   const existing = await prisma.trainingPolicy.findFirst({ orderBy: { createdAt: "asc" } });
@@ -87,12 +79,24 @@ async function moduleRows(includeInactive: boolean) {
   });
 }
 
-function presentModule(row: Awaited<ReturnType<typeof moduleRows>>[number], completed: boolean) {
+function presentModule(
+  row: Awaited<ReturnType<typeof moduleRows>>[number],
+  progress?: { watchedSeconds: number; videoDurationSeconds: number; completedAt: Date | null } | null,
+) {
+  const videoDurationSeconds = progress?.videoDurationSeconds ?? 0;
+  const requiredWatchSeconds = videoDurationSeconds > 0
+    ? basicWatchPassSeconds(videoDurationSeconds, row.requiredWatchPercent)
+    : null;
+  const watchedSeconds = progress?.watchedSeconds ?? 0;
+  const completed = Boolean(progress?.completedAt)
+    || (requiredWatchSeconds != null && Number.isFinite(requiredWatchSeconds) && watchedSeconds >= requiredWatchSeconds);
   return {
     id: row.id,
     title: row.title,
     description: row.description,
     youtubeUrl: row.youtubeUrl,
+    requiredWatchPercent: row.requiredWatchPercent,
+    requiredWatchSeconds,
     sortOrder: row.sortOrder,
     isRequired: row.isRequired,
     isActive: row.isActive,
@@ -100,6 +104,8 @@ function presentModule(row: Awaited<ReturnType<typeof moduleRows>>[number], comp
     materialFileId: row.materialFileId,
     materialName: row.material?.originalName ?? null,
     version: row.version,
+    watchedSeconds,
+    videoDurationSeconds,
     completed,
   };
 }
@@ -140,16 +146,17 @@ export async function basicStatus(actor: SessionActor) {
   const policy = presentPolicy(await ensurePolicy());
   const modules = await moduleRows(false);
   const progress = await prisma.basicTrainingProgress.findMany({ where: { userId: actor.id } });
-  const done = new Set(progress.map((item) => item.moduleId));
-  const presented = modules.map((item) => presentModule(item, done.has(item.id)));
+  const progressByModule = new Map(progress.map((item) => [item.moduleId, item]));
+  const presented = modules.map((item) => presentModule(item, progressByModule.get(item.id) ?? null));
   const requiredIds = presented.filter((item) => item.isRequired).map((item) => item.id);
+  const completedIds = presented.filter((item) => item.completed).map((item) => item.id);
   const record = await prisma.userBasicTraining.findUnique({ where: { userId: actor.id } });
   const last = await prisma.basicTrainingAttempt.findFirst({
     where: { userId: actor.id, submittedAt: { not: null } },
     orderBy: { createdAt: "desc" },
   });
   const bankCount = await prisma.basicTrainingQuestion.count({ where: { isActive: true } });
-  const requiredComplete = requiredModulesComplete({ requiredModuleIds: requiredIds, completedModuleIds: [...done] });
+  const requiredComplete = requiredModulesComplete({ requiredModuleIds: requiredIds, completedModuleIds: completedIds });
   const activeAttempt = await presentActiveAttempt(actor.id);
   return {
     policy,
@@ -158,8 +165,8 @@ export async function basicStatus(actor: SessionActor) {
     requiredComplete,
     passed: Boolean(record?.passedAt),
     passedAt: record?.passedAt?.toISOString() ?? null,
-    certificateNo: record?.certificateNo ?? null,
-    hasCertificate: Boolean(record?.certificateFileId),
+    certificateNo: null,
+    hasCertificate: false,
     lastCorrectCount: last?.correctCount ?? null,
     lastDrawCount: last?.drawCount ?? null,
     lastScorePercent: last?.scorePercent ?? null,
@@ -168,37 +175,42 @@ export async function basicStatus(actor: SessionActor) {
   };
 }
 
-export async function completeModule(actor: SessionActor, moduleId: string) {
-  if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可完成基礎課閱讀");
-  const module = await prisma.basicTrainingModule.findFirst({ where: { id: moduleId, isActive: true } });
+export async function recordModuleWatch(actor: SessionActor, moduleId: string, body: unknown) {
+  if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可累計基礎課觀看");
+  const input = basicWatchProgressSchema.parse(body);
+  const module = await prisma.basicTrainingModule.findFirst({ where: { id: moduleId, isActive: true }, include: { material: true } });
   if (!module) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
+  if (!module.youtubeUrl.trim()) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "此基礎課尚未設定影片，無法累計觀看");
+  const requiredSeconds = basicWatchPassSeconds(input.videoDurationSeconds, module.requiredWatchPercent);
+  const existing = await prisma.basicTrainingProgress.findUnique({ where: { userId_moduleId: { userId: actor.id, moduleId } } });
+  if (existing?.completedAt) return basicStatus(actor);
+  const now = new Date();
+  const accepted = acceptWatchProgress({
+    currentSeconds: existing?.watchedSeconds ?? 0,
+    reportedSeconds: input.watchedSeconds,
+    videoDurationSeconds: input.videoDurationSeconds,
+    lastReportedAt: existing?.watchUpdatedAt?.toISOString() ?? null,
+    nowIso: now.toISOString(),
+  });
+  const completed = accepted >= requiredSeconds;
   await prisma.basicTrainingProgress.upsert({
     where: { userId_moduleId: { userId: actor.id, moduleId } },
-    create: { userId: actor.id, moduleId },
-    update: {},
+    create: {
+      userId: actor.id,
+      moduleId,
+      watchedSeconds: accepted,
+      videoDurationSeconds: input.videoDurationSeconds,
+      watchUpdatedAt: now,
+      completedAt: completed ? now : null,
+    },
+    update: {
+      watchedSeconds: accepted,
+      videoDurationSeconds: input.videoDurationSeconds,
+      watchUpdatedAt: now,
+      ...(completed ? { completedAt: now } : {}),
+    },
   });
   return basicStatus(actor);
-}
-
-async function renderBasicPdf(repoRoot: string, input: { certificateNo: string; holderName: string; organizationName: string; passedAtLabel: string }) {
-  ensureFont(repoRoot);
-  const width = 1240;
-  const height = 1754;
-  const canvas = createCanvas(width, height);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, width, height);
-  context.fillStyle = "#1a1916";
-  paintBasicCertificate(
-    {
-      fillText(text, x, y, size) {
-        context.font = `${size}px NotoSansTC`;
-        context.fillText(text, x, y);
-      },
-    },
-    { title: "基礎教育訓練結業證明（示範）", ...input },
-  );
-  return pngPagesToPdf([canvas.toBuffer("image/png")]);
 }
 
 export async function startQuiz(actor: SessionActor) {
@@ -234,7 +246,7 @@ export async function startQuiz(actor: SessionActor) {
   };
 }
 
-export async function submitQuiz(actor: SessionActor, storage: StorageAdapter, repoRoot: string, body: unknown) {
+export async function submitQuiz(actor: SessionActor, body: unknown) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可參加測驗");
   const input = basicQuizSubmitSchema.parse(body);
   const status = await basicStatus(actor);
@@ -265,34 +277,11 @@ export async function submitQuiz(actor: SessionActor, storage: StorageAdapter, r
     },
   });
   if (passed) {
-    const count = await prisma.userBasicTraining.count({ where: { certificateNo: { not: null } } });
-    const certificateNo = nextBasicCertificateNo(count + 1);
-    const org = actor.organizationId ? await prisma.organization.findUnique({ where: { id: actor.organizationId } }) : null;
-    const passedAtLabel = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(now);
-    const pdf = await renderBasicPdf(repoRoot, {
-      certificateNo,
-      holderName: actor.displayName,
-      organizationName: org?.organizationName ?? "",
-      passedAtLabel,
-    });
-    const fileId = randomUUID();
-    const storageKey = `basic-certificates/${fileId}.pdf`;
-    await storage.save(storageKey, pdf);
-    await prisma.fileObject.create({
-      data: {
-        id: fileId,
-        uploadedById: actor.id,
-        storageKey,
-        originalName: `${certificateNo}.pdf`,
-        mimeType: "application/pdf",
-        sizeBytes: pdf.byteLength,
-        sha256: await sha256Hex(pdf),
-      },
-    });
+    // 基礎教育訓練只標記完成，不發證書；證書僅線上／線下課與專班人工登錄。
     await prisma.userBasicTraining.upsert({
       where: { userId: actor.id },
-      create: { userId: actor.id, passedAt: now, certificateNo, certificateFileId: fileId },
-      update: { passedAt: now, certificateNo, certificateFileId: fileId },
+      create: { userId: actor.id, passedAt: now },
+      update: { passedAt: now },
     });
   }
   return {
@@ -302,15 +291,6 @@ export async function submitQuiz(actor: SessionActor, storage: StorageAdapter, r
     correctCount: scored.correct,
     drawCount: scored.total,
   };
-}
-
-export async function downloadBasicCertificate(actor: SessionActor, storage: StorageAdapter) {
-  const record = await prisma.userBasicTraining.findUnique({ where: { userId: actor.id } });
-  if (!record?.certificateFileId) throw new ApiError(404, ErrorCodes.NOT_FOUND, "還沒有基礎課證書");
-  const file = await prisma.fileObject.findUnique({ where: { id: record.certificateFileId } });
-  if (!file) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到證書檔");
-  const bytes = await storage.read(file.storageKey);
-  return { bytes, mimeType: file.mimeType, name: file.originalName };
 }
 
 export async function getPolicy() {
@@ -345,7 +325,7 @@ export async function savePolicy(actor: SessionActor, body: unknown) {
 export async function adminModules(actor: SessionActor) {
   await assertFeature(actor, "training.manage");
   const rows = await moduleRows(true);
-  return rows.map((item) => presentModule(item, false));
+  return rows.map((item) => presentModule(item, null));
 }
 
 export async function saveModule(actor: SessionActor, body: unknown, id?: string) {
@@ -366,6 +346,7 @@ export async function saveModule(actor: SessionActor, body: unknown, id?: string
         title: input.title,
         description: input.description,
         youtubeUrl: input.youtubeUrl,
+        requiredWatchPercent: input.requiredWatchPercent,
         sortOrder: input.sortOrder,
         isRequired: input.isRequired,
         isActive: input.isActive,
@@ -374,13 +355,14 @@ export async function saveModule(actor: SessionActor, body: unknown, id?: string
       },
       include: { material: true },
     });
-    return presentModule(updated, false);
+    return presentModule(updated, null);
   }
   const created = await prisma.basicTrainingModule.create({
     data: {
       title: input.title,
       description: input.description,
       youtubeUrl: input.youtubeUrl,
+      requiredWatchPercent: input.requiredWatchPercent,
       sortOrder: input.sortOrder,
       isRequired: input.isRequired,
       isActive: input.isActive,
@@ -388,7 +370,7 @@ export async function saveModule(actor: SessionActor, body: unknown, id?: string
     },
     include: { material: true },
   });
-  return presentModule(created, false);
+  return presentModule(created, null);
 }
 
 export async function uploadModuleMaterial(
@@ -419,7 +401,7 @@ export async function uploadModuleMaterial(
     data: { materialFileId: fileId, updatedById: actor.id, version: { increment: 1 } },
     include: { material: true },
   });
-  return presentModule(updated, false);
+  return presentModule(updated, null);
 }
 
 export async function downloadModuleMaterial(actor: SessionActor, storage: StorageAdapter, moduleId: string) {
@@ -469,6 +451,48 @@ export async function replaceQuestionBankFromText(actor: SessionActor, raw: stri
   const parsed = parseQuestionBankUpload(raw);
   if (parsed.error) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, parsed.error);
   return replaceQuestionBank(actor, { questions: parsed.rows });
+}
+
+export async function saveQuestion(actor: SessionActor, body: unknown, id?: string) {
+  await assertFeature(actor, "training.manage");
+  const input = basicQuestionWriteSchema.parse(body);
+  if (input.correctIndex >= input.options.length) {
+    throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "正解索引超出選項範圍");
+  }
+  if (id) {
+    const current = await prisma.basicTrainingQuestion.findUnique({ where: { id } });
+    if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到題目");
+    await prisma.basicTrainingQuestion.update({
+      where: { id },
+      data: {
+        prompt: input.prompt,
+        options: input.options,
+        correctIndex: input.correctIndex,
+        sortOrder: input.sortOrder ?? current.sortOrder,
+        isActive: input.isActive,
+      },
+    });
+  } else {
+    const last = await prisma.basicTrainingQuestion.findFirst({ orderBy: { sortOrder: "desc" } });
+    await prisma.basicTrainingQuestion.create({
+      data: {
+        prompt: input.prompt,
+        options: input.options,
+        correctIndex: input.correctIndex,
+        sortOrder: input.sortOrder ?? ((last?.sortOrder ?? 0) + 1),
+        isActive: input.isActive,
+      },
+    });
+  }
+  return adminQuestionBank(actor);
+}
+
+export async function deleteQuestion(actor: SessionActor, id: string) {
+  await assertFeature(actor, "training.manage");
+  const current = await prisma.basicTrainingQuestion.findUnique({ where: { id } });
+  if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到題目");
+  await prisma.basicTrainingQuestion.delete({ where: { id } });
+  return adminQuestionBank(actor);
 }
 
 function presentCompany(row: {

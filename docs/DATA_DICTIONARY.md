@@ -52,14 +52,17 @@
 | BasicTrainingModule | 基礎課標題 | title | title | string；1–200 字；可新增多門如基礎課1／2 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可改 |
 | BasicTrainingModule | 說明 | description | description | string；最多 4000 字 | 否 | 否 | 否 | 中 | 有 training.manage 的員工可改 |
 | BasicTrainingModule | YouTube 連結 | youtubeUrl | youtube_url | string；空字串或 youtube.com、youtu.be 影片網址 | 否 | 否 | 否 | 低 | 有 training.manage 的員工可改 |
+| BasicTrainingModule | 需觀看百分比 | requiredWatchPercent | required_watch_percent | int；1–100；達影片長度此百分比後由系統標示完成，不可自行點完成 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
 | BasicTrainingModule | 教材檔 | materialFileId | material_file_id | uuid；選填教材附件 | 是 | 否 | 否 | 中 | 有 training.manage 的員工可改 |
+| BasicTrainingProgress | 已看秒數 | watchedSeconds | watched_seconds | int；不可一次跳到結尾；達影片長度×requiredWatchPercent 由系統寫入 completedAt | 否 | 否 | 播放時累加 | 中 | 只有本人播放會增加 |
+| BasicTrainingProgress | 影片秒數 | videoDurationSeconds | video_duration_seconds | int；由 YouTube 播放器回報 | 否 | 否 | 播放時寫入 | 低 | 系統寫入 |
 | BasicTrainingModule | 是否必做 | isRequired | is_required | boolean；必做基礎課都讀完才能測驗 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
-| BasicTrainingQuestion | 題庫題目 | prompt | prompt | string；全域題庫，與基礎課脫鉤；上傳更新後抽題 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
-| UserBasicTraining | 通過時間 | passedAt | passed_at | datetime；通過後可下載自動證書 | 是 | 否 | 測驗通過時寫入 | 低 | 系統寫入 |
-| UserBasicTraining | 基礎證書編號 | certificateNo | certificate_no | string；unique；自動證書 | 是 | 否 | 通過時產生 | 低 | 系統寫入 |
+| BasicTrainingQuestion | 題庫題目 | prompt | prompt | string；全域題庫，與基礎課脫鉤；表單新增／編輯或進階檔案匯入後抽題 | 否 | 必填 | 否 | 中 | 有 training.manage 的員工可改 |
+| UserBasicTraining | 通過時間 | passedAt | passed_at | datetime；通過後僅標示完成，不發證書 | 是 | 否 | 測驗通過時寫入 | 低 | 系統寫入 |
+| UserBasicTraining | 基礎證書編號 | certificateNo | certificate_no | string；保留欄位相容舊資料；現行基礎課不發證書 | 是 | 否 | 否 | 低 | 系統不再寫入 |
 | CompanyTrainingRequest | 預計人數 | headcount | headcount | int；送出時比對 TrainingPolicy.privateRequestMinHeadcount | 否 | 必填 | 送出時須達門檻 | 中 | 草稿可改 |
 | CompanyTrainingRequest | 狀態 | status | status | CompanyTrainingRequestStatus；DRAFT / SUBMITTED / APPROVED / REJECTED / CANCELLED | 否 | 必填 | 否 | 低 | 業者送出；員工審核 |
-| TrainingCertificate | 證書編號 | certificateNo | certificate_no | string；一般課人工登錄；與案件 Certification 分離 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
+| TrainingCertificate | 證書編號 | certificateNo | certificate_no | string；線上／線下課或專班人工登錄；與案件 Certification 分離 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | TrainingCertificate | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | TrainingCertificate | 到期日 | validUntilDate | valid_until_date | date；不可早於核發日 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | Certification | 證書編號 | certificateNo | certificate_no | string；unique；初版人工登錄 | 否 | 核定後登錄必填 | 必填 | 低 | 管理員可更正並留紀錄 |

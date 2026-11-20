@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useServices } from "../../app/session";
-import { Button, Card, Empty, ErrorText, Field, Modal, PageMedia, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { YoutubeWatchPlayer } from "../../components/YoutubeWatchPlayer";
+import { Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError } from "../../services/types";
 
 const filters = [
@@ -79,48 +80,57 @@ function BasicTrainingPanel() {
     <div className="space-y-4">
       <Card className="space-y-2 text-sm">
         <p>{data.policy.requireBasicBeforeApply ? "完成基礎課內容與測驗後，才能建立驗證申請。" : "目前後台未強制基礎課才可申請；仍建議先完成。"}</p>
-        <p>抽 {data.policy.quizDrawCount} 題，答對 {data.policy.quizPassCount} 題及格。狀態：{data.passed ? "已通過" : data.requiredComplete ? (data.canTakeQuiz || activeQuiz ? "可參加測驗" : "題庫不足，請聯絡管理員") : "請先讀完必做基礎課"}。</p>
+        <p>抽 {data.policy.quizDrawCount} 題，答對 {data.policy.quizPassCount} 題及格。狀態：{data.passed ? "已完成" : data.requiredComplete ? (data.canTakeQuiz || activeQuiz ? "可參加測驗" : "題庫不足，請聯絡管理員") : "請先觀看必做基礎課影片至系統標示完成"}。</p>
         {data.lastCorrectCount != null && data.lastDrawCount != null ? <p>最近一次測驗：答對 {data.lastCorrectCount}/{data.lastDrawCount}</p> : null}
-        {data.passed && data.hasCertificate ? (
-          <Button variant="secondary" onClick={async () => {
-            const file = await services.downloadBasicCertificate();
-            const url = URL.createObjectURL(file.blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = file.name;
-            link.click();
-          }}>下載基礎課證書{data.certificateNo ? `（${data.certificateNo}）` : ""}</Button>
-        ) : null}
+        {data.passed ? <p className="text-emerald-800">基礎教育訓練已完成。此區塊不發放證書；證書僅線上／線下課程與專班完課後由承辦登錄。</p> : null}
       </Card>
-      {data.modules.map((module) => (
-        <Card key={module.id} className="space-y-2">
-          <h2 className="font-medium">{module.title}{module.isRequired ? "（必做）" : ""}</h2>
-          {module.description ? <p className="whitespace-pre-wrap text-sm">{module.description}</p> : null}
-          {module.youtubeUrl ? <PageMedia youtubeUrl={module.youtubeUrl} /> : null}
-          {module.hasMaterial ? (
-            <Button variant="secondary" onClick={async () => {
-              const file = await services.downloadBasicModuleMaterial(module.id);
-              const url = URL.createObjectURL(file.blob);
-              const link = document.createElement("a");
-              link.href = url;
-              link.download = file.name;
-              link.click();
-            }}>下載教材{module.materialName ? `（${module.materialName}）` : ""}</Button>
-          ) : null}
-          {module.completed ? <p className="text-sm text-emerald-800">已標示讀完</p> : (
-            <Button onClick={async () => {
-              try {
-                await services.completeBasicModule(module.id);
-                setError(null);
-                setMessage(`已讀完：${module.title}`);
-                await refresh();
-              } catch (reason) {
-                setError(reason instanceof ClientError ? reason.message : "無法標記");
-              }
-            }}>標示已讀完</Button>
-          )}
-        </Card>
-      ))}
+      {data.modules.map((module) => {
+        const watchedSeconds = module.watchedSeconds ?? 0;
+        const durationSeconds = module.videoDurationSeconds ?? 0;
+        const watchedPercent = durationSeconds > 0 ? Math.min(100, Math.round((watchedSeconds / durationSeconds) * 100)) : 0;
+        const passPercent = module.requiredWatchPercent;
+        return (
+          <Card key={module.id} className="space-y-2">
+            <h2 className="font-medium">{module.title}{module.isRequired ? "（必做）" : ""}</h2>
+            {module.description ? <p className="whitespace-pre-wrap text-sm">{module.description}</p> : null}
+            {module.youtubeUrl ? (
+              <YoutubeWatchPlayer
+                youtubeUrl={module.youtubeUrl}
+                title={module.title}
+                enabled={!module.completed && !data.passed}
+                onProgress={(seconds, videoDurationSeconds) => {
+                  if (module.completed || data.passed || (seconds <= watchedSeconds && videoDurationSeconds === durationSeconds)) return;
+                  void services.recordBasicModuleWatch(module.id, { watchedSeconds: seconds, videoDurationSeconds }).then((next) => {
+                    const updated = next.modules.find((item) => item.id === module.id);
+                    if (updated?.completed && !module.completed) {
+                      setMessage(`系統已標示完成：${module.title}`);
+                      setError(null);
+                    }
+                    client.setQueryData(["basic-training"], next);
+                  }).catch((reason) => setError(reason instanceof ClientError ? reason.message : "觀看進度沒有寫入"));
+                }}
+              />
+            ) : (
+              <p className="text-sm text-[var(--muted)]">此課尚未設定影片，請聯絡管理員。</p>
+            )}
+            <p className="text-sm text-[var(--muted)]">
+              需觀看至少 {passPercent}%；目前 {watchedPercent}%（{clock(watchedSeconds)}{durationSeconds ? `／${clock(durationSeconds)}` : ""}）。
+              {module.completed ? " 系統已標示完成。" : " 達標後由系統自動標示，無需自行點選。"}
+            </p>
+            {module.hasMaterial ? (
+              <Button variant="secondary" onClick={async () => {
+                const file = await services.downloadBasicModuleMaterial(module.id);
+                const url = URL.createObjectURL(file.blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = file.name;
+                link.click();
+              }}>下載教材{module.materialName ? `（${module.materialName}）` : ""}</Button>
+            ) : null}
+            {module.completed ? <p className="text-sm text-emerald-800">系統已標示完成</p> : null}
+          </Card>
+        );
+      })}
       {!data.passed && data.canTakeQuiz && !activeQuiz ? (
         <Card className="space-y-3">
           <h2 className="font-medium">基礎測驗</h2>
@@ -164,7 +174,7 @@ function BasicTrainingPanel() {
               setAnswers({});
               setError(null);
               setMessage(result.justPassed
-                ? `測驗通過（答對 ${result.correctCount}/${result.drawCount}），已產生證書。`
+                ? `測驗通過（答對 ${result.correctCount}/${result.drawCount}），基礎教育訓練已完成。`
                 : `尚未及格（答對 ${result.correctCount}/${result.drawCount}），可再考一次。`);
               await refresh();
             } catch (reason) {

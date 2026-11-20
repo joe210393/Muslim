@@ -11,6 +11,7 @@ import { CourseStatus } from "@mf/db/enums";
 import { applicationStatusLabels, userRoleLabels } from "./status-labels";
 import {
   canStartVerificationApplication,
+  basicWatchPassSeconds,
   drawRandomQuestions,
   parseQuestionBankUpload,
   quizPassed,
@@ -245,6 +246,8 @@ describe("基礎教育訓練與專班", () => {
     expect(drawRandomQuestions(pool, 3, () => 0)).toHaveLength(3);
     expect(quizPassedByCount(4, 4)).toBe(true);
     expect(quizPassedByCount(3, 4)).toBe(false);
+    expect(basicWatchPassSeconds(100, 80)).toBe(80);
+    expect(basicWatchPassSeconds(10, 80)).toBe(8);
     const csv = parseQuestionBankUpload("題目,選項,正解\n示範題,甲|乙|丙,1");
     expect(csv.error).toBeUndefined();
     expect(csv.rows[0]?.correctIndex).toBe(1);

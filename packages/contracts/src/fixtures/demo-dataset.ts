@@ -218,6 +218,7 @@ export type DemoDataset = {
     title: string;
     description: string;
     youtubeUrl: string;
+    requiredWatchPercent: number;
     sortOrder: number;
     isRequired: boolean;
     isActive: boolean;
@@ -241,7 +242,12 @@ export type DemoDataset = {
     id: string;
     userId: string;
     moduleId: string;
-    completedAt: string;
+    watchedSeconds: number;
+    videoDurationSeconds: number;
+    watchUpdatedAt: string | null;
+    completedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
   }[];
   basicAttempts: {
     id: string;
@@ -896,6 +902,7 @@ export function buildDemoDataset(): DemoDataset {
       title: "基礎課1：穆斯林友善與 Halal 基礎概念（示範）",
       description: "示範設定。說明穆斯林友善場域的基本概念、禁止項目與服務注意事項。可搭配網址與教材檔。正式教材待甲方提供後替換。",
       youtubeUrl: "",
+      requiredWatchPercent: 80,
       sortOrder: 1,
       isRequired: true,
       isActive: true,
@@ -910,6 +917,7 @@ export function buildDemoDataset(): DemoDataset {
       title: "基礎課2：申請與現場複審流程概要（示範）",
       description: "示範設定。說明業者送件附件、初審與現場複審的角色分工。正式流程說明待確認。",
       youtubeUrl: "",
+      requiredWatchPercent: 80,
       sortOrder: 2,
       isRequired: true,
       isActive: true,

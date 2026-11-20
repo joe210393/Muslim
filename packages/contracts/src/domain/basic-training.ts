@@ -104,6 +104,13 @@ export function nextBasicCertificateNo(seq: number): string {
   return `BT-${String(seq).padStart(6, "0")}`;
 }
 
+/** 基礎課 YouTube：依影片長度與及格百分比算出需看到第幾秒。 */
+export function basicWatchPassSeconds(videoDurationSeconds: number, passPercent: number): number {
+  if (!Number.isInteger(videoDurationSeconds) || videoDurationSeconds < 1) return Number.POSITIVE_INFINITY;
+  const percent = Math.min(100, Math.max(1, passPercent));
+  return Math.ceil((videoDurationSeconds * percent) / 100);
+}
+
 export function drawRandomQuestions<T>(items: T[], count: number, random: () => number = Math.random): T[] {
   if (count <= 0 || items.length === 0) return [];
   const pool = [...items];

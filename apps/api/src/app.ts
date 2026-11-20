@@ -228,7 +228,7 @@ export function createApp() {
     ok(res, req, await basicTraining.getPolicy());
   }));
   api.get("/training/basic", route(async (req, res) => ok(res, req, await basicTraining.basicStatus(await requireActor(req)))));
-  api.post("/training/basic/modules/:moduleId/complete", route(async (req, res) => ok(res, req, await basicTraining.completeModule(await requireActor(req), String(req.params.moduleId)))));
+  api.post("/training/basic/modules/:moduleId/watch", route(async (req, res) => ok(res, req, await basicTraining.recordModuleWatch(await requireActor(req), String(req.params.moduleId), req.body))));
   api.get("/training/basic/modules/:moduleId/material", route(async (req, res) => {
     const file = await basicTraining.downloadModuleMaterial(await requireActor(req), storage, String(req.params.moduleId));
     res.setHeader("Content-Type", file.mimeType);
@@ -236,13 +236,7 @@ export function createApp() {
     res.send(Buffer.from(file.bytes));
   }));
   api.post("/training/basic/quiz/start", route(async (req, res) => ok(res, req, await basicTraining.startQuiz(await requireActor(req)))));
-  api.post("/training/basic/quiz", route(async (req, res) => ok(res, req, await basicTraining.submitQuiz(await requireActor(req), storage, repoRoot(), req.body))));
-  api.get("/training/basic/certificate", route(async (req, res) => {
-    const file = await basicTraining.downloadBasicCertificate(await requireActor(req), storage);
-    res.setHeader("Content-Type", file.mimeType);
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
-    res.send(Buffer.from(file.bytes));
-  }));
+  api.post("/training/basic/quiz", route(async (req, res) => ok(res, req, await basicTraining.submitQuiz(await requireActor(req), req.body))));
   api.get("/training/company-requests", route(async (req, res) => ok(res, req, await basicTraining.myCompanyRequests(await requireActor(req)))));
   api.post("/training/company-requests", route(async (req, res) => ok(res, req, await basicTraining.saveCompanyRequest(await requireActor(req), req.body))));
   api.patch("/training/company-requests/:id", route(async (req, res) => ok(res, req, await basicTraining.saveCompanyRequest(await requireActor(req), req.body, String(req.params.id)))));
@@ -407,6 +401,21 @@ export function createApp() {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
     ok(res, req, await basicTraining.replaceQuestionBank(actor, req.body));
+  }));
+  api.post("/admin/training/question-bank/questions", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.saveQuestion(actor, req.body));
+  }));
+  api.put("/admin/training/question-bank/questions/:id", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.saveQuestion(actor, req.body, String(req.params.id)));
+  }));
+  api.delete("/admin/training/question-bank/questions/:id", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.deleteQuestion(actor, String(req.params.id)));
   }));
   api.post("/admin/training/question-bank/upload", upload.single("file"), route(async (req, res) => {
     const actor = await requireActor(req);

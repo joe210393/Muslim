@@ -503,18 +503,19 @@ model TrainingPolicy {
 }
 
 model BasicTrainingModule {
-  id             String   @id @default(uuid()) @db.Uuid
-  title          String   @db.VarChar(200)
-  description    String   @default("") @db.VarChar(4000)
-  youtubeUrl     String   @default("") @map("youtube_url") @db.VarChar(200)
-  materialFileId String?  @unique @map("material_file_id") @db.Uuid
-  sortOrder      Int      @default(0) @map("sort_order")
-  isRequired     Boolean  @default(true) @map("is_required")
-  isActive       Boolean  @default(true) @map("is_active")
-  updatedById    String?  @map("updated_by_id") @db.Uuid
-  version        Int      @default(1)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                   String   @id @default(uuid()) @db.Uuid
+  title                String   @db.VarChar(200)
+  description          String   @default("") @db.VarChar(4000)
+  youtubeUrl            String   @default("") @map("youtube_url") @db.VarChar(200)
+  requiredWatchPercent  Int      @default(80) @map("required_watch_percent")
+  materialFileId        String?  @unique @map("material_file_id") @db.Uuid
+  sortOrder            Int      @default(0) @map("sort_order")
+  isRequired           Boolean  @default(true) @map("is_required")
+  isActive             Boolean  @default(true) @map("is_active")
+  updatedById          String?  @map("updated_by_id") @db.Uuid
+  version              Int      @default(1)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   material  FileObject?             @relation("BasicModuleMaterial", fields: [materialFileId], references: [id], onDelete: Restrict)
   updatedBy User?                   @relation("BasicModuleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
@@ -539,10 +540,15 @@ model BasicTrainingQuestion {
 }
 
 model BasicTrainingProgress {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  moduleId    String   @map("module_id") @db.Uuid
-  completedAt DateTime @default(now()) @map("completed_at") @db.Timestamptz(6)
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  moduleId             String    @map("module_id") @db.Uuid
+  watchedSeconds       Int       @default(0) @map("watched_seconds")
+  videoDurationSeconds Int       @default(0) @map("video_duration_seconds")
+  watchUpdatedAt       DateTime? @map("watch_updated_at") @db.Timestamptz(6)
+  completedAt          DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   module BasicTrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)

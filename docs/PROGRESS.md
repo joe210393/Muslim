@@ -267,12 +267,24 @@ Zeabur 上的容器在遷移完成後執行 `seed:boot`，再用固定編號建�
 
 後續調整：教育訓練改為側欄獨立頁（`/admin/courses`、`/admin/training/basic|question-bank|policy|company-requests|certificates`），不再用同頁分頁；題庫頁可下載 CSV／JSON 範本。
 
+## 2026-11-19 基礎課觀看分鐘與系統標示完成
+
+基礎課新增 `requiredWatchMinutes`；業者播放 YouTube 達門檻秒數後由系統寫入完成，移除自行「標示已讀完」。上傳教材／題庫改為與其他後台相同的 `label.btn`＋隱藏 file input。migration `20261119090000_basic_watch_minutes`。
+
+## 2026-11-19 觀看改百分比＋題庫表單
+
+觀看門檻改為 `requiredWatchPercent`（預設 80），進度另存 `videoDurationSeconds`；達影片長度百分比後系統標示完成。migration `20261119120000_basic_watch_percent`。題庫主流程改為後台表單新增／編輯／刪除；CSV／JSON 檔案匯入收合為進階選項。
+
+## 2026-11-20 基礎課不發證書
+
+基礎教育訓練通過後只寫 `passedAt`、於教育訓練頁顯示「已完成」，不再產生／下載基礎課證書。證書僅線上／線下課程與專班由承辦人工登錄 `TrainingCertificate`。
+
 ## 下一步
 
 1. 把 `VITE_DATA_MODE` 改成 `api`，用瀏覽器重走登入、草稿與審查。
 2. 補 T03 到 T10 的 API 測試，失敗就先修再標結果。
 3. 正式 build 後確認產物不含展示捷徑。
-4. mock／API 上重走：新增基礎課、上傳題庫、調整抽題／及格題數、業者抽題測驗。
+4. mock／API 上重走：新增基礎課、表單維護題庫、調整抽題／及格題數、業者觀看百分比達標與抽題測驗。
 
 ## 如實標示
 
