@@ -19,6 +19,7 @@ import {
   basicQuestionWriteSchema,
   basicWatchPassSeconds,
   basicWatchProgressSchema,
+  canCompleteBasicWatch,
   companyTrainingRequestWriteSchema,
   companyTrainingReviewSchema,
   trainingCertificateWriteSchema,
@@ -124,12 +125,11 @@ function presentPolicy(data: Data) {
 function moduleDto(data: Data, module: Data["basicModules"][number], actor: Actor | null) {
   const progress = actor ? data.basicProgress.find((item) => item.userId === actor.id && item.moduleId === module.id) : undefined;
   const videoDurationSeconds = progress?.videoDurationSeconds ?? 0;
-  const requiredWatchSeconds = videoDurationSeconds > 0
-    ? basicWatchPassSeconds(videoDurationSeconds, module.requiredWatchPercent)
-    : null;
+  const requiredRaw = basicWatchPassSeconds(videoDurationSeconds, module.requiredWatchPercent);
+  const requiredWatchSeconds = Number.isFinite(requiredRaw) ? requiredRaw : null;
   const watchedSeconds = progress?.watchedSeconds ?? 0;
   const completed = Boolean(progress?.completedAt)
-    || (requiredWatchSeconds != null && Number.isFinite(requiredWatchSeconds) && watchedSeconds >= requiredWatchSeconds);
+    || canCompleteBasicWatch(videoDurationSeconds, watchedSeconds, module.requiredWatchPercent);
   const material = module.materialFileId ? data.files.find((item) => item.id === module.materialFileId) : null;
   return {
     id: module.id,
@@ -293,21 +293,21 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
       const module = data.basicModules.find((item) => item.id === moduleId && item.isActive);
       if (!module) throw new ClientError("找不到基礎課", { status: 404 });
       if (!module.youtubeUrl.trim()) throw new ClientError("此基礎課尚未設定影片，無法累計觀看");
-      const requiredSeconds = basicWatchPassSeconds(parsed.videoDurationSeconds, module.requiredWatchPercent);
       const existing = data.basicProgress.find((item) => item.userId === actor.id && item.moduleId === moduleId);
       if (existing?.completedAt) return basicStatus(data, actor);
       const now = new Date().toISOString();
+      const durationSeconds = Math.max(existing?.videoDurationSeconds ?? 0, parsed.videoDurationSeconds);
       const accepted = acceptWatchProgress({
         currentSeconds: existing?.watchedSeconds ?? 0,
         reportedSeconds: parsed.watchedSeconds,
-        videoDurationSeconds: parsed.videoDurationSeconds,
+        videoDurationSeconds: durationSeconds,
         lastReportedAt: existing?.watchUpdatedAt ?? null,
         nowIso: now,
       });
-      const completed = accepted >= requiredSeconds;
+      const completed = canCompleteBasicWatch(durationSeconds, accepted, module.requiredWatchPercent);
       if (existing) {
         existing.watchedSeconds = accepted;
-        existing.videoDurationSeconds = parsed.videoDurationSeconds;
+        existing.videoDurationSeconds = durationSeconds;
         existing.watchUpdatedAt = now;
         existing.updatedAt = now;
         if (completed) existing.completedAt = now;
@@ -317,7 +317,7 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
           userId: actor.id,
           moduleId,
           watchedSeconds: accepted,
-          videoDurationSeconds: parsed.videoDurationSeconds,
+          videoDurationSeconds: durationSeconds,
           watchUpdatedAt: now,
           completedAt: completed ? now : null,
           createdAt: now,

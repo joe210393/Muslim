@@ -247,7 +247,7 @@ describe("基礎教育訓練與專班", () => {
     expect(quizPassedByCount(4, 4)).toBe(true);
     expect(quizPassedByCount(3, 4)).toBe(false);
     expect(basicWatchPassSeconds(100, 80)).toBe(80);
-    expect(basicWatchPassSeconds(10, 80)).toBe(8);
+    expect(basicWatchPassSeconds(10, 80)).toBe(Number.POSITIVE_INFINITY);
     const csv = parseQuestionBankUpload("題目,選項,正解\n示範題,甲|乙|丙,1");
     expect(csv.error).toBeUndefined();
     expect(csv.rows[0]?.correctIndex).toBe(1);

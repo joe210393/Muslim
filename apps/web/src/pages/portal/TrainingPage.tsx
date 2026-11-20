@@ -97,9 +97,9 @@ function BasicTrainingPanel() {
               <YoutubeWatchPlayer
                 youtubeUrl={module.youtubeUrl}
                 title={module.title}
-                enabled={!module.completed && !data.passed}
+                trackProgress={!module.completed && !data.passed}
                 onProgress={(seconds, videoDurationSeconds) => {
-                  if (module.completed || data.passed || (seconds <= watchedSeconds && videoDurationSeconds === durationSeconds)) return;
+                  if (module.completed || data.passed || (seconds <= watchedSeconds && videoDurationSeconds <= durationSeconds)) return;
                   void services.recordBasicModuleWatch(module.id, { watchedSeconds: seconds, videoDurationSeconds }).then((next) => {
                     const updated = next.modules.find((item) => item.id === module.id);
                     if (updated?.completed && !module.completed) {

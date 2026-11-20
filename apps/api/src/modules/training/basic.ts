@@ -11,6 +11,7 @@ import {
   basicTrainingModuleWriteSchema,
   basicWatchPassSeconds,
   basicWatchProgressSchema,
+  canCompleteBasicWatch,
   buildLearningRecord,
   canStartVerificationApplication,
   companyTrainingRequestWriteSchema,
@@ -84,12 +85,12 @@ function presentModule(
   progress?: { watchedSeconds: number; videoDurationSeconds: number; completedAt: Date | null } | null,
 ) {
   const videoDurationSeconds = progress?.videoDurationSeconds ?? 0;
-  const requiredWatchSeconds = videoDurationSeconds > 0
+  const requiredWatchSeconds = Number.isFinite(basicWatchPassSeconds(videoDurationSeconds, row.requiredWatchPercent))
     ? basicWatchPassSeconds(videoDurationSeconds, row.requiredWatchPercent)
     : null;
   const watchedSeconds = progress?.watchedSeconds ?? 0;
   const completed = Boolean(progress?.completedAt)
-    || (requiredWatchSeconds != null && Number.isFinite(requiredWatchSeconds) && watchedSeconds >= requiredWatchSeconds);
+    || canCompleteBasicWatch(videoDurationSeconds, watchedSeconds, row.requiredWatchPercent);
   return {
     id: row.id,
     title: row.title,
@@ -181,31 +182,31 @@ export async function recordModuleWatch(actor: SessionActor, moduleId: string, b
   const module = await prisma.basicTrainingModule.findFirst({ where: { id: moduleId, isActive: true }, include: { material: true } });
   if (!module) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
   if (!module.youtubeUrl.trim()) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "此基礎課尚未設定影片，無法累計觀看");
-  const requiredSeconds = basicWatchPassSeconds(input.videoDurationSeconds, module.requiredWatchPercent);
   const existing = await prisma.basicTrainingProgress.findUnique({ where: { userId_moduleId: { userId: actor.id, moduleId } } });
   if (existing?.completedAt) return basicStatus(actor);
   const now = new Date();
+  const durationSeconds = Math.max(existing?.videoDurationSeconds ?? 0, input.videoDurationSeconds);
   const accepted = acceptWatchProgress({
     currentSeconds: existing?.watchedSeconds ?? 0,
     reportedSeconds: input.watchedSeconds,
-    videoDurationSeconds: input.videoDurationSeconds,
+    videoDurationSeconds: durationSeconds,
     lastReportedAt: existing?.watchUpdatedAt?.toISOString() ?? null,
     nowIso: now.toISOString(),
   });
-  const completed = accepted >= requiredSeconds;
+  const completed = canCompleteBasicWatch(durationSeconds, accepted, module.requiredWatchPercent);
   await prisma.basicTrainingProgress.upsert({
     where: { userId_moduleId: { userId: actor.id, moduleId } },
     create: {
       userId: actor.id,
       moduleId,
       watchedSeconds: accepted,
-      videoDurationSeconds: input.videoDurationSeconds,
+      videoDurationSeconds: durationSeconds,
       watchUpdatedAt: now,
       completedAt: completed ? now : null,
     },
     update: {
       watchedSeconds: accepted,
-      videoDurationSeconds: input.videoDurationSeconds,
+      videoDurationSeconds: durationSeconds,
       watchUpdatedAt: now,
       ...(completed ? { completedAt: now } : {}),
     },

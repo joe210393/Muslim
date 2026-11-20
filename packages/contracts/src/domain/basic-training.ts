@@ -104,11 +104,22 @@ export function nextBasicCertificateNo(seq: number): string {
   return `BT-${String(seq).padStart(6, "0")}`;
 }
 
+/** YouTube 長度尚未穩定前（API 常先回很短秒數）不可用來判定完成。 */
+export const BASIC_WATCH_MIN_DURATION_SECONDS = 30;
+
 /** 基礎課 YouTube：依影片長度與及格百分比算出需看到第幾秒。 */
 export function basicWatchPassSeconds(videoDurationSeconds: number, passPercent: number): number {
-  if (!Number.isInteger(videoDurationSeconds) || videoDurationSeconds < 1) return Number.POSITIVE_INFINITY;
+  if (!Number.isInteger(videoDurationSeconds) || videoDurationSeconds < BASIC_WATCH_MIN_DURATION_SECONDS) {
+    return Number.POSITIVE_INFINITY;
+  }
   const percent = Math.min(100, Math.max(1, passPercent));
   return Math.ceil((videoDurationSeconds * percent) / 100);
+}
+
+export function canCompleteBasicWatch(videoDurationSeconds: number, watchedSeconds: number, passPercent: number): boolean {
+  if (videoDurationSeconds < BASIC_WATCH_MIN_DURATION_SECONDS) return false;
+  if (!Number.isInteger(watchedSeconds) || watchedSeconds < 1) return false;
+  return watchedSeconds >= basicWatchPassSeconds(videoDurationSeconds, passPercent);
 }
 
 export function drawRandomQuestions<T>(items: T[], count: number, random: () => number = Math.random): T[] {

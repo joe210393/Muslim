@@ -66,9 +66,49 @@ async function maybePurgeAllApplications() {
 
 const purgedAll = await maybePurgeAllApplications();
 
+const BASIC_PROGRESS_PURGE_MARKER = "BASIC_TRAINING_PROGRESS_PURGE_20261120";
+async function maybePurgeBasicTrainingProgress() {
+  const force = process.env.PURGE_BASIC_TRAINING_PROGRESS === "true";
+  const already = await prisma.auditLog.findFirst({ where: { action: BASIC_PROGRESS_PURGE_MARKER } });
+  if (!force && !(boot && !already)) return false;
+  const [progressCount, attemptCount, passCount] = await prisma.$transaction([
+    prisma.basicTrainingProgress.deleteMany({}),
+    prisma.basicTrainingAttempt.deleteMany({}),
+    prisma.userBasicTraining.deleteMany({}),
+  ]);
+  console.info(
+    `已清除業者基礎教育訓練進度：觀看 ${progressCount.count}、測驗 ${attemptCount.count}、通過紀錄 ${passCount.count}。`,
+  );
+  if (!already) {
+    await prisma.auditLog.create({
+      data: {
+        actorId: null,
+        action: BASIC_PROGRESS_PURGE_MARKER,
+        entityType: "System",
+        entityId: null,
+        requestId: BASIC_PROGRESS_PURGE_MARKER,
+        safeChanges: {
+          progress: progressCount.count,
+          attempts: attemptCount.count,
+          passed: passCount.count,
+          note: "一次性清空業者基礎課觀看／測驗／通過狀態；課程與題庫保留",
+        },
+      },
+    });
+  }
+  return true;
+}
+
+const purgedBasicProgress = await maybePurgeBasicTrainingProgress();
+
 if (env.APP_ENV === "production") {
   if (boot) {
-    console.info(purgedAll ? "正式環境已處理案件清空，略過展示帳號。" : "正式環境略過展示帳號。");
+    const notes = [
+      purgedAll ? "案件已清空" : null,
+      purgedBasicProgress ? "基礎課進度已清空" : null,
+      "略過展示帳號",
+    ].filter(Boolean);
+    console.info(`正式環境：${notes.join("；")}。`);
     await prisma.$disconnect();
     process.exit(0);
   }

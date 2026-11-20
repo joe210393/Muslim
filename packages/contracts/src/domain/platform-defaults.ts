@@ -241,18 +241,24 @@ export function isSafeHref(value: string): boolean {
 export function youtubeVideoId(value: string): string | null {
   if (!value) return null;
   try {
-    const url = new URL(value);
+    const url = new URL(value.trim());
     const host = url.hostname.replace(/^www\./, "");
     const idPattern = /^[\w-]{11}$/;
     if (host === "youtu.be") {
-      const id = url.pathname.split("/").filter(Boolean)[0] ?? "";
+      const id = (url.pathname.split("/").filter(Boolean)[0] ?? "").split("?")[0] ?? "";
       return idPattern.test(id) ? id : null;
     }
-    if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+    if (
+      host === "youtube.com"
+      || host === "m.youtube.com"
+      || host === "music.youtube.com"
+      || host === "youtube-nocookie.com"
+    ) {
       const fromQuery = url.searchParams.get("v") ?? "";
-      if (url.pathname === "/watch" && idPattern.test(fromQuery)) return fromQuery;
+      if (idPattern.test(fromQuery)) return fromQuery;
       const parts = url.pathname.split("/").filter(Boolean);
-      const id = parts[0] === "embed" || parts[0] === "shorts" ? parts[1] ?? "" : "";
+      const kind = parts[0] ?? "";
+      const id = kind === "embed" || kind === "shorts" || kind === "live" || kind === "v" ? parts[1] ?? "" : "";
       return idPattern.test(id) ? id : null;
     }
   } catch {
