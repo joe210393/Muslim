@@ -9,9 +9,67 @@ import { createStorage } from "../storage/storage";
 
 const env = getEnv();
 const boot = process.argv.includes("--boot");
+const storage = createStorage(path.resolve(repoRoot(), env.UPLOAD_ROOT));
+const FULL_APPLICATION_PURGE_MARKER = "APPLICATIONS_FULL_PURGE_20261120";
+
+async function purgeApplicationIds(ids: string[], label: string) {
+  if (ids.length === 0) {
+    console.info(`${label}：沒有案件可清。`);
+    return;
+  }
+  const attachments = await prisma.applicationAttachment.findMany({
+    where: { applicationId: { in: ids } },
+    select: { fileId: true },
+  });
+  const fileIds = [...new Set(attachments.map((item) => item.fileId))];
+  await prisma.$transaction([
+    prisma.applicationEvent.deleteMany({ where: { applicationId: { in: ids } } }),
+    prisma.certification.deleteMany({ where: { applicationId: { in: ids } } }),
+    prisma.notificationJob.deleteMany({ where: { applicationId: { in: ids } } }),
+    prisma.applicationAttachment.deleteMany({ where: { applicationId: { in: ids } } }),
+    prisma.applicationSubmission.deleteMany({ where: { applicationId: { in: ids } } }),
+    prisma.auditLog.deleteMany({ where: { entityType: "Application", entityId: { in: ids } } }),
+    prisma.application.deleteMany({ where: { id: { in: ids } } }),
+  ]);
+  if (fileIds.length > 0) {
+    const files = await prisma.fileObject.findMany({ where: { id: { in: fileIds } }, select: { id: true, storageKey: true } });
+    await prisma.fileObject.deleteMany({ where: { id: { in: fileIds } } });
+    for (const file of files) await storage.delete(file.storageKey).catch(() => undefined);
+  }
+  console.info(`${label}：已清除 ${ids.length} 筆。`);
+}
+
+async function maybePurgeAllApplications() {
+  const forcePurgeAll = process.env.PURGE_ALL_APPLICATIONS === "true";
+  const alreadyPurged = await prisma.auditLog.findFirst({ where: { action: FULL_APPLICATION_PURGE_MARKER } });
+  if (!forcePurgeAll && !(boot && !alreadyPurged)) return false;
+  const allCases = await prisma.application.findMany({ select: { id: true } });
+  await purgeApplicationIds(allCases.map((item) => item.id), "全部申請案件（草稿／審核中／通過／退件）");
+  await prisma.$executeRawUnsafe(`SELECT setval('application_no_seq', 1, false)`);
+  if (!alreadyPurged) {
+    await prisma.auditLog.create({
+      data: {
+        actorId: null,
+        action: FULL_APPLICATION_PURGE_MARKER,
+        entityType: "System",
+        entityId: null,
+        requestId: FULL_APPLICATION_PURGE_MARKER,
+        safeChanges: {
+          purgedCount: allCases.length,
+          note: "一次性清空全部申請案件；之後新建的案件會保留，除非再設 PURGE_ALL_APPLICATIONS=true",
+        },
+      },
+    });
+  }
+  return true;
+}
+
+const purgedAll = await maybePurgeAllApplications();
+
 if (env.APP_ENV === "production") {
   if (boot) {
-    console.info("正式環境略過展示帳號。");
+    console.info(purgedAll ? "正式環境已處理案件清空，略過展示帳號。" : "正式環境略過展示帳號。");
+    await prisma.$disconnect();
     process.exit(0);
   }
   console.error("拒絕執行：正式環境不寫入展示帳號。");
@@ -24,7 +82,6 @@ if (!env.DEMO_MODE && !boot) {
 
 const data = buildDemoDataset();
 const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
-const storage = createStorage(path.resolve(repoRoot(), env.UPLOAD_ROOT));
 
 for (const org of data.organizations) {
   const current = await prisma.organization.findUnique({ where: { taxId: org.taxId } });
@@ -70,32 +127,12 @@ for (const version of data.formVersions) {
   });
 }
 
-const seededCases = await prisma.application.findMany({
-  where: { sourceSystem: DEMO_SOURCE_SYSTEM },
-  select: { id: true },
-});
-const seededIds = seededCases.map((item) => item.id);
-if (seededIds.length > 0) {
-  const attachments = await prisma.applicationAttachment.findMany({
-    where: { applicationId: { in: seededIds } },
-    select: { fileId: true },
+if (!purgedAll) {
+  const seededCases = await prisma.application.findMany({
+    where: { sourceSystem: DEMO_SOURCE_SYSTEM },
+    select: { id: true },
   });
-  const fileIds = attachments.map((item) => item.fileId);
-  await prisma.$transaction([
-    prisma.applicationEvent.deleteMany({ where: { applicationId: { in: seededIds } } }),
-    prisma.certification.deleteMany({ where: { applicationId: { in: seededIds } } }),
-    prisma.notificationJob.deleteMany({ where: { applicationId: { in: seededIds } } }),
-    prisma.applicationAttachment.deleteMany({ where: { applicationId: { in: seededIds } } }),
-    prisma.applicationSubmission.deleteMany({ where: { applicationId: { in: seededIds } } }),
-    prisma.auditLog.deleteMany({ where: { entityType: "Application", entityId: { in: seededIds } } }),
-    prisma.application.deleteMany({ where: { id: { in: seededIds } } }),
-  ]);
-  if (fileIds.length > 0) {
-    const files = await prisma.fileObject.findMany({ where: { id: { in: fileIds } }, select: { id: true, storageKey: true } });
-    await prisma.fileObject.deleteMany({ where: { id: { in: fileIds } } });
-    for (const file of files) await storage.delete(file.storageKey).catch(() => undefined);
-  }
-  console.info(`已清除 ${seededIds.length} 筆示範案件。之後新建的案件會保留。`);
+  await purgeApplicationIds(seededCases.map((item) => item.id), "示範案件");
 }
 
 for (const application of data.applications) {
