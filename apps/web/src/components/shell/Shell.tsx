@@ -318,9 +318,20 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
             <span className="mt-1 block text-sm font-medium">{session.user ? session.user.email : "尚未登入"}</span>
             {session.user ? <span className="block text-xs text-[var(--muted)]">{userRoleLabels[session.user.role as UserRole]?.label ?? "請重新登入"}</span> : null}
           </Link>
-          <nav className="flex flex-wrap items-center gap-3 text-sm">
+          {area === "public" ? (
+            <button
+              className="btn rounded-md px-3 py-2 text-sm md:hidden"
+              type="button"
+              aria-expanded={menuOpen}
+              aria-controls="public-menu"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              {menuOpen ? "關閉選單" : "選單"}
+            </button>
+          ) : null}
+          <nav id={area === "public" ? "public-menu" : undefined} className={area === "public" ? `${menuOpen ? "flex" : "hidden"} w-full flex-col gap-2 text-sm md:flex md:w-auto md:flex-row md:flex-wrap md:items-center md:gap-3` : "flex flex-wrap items-center gap-3 text-sm"}>
             {area === "public" ? links.map((item) => (
-              <NavLink key={item.href} to={item.href} end={item.href === "/"} className={({ isActive }) => `btn rounded-md px-3 py-2 no-underline ${isActive ? "is-selected" : ""}`}>{item.label}</NavLink>
+              <NavLink key={item.href} to={item.href} end={item.href === "/"} className={({ isActive }) => `btn w-full rounded-md px-3 py-2 no-underline md:w-auto ${isActive ? "is-selected" : ""}`}>{item.label}</NavLink>
             )) : (
               <>
                 <span className="text-sm text-[var(--muted)]">{area === "portal" ? "業者會員區" : "內部後台"}</span>
