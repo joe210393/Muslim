@@ -322,19 +322,19 @@ async function seedCertificateTemplates() {
 
 if (boot) await seedCertificateTemplates();
 
+if (boot && env.APP_ENV !== "local") {
+  const notes = [
+    purgedOnline ? "線上既有資料已清空，申請表已改成各類目前版本" : null,
+    purgedAll ? "案件已清空" : null,
+    purgedBasicProgress ? "基礎課進度已清空" : null,
+    purgedAccount ? `已刪 ${ACCOUNT_DATA_PURGE_EMAIL} 的方案、合約、申請` : null,
+    "略過展示帳號",
+  ].filter(Boolean);
+  console.info(`${env.APP_ENV === "production" ? "正式環境" : "預發環境"}：${notes.join("；")}。`);
+  await prisma.$disconnect();
+  process.exit(0);
+}
 if (env.APP_ENV === "production") {
-  if (boot) {
-    const notes = [
-      purgedOnline ? "線上既有資料已清空，申請表已改成各類目前版本" : null,
-      purgedAll ? "案件已清空" : null,
-      purgedBasicProgress ? "基礎課進度已清空" : null,
-      purgedAccount ? `已刪 ${ACCOUNT_DATA_PURGE_EMAIL} 的方案、合約、申請` : null,
-      "略過展示帳號",
-    ].filter(Boolean);
-    console.info(`正式環境：${notes.join("；")}。`);
-    await prisma.$disconnect();
-    process.exit(0);
-  }
   console.error("拒絕執行：正式環境不寫入展示帳號。");
   process.exit(1);
 }
@@ -399,6 +399,13 @@ for (const category of data.categories) {
     created += 1;
   }
   if (created > 0) console.info(`已補上 ${created} 筆 2026 官方方案目錄。`);
+}
+
+const liveCategoryIds = new Set((await prisma.applicationCategory.findMany({ select: { id: true } })).map((item) => item.id));
+if (data.categories.some((item) => !liveCategoryIds.has(item.id))) {
+  console.info("資料庫裡的類別編號與展示種子不同，略過展示資料，服務繼續啟動。");
+  await prisma.$disconnect();
+  process.exit(0);
 }
 
 for (const version of data.formVersions) {
