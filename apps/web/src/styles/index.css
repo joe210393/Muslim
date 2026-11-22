@@ -118,6 +118,369 @@ a {
   box-shadow: none;
 }
 
+.app-area h1,
+.app-area h2,
+.app-area h3 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.app-area .btn,
+.app-area .btn:active:not(:disabled),
+.app-area .btn[aria-pressed="true"],
+.app-area .btn.is-selected {
+  transform: none;
+  box-shadow: none;
+}
+
+.app-area .btn.is-selected:not(.btn-primary):not(.btn-danger),
+.app-area .btn[aria-pressed="true"]:not(.btn-primary):not(.btn-danger) {
+  border-color: var(--accent-deep);
+  background: #d6e8f7;
+}
+
+.app-area .btn-primary {
+  background: var(--accent-deep);
+  color: #f4f8fb;
+}
+
+.app-area .btn-primary:hover:not(:disabled) {
+  background: #185a90;
+}
+
+.nav-item {
+  width: 100%;
+  border-left: 3px solid transparent;
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nav-item:hover {
+  background: var(--panel);
+}
+
+.nav-item.is-selected {
+  border-left-color: var(--accent-deep);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.nav-item.is-open {
+  font-weight: 600;
+}
+
+.app-area main td a,
+.app-area main td button:not(.btn),
+.table-action {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+}
+
+.table-action {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+.contract-field {
+  display: inline-block;
+  margin: 0 0.15em;
+  padding: 0.05em 0.4em;
+  border-radius: 0.25rem;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #78350f;
+  font-size: 0.92em;
+}
+
+.contract-seal,
+.contract-seal-img {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.contract-seal {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 9999px;
+  border: 2px solid #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+  color: #991b1b;
+  font-size: 0.65rem;
+  text-align: center;
+}
+
+.contract-seal[data-contract-seal="person"] {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-color: #9f1239;
+  background: rgba(159, 18, 57, 0.08);
+  color: #9f1239;
+}
+
+.contract-seal-img {
+  object-fit: contain;
+}
+
+.contract-parties {
+  display: flex;
+  flex-direction: column;
+  min-height: 28rem;
+  margin-top: 1.5rem;
+  padding: 2rem 1.75rem 2.25rem;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+}
+
+.contract-parties-title {
+  margin: 0 0 1.75rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.contract-parties-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.5rem 4rem;
+  align-items: start;
+}
+
+.contract-parties-col {
+  position: relative;
+  min-height: 12rem;
+  line-height: 2.35;
+  padding-right: 0.5rem;
+}
+
+.contract-parties-col p {
+  margin: 0 0 1.1rem;
+}
+
+.contract-parties-col--seal-host {
+  position: relative;
+}
+
+/* 甲方欄位 inline 章改由疊加層顯示，避免與拖曳定位重複 */
+.contract-parties-col[data-party="a"] .contract-seal {
+  display: none;
+}
+
+.contract-seal-overlay {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  user-select: none;
+  touch-action: none;
+  opacity: 0.92;
+  object-fit: contain;
+}
+
+.contract-seal-overlay.is-company {
+  width: 5.5rem;
+  height: 5.5rem;
+}
+
+.contract-seal-overlay.is-person {
+  width: 3.8rem;
+  height: 3.8rem;
+}
+
+span.contract-seal-overlay {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+  color: #991b1b;
+  font-size: 0.65rem;
+  text-align: center;
+  line-height: 1.2;
+}
+
+span.contract-seal-overlay.is-person {
+  border-color: #9f1239;
+  background: rgba(159, 18, 57, 0.08);
+  color: #9f1239;
+}
+
+.contract-parties-col--seal-host.is-editable .contract-seal-overlay {
+  cursor: grab;
+}
+
+.contract-parties-col--seal-host.is-editable .contract-seal-overlay.is-dragging {
+  cursor: grabbing;
+  opacity: 1;
+  outline: 2px dashed #b91c1c;
+}
+
+.contract-parties-date {
+  margin-top: auto;
+  padding: 2rem 0.35rem 0;
+  font-size: 1.05rem;
+  text-align: justify;
+  text-align-last: justify;
+}
+
+/* 單行也強制左右撐滿，讓「中華民國…日」等距 */
+.contract-parties-date::after {
+  content: "";
+  display: inline-block;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .contract-parties-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.contract-body-view {
+  box-sizing: border-box;
+}
+
+/* 證書版式：示意邊距、行高 1.5、字距略開、換行齊頭、簽名靠下 */
+.certificate-sheet,
+.certificate-sheet.contract-body-view {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  color: #1a1916;
+  padding: 10% 12%;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  box-sizing: border-box;
+}
+
+.certificate-sheet > p {
+  margin: 0;
+}
+
+.certificate-row {
+  display: flex;
+  align-items: flex-start;
+  margin: 0.45rem 0 0;
+}
+
+.certificate-label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.certificate-value {
+  flex: 1;
+  min-width: 0;
+  padding-left: 0.2em;
+}
+
+.certificate-center,
+.contract-body-view .certificate-center,
+.certificate-sheet .certificate-center {
+  text-align: center;
+  margin: 0.2rem 0;
+}
+
+.certificate-logo-slot,
+.contract-body-view .certificate-logo-slot,
+.certificate-sheet .certificate-logo-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 1rem auto 1.35rem;
+  min-height: 9rem;
+}
+
+.certificate-logo,
+.contract-body-view .certificate-logo,
+.certificate-sheet .certificate-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 11rem;
+  max-height: 11rem;
+  object-fit: contain;
+  margin: 0 auto;
+}
+
+.certificate-logo-missing {
+  color: #78716c;
+  font-size: 0.875rem;
+}
+
+.certificate-signature-slot,
+.contract-body-view .certificate-signature-slot,
+.certificate-sheet .certificate-signature-slot {
+  position: relative;
+  width: 14rem;
+  min-height: 4.5rem;
+  margin: 0.4rem 0 0.35rem;
+  border-bottom: 1.5px dashed #1a1916;
+  padding-bottom: 0.2rem;
+}
+
+.certificate-signature,
+.contract-body-view .certificate-signature,
+.certificate-sheet .certificate-signature {
+  display: block;
+  max-width: 13rem;
+  max-height: 4.25rem;
+  object-fit: contain;
+}
+
+.contract-rich-editor table,
+.contract-body-view table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  table-layout: fixed;
+}
+
+.contract-rich-editor th,
+.contract-rich-editor td,
+.contract-body-view th,
+.contract-body-view td {
+  border: 2px solid #111;
+  padding: 0.75rem;
+  vertical-align: top;
+  white-space: pre-wrap;
+}
+
+.contract-rich-editor th,
+.contract-body-view th {
+  background: #e7e5e4;
+  font-weight: 600;
+}
+
+.contract-rich-editor-shell .ProseMirror {
+  min-height: 28rem;
+}
+
+.contract-rich-editor-shell .contract-parties {
+  margin-left: 0.25rem;
+  margin-right: 0.25rem;
+}
+
+.contract-rich-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.contract-rich-editor .selectedCell {
+  background: rgba(106, 175, 230, 0.25);
+}
+
 @media print {
   nav,
   .no-print {
@@ -126,4 +489,9 @@ a {
   main {
     padding: 0 !important;
   }
+}
+
+html.modal-open {
+  overflow: hidden;
+  padding-right: var(--scrollbar-gap, 0px);
 }

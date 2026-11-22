@@ -197,6 +197,7 @@ model User {
   features                UserFeature[]
   savedReports            SavedReport[]
   recordedPayments        PaymentRecord[] @relation("PaymentRecorder")
+  visibleServicePlans     ServicePlanViewer[]
   trainingPoliciesUpdated TrainingPolicy[] @relation("TrainingPolicyEditor")
   basicModulesUpdated     BasicTrainingModule[] @relation("BasicModuleEditor")
   basicProgress           BasicTrainingProgress[]
@@ -332,6 +333,7 @@ model Application {
   attachments         ApplicationAttachment[]
   certification       Certification?
   notificationJobs    NotificationJob[]
+  contracts           ContractRecord[]
 
   @@unique([sourceSystem, sourceRecordKey])
   @@index([status])
@@ -405,8 +407,11 @@ model FileObject {
   contractFaces        ContractRecord[]        @relation("ContractFace")
   contractSignatures   ContractRecord[]        @relation("ContractSignature")
   contractDocuments    ContractRecord[]        @relation("ContractPdf")
+  contractCompanySeal  ContractSealSetting?    @relation("ContractCompanySeal")
+  contractPersonSeal   ContractSealSetting?    @relation("ContractPersonSeal")
   basicModuleMaterials BasicTrainingModule[]   @relation("BasicModuleMaterial")
   basicCertificates    UserBasicTraining[]     @relation("BasicTrainingCertificate")
+  servicePlanImages    ServicePlanImage[]      @relation("ServicePlanImage")
 
   @@map("file_objects")
 }
@@ -644,6 +649,8 @@ model Certification {
   certificateNo  String   @unique @map("certificate_no") @db.VarChar(64)
   issuedOnDate   String   @map("issued_on_date") @db.Char(10)
   validUntilDate String   @map("valid_until_date") @db.Char(10)
+  templateKey    String?  @map("template_key") @db.VarChar(64)
+  bodyHtml       String?  @map("body_html") @db.Text
   registeredById String   @map("registered_by_id") @db.Uuid
   registeredAt   DateTime @default(now()) @map("registered_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -776,10 +783,28 @@ model ContractTemplate {
   @@map("contract_templates")
 }
 
+/** 合約立約方甲方大小章電子檔與位置（全站共用；座標為甲方欄位百分比）。 */
+model ContractSealSetting {
+  id                String   @id @default("default") @db.VarChar(32)
+  companySealFileId String?  @unique @map("company_seal_file_id") @db.Uuid
+  personSealFileId  String?  @unique @map("person_seal_file_id") @db.Uuid
+  companySealX      Float    @default(8) @map("company_seal_x")
+  companySealY      Float    @default(4) @map("company_seal_y")
+  personSealX       Float    @default(42) @map("person_seal_x")
+  personSealY       Float    @default(14) @map("person_seal_y")
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  companySeal FileObject? @relation("ContractCompanySeal", fields: [companySealFileId], references: [id], onDelete: SetNull)
+  personSeal  FileObject? @relation("ContractPersonSeal", fields: [personSealFileId], references: [id], onDelete: SetNull)
+
+  @@map("contract_seal_settings")
+}
+
 model ContractRecord {
   id              String         @id @default(uuid()) @db.Uuid
   contractNo      String         @unique @map("contract_no") @db.VarChar(32)
   organizationId  String         @map("organization_id") @db.Uuid
+  applicationId   String?        @map("application_id") @db.Uuid
   templateId      String         @map("template_id") @db.Uuid
   title           String         @db.VarChar(200)
   bodySnapshot    String         @map("body_snapshot")
@@ -797,6 +822,7 @@ model ContractRecord {
   updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  application   Application?     @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   template      ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
   faceFile      FileObject?      @relation("ContractFace", fields: [faceFileId], references: [id], onDelete: Restrict)
   signatureFile FileObject?      @relation("ContractSignature", fields: [signatureFileId], references: [id], onDelete: Restrict)
@@ -805,6 +831,7 @@ model ContractRecord {
   signedBy      User?            @relation("ContractSigner", fields: [signedById], references: [id], onDelete: Restrict)
 
   @@index([organizationId, status])
+  @@index([applicationId])
   @@map("contracts")
 }
 
@@ -825,7 +852,9 @@ model SavedReport {
 }
 
 enum PaymentStatus {
+  QUOTED
   PENDING
+  PAID_PENDING
   PAID
 
   @@map("payment_status")
@@ -843,8 +872,40 @@ model ServicePlan {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   payments PaymentRecord[]
+  images   ServicePlanImage[]
+  viewers  ServicePlanViewer[]
 
   @@map("service_plans")
+}
+
+/** 空名單＝全體業者可見；有名單＝僅指定使用者可見。 */
+model ServicePlanViewer {
+  id        String   @id @default(uuid()) @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  plan ServicePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, userId])
+  @@index([userId])
+  @@map("service_plan_viewers")
+}
+
+model ServicePlanImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  fileId    String   @unique @map("file_id") @db.Uuid
+  caption   String   @default("") @db.VarChar(200)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  plan ServicePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  file FileObject  @relation("ServicePlanImage", fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([planId, sortOrder])
+  @@map("service_plan_images")
 }
 
 model PaymentRecord {
@@ -854,11 +915,13 @@ model PaymentRecord {
   planId           String   @map("plan_id") @db.Uuid
   planName         String        @map("plan_name") @db.VarChar(80)
   amount           Int
-  status           PaymentStatus @default(PAID)
+  status           PaymentStatus @default(PENDING)
   merchantTradeNo  String?       @unique @map("merchant_trade_no") @db.VarChar(20)
   ecpayTradeNo     String?       @map("ecpay_trade_no") @db.VarChar(20)
   paymentMethod    String        @default("") @map("payment_method") @db.VarChar(20)
   paidAt           DateTime?     @map("paid_at") @db.Timestamptz(6)
+  quoteConfirmedAt DateTime?     @map("quote_confirmed_at") @db.Timestamptz(6)
+  accountingConfirmedAt DateTime? @map("accounting_confirmed_at") @db.Timestamptz(6)
   recordedById     String?       @map("recorded_by_id") @db.Uuid
   note             String        @default("") @db.VarChar(200)
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -868,6 +931,8 @@ model PaymentRecord {
   recordedBy   User?        @relation("PaymentRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
 
   @@index([organizationId, paidAt])
+  @@index([organizationId, status])
+  @@index([status])
   @@index([paidAt])
   @@map("payment_records")
 }

@@ -33,7 +33,7 @@ import type { StorageAdapter } from "../../storage/storage";
 
 type Tx = Prisma.TransactionClient;
 
-const listInclude = { organization: true, category: true, assignedTo: true, siteReviewer: true } satisfies Prisma.ApplicationInclude;
+const listInclude = { organization: true, category: true, assignedTo: true, siteReviewer: true, certification: { select: { certificateNo: true } } } satisfies Prisma.ApplicationInclude;
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -108,6 +108,7 @@ export function toListItem(app: Prisma.ApplicationGetPayload<{ include: typeof l
     assignedToName: app.assignedTo?.displayName ?? null,
     siteReviewerId: staff ? app.siteReviewerId : null,
     siteReviewerName: staff ? app.siteReviewer?.displayName ?? null : null,
+    certificateNo: app.certification?.certificateNo ?? null,
     version: app.version,
     submittedAt: iso(app.submittedAt),
     updatedAt: app.updatedAt.toISOString(),
@@ -138,9 +139,11 @@ function scopeWhere(actor: Actor): Prisma.ApplicationWhereInput {
   return officerCaseWhere(actor.id);
 }
 
-export async function listApplications(actor: Actor, query: { q?: string; status?: string; categoryId?: string; assignedToId?: string; page: number; pageSize: number }) {
+export async function listApplications(actor: Actor, query: { q?: string; status?: string; categoryId?: string; assignedToId?: string; certification?: "pending" | "issued"; page: number; pageSize: number }) {
   const where: Prisma.ApplicationWhereInput = { ...scopeWhere(actor) };
   if (query.status) where.status = query.status as never;
+  if (query.certification === "pending") where.certification = { is: null };
+  if (query.certification === "issued") where.certification = { isNot: null };
   if (query.categoryId) where.categoryId = query.categoryId;
   if (actor.role === UserRole.ADMIN && query.assignedToId) where.assignedToId = query.assignedToId;
   if (query.q) {
@@ -205,6 +208,8 @@ export async function createDraft(actor: Actor, categoryId: string) {
   if (actor.role !== UserRole.APPLICANT || !actor.organizationId) {
     throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可以建立申請");
   }
+  const { assertServiceUnlocked } = await import("../payments/service");
+  await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能建立驗證申請");
   const { assertBasicTrainingGate } = await import("../training/basic");
   await assertBasicTrainingGate(actor);
   const [category, organization] = await Promise.all([
@@ -343,6 +348,8 @@ export async function updateDraft(actor: Actor, id: string, patch: ApplicationPa
 
 async function writeSubmission(env: Env, actor: Actor, id: string, action: typeof ApplicationAction.SUBMIT | typeof ApplicationAction.RESUBMIT, expectedVersion: number, requestId: string) {
   if (action === ApplicationAction.SUBMIT) {
+    const { assertServiceUnlocked } = await import("../payments/service");
+    await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能送出驗證申請");
     const { assertBasicTrainingGate } = await import("../training/basic");
     await assertBasicTrainingGate(actor);
   }

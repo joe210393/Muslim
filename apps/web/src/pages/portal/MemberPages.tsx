@@ -1,10 +1,10 @@
-import { applicationStatusLabels, contractStatusLabels, ecpayMethodLabel, formatTwd } from "@mf/contracts";
+import { applicationStatusLabels, contractStatusLabels, ecpayMethodLabel, formatTwd, paymentStatusLabels } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { useServices } from "../../app/session";
 import { authorizedResources, renewalRules } from "../../content/site-content";
-import { Badge, Button, Card, Empty, PageHeader, PendingNote } from "../../components/ui";
+import { Badge, Button, Card, ContentImage, Empty, PageHeader, PendingNote } from "../../components/ui";
 import { formatTaipei } from "../../lib/format";
 import { ClientError } from "../../services/types";
 
@@ -42,12 +42,12 @@ export function RenewalPage() {
   const renewable = contracts.data?.filter((item) => item.status === "SIGNED" || item.status === "RENEWED" || item.status === "NOT_RENEWED") ?? [];
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="業者會員區" title="續約" lede="已簽署的合約可以在這裡登記已續約或未續約。費用、到期提醒與是否重新現場複審仍待確認。" />
+      <PageHeader eyebrow="業者會員區" title="續約" lede="已繳回蓋章 PDF 的合約可以在這裡登記已續約或未續約。費用、到期提醒與是否重新現場複審仍待確認。" />
       <PendingNote />
       <ul className="list-disc space-y-2 pl-5 text-sm leading-7 text-[var(--muted)]">
         {renewalRules.map((rule) => <li key={rule}>{rule}</li>)}
       </ul>
-      {renewable.length === 0 && !contracts.isLoading ? <Empty title="還沒有可登記的合約" body="簽署完成的合約會出現在這裡。" /> : null}
+      {renewable.length === 0 && !contracts.isLoading ? <Empty title="還沒有可登記的合約" body="上傳蓋章 PDF 後的合約會出現在這裡。" /> : null}
       {renewable.map((item) => (
         <Card key={item.id}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -103,66 +103,204 @@ export function ResourcePage() {
 
 export function PortalPaymentsPage() {
   const services = useServices();
-  const [params] = useSearchParams();
+  const client = useQueryClient();
   const [message, setMessage] = useState("");
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [detailPlanId, setDetailPlanId] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["my-payments"], queryFn: () => services.myPayments() });
-  const notice = params.get("ecpay") === "received" ? "已從綠界回到這個頁面。付款完成且檢查碼正確後，才會改成已付款。模擬付款不會入帳。" : params.get("ecpay") === "failed" ? "綠界回傳無法核對，這筆沒有改成已付款。" : "";
   if (query.isLoading) return <p>載入中…</p>;
-  if (!query.data) return <p>無法載入付款紀錄</p>;
+  if (!query.data) return <p>無法載入方案與付款</p>;
   const rows = query.data.payments;
   const plans = query.data.plans;
+  const unlocked = query.data.serviceUnlocked;
+  const usedPlanIds = new Set(rows.map((row) => row.planId));
+  const appliedRows = rows.filter((row) => row.status === "PENDING" || row.status === "QUOTED" || row.status === "PAID_PENDING");
+  const approvedRows = rows.filter((row) => row.status === "PAID");
+  const selectablePlans = [...plans]
+    .filter((plan) => !usedPlanIds.has(plan.id))
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-Hant"));
+  const detailPlan = plans.find((item) => item.id === detailPlanId) ?? null;
+  const payRow = async (paymentId: string, planName: string) => {
+    setPayingId(paymentId);
+    try {
+      await services.markPaidPending(paymentId);
+      setMessage(`「${planName}」已送出付款，等待核帳。`);
+      await client.invalidateQueries({ queryKey: ["my-payments"] });
+    } catch (error) {
+      setMessage(error instanceof ClientError ? error.message : "無法付款");
+    } finally {
+      setPayingId(null);
+    }
+  };
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="業者會員區" title="已付款" lede="前往付款會依綠界全方位金流建立訂單。測試商店的卡號與後台見綠界文件。甲方註冊正式商店後，更換介接資訊即可。" />
-      {notice ? <p className="text-sm">{notice}</p> : null}
+      <PageHeader eyebrow="業者會員區" title="方案與付款" lede="列表樣式與後台方案管理一致。可看已申請、已通過與尚可選擇的方案；已選過的不能再選。" />
       {message ? <p className="text-sm">{message}</p> : null}
-      {rows.length === 0 ? <Empty title="還沒有付款紀錄" body="按下前往付款會先建立一筆待付款訂單。綠界通知付款成功後，這裡改成已付款。" /> : (
-        <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-[var(--line)] text-[var(--muted)]"><tr><th className="p-3 font-medium">時間</th><th className="p-3 font-medium">方案</th><th className="p-3 font-medium">金額</th><th className="p-3 font-medium">狀態</th><th className="p-3 font-medium">方式</th></tr></thead>
-            <tbody>{rows.map((row) => <tr key={row.id} className="border-t border-[var(--line)]"><td className="p-3">{formatTaipei(row.paidAt)}</td><td className="p-3">{row.planName}</td><td className="p-3">{formatTwd(row.amount)}</td><td className="p-3">{row.status === "PAID" ? "已付款" : "待付款"}</td><td className="p-3">{ecpayMethodLabel(row.paymentMethod)}</td></tr>)}</tbody>
-          </table>
-        </div>
-      )}
+      <Card className="space-y-2">
+        <p className="font-medium">{unlocked ? "已開通" : appliedRows.some((row) => row.status === "PAID_PENDING") ? "待核帳" : appliedRows.length ? "待付款" : "尚未開通"}</p>
+        <p className="text-sm text-[var(--muted)]">
+          {unlocked
+            ? "已可使用教育訓練與合約。仍可另選尚未使用過的方案。請先完成基礎教育訓練，才能建立驗證申請。"
+            : "請選擇方案並付款，核帳完成後才會開通。"}
+        </p>
+        {unlocked ? (
+          <Link className="btn btn-primary inline-flex rounded-md px-3 py-2 text-sm no-underline" to="/portal/enrollments">前往基礎教育訓練</Link>
+        ) : null}
+      </Card>
+
       <section className="space-y-3">
-        <h2 className="text-xl">可前往付款的方案</h2>
-        {plans.length === 0 ? <Empty title="目前沒有開放的方案" body="窗口建立方案並開放後，可以在這裡前往綠界付款。" /> : plans.map((plan) => (
-          <Card key={plan.id}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <h3 className="text-lg">{plan.name}</h3>
-                <p className="mt-1 text-sm text-[var(--muted)]">{formatTwd(plan.amount)}</p>
-                {plan.description ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{plan.description}</p> : null}
-              </div>
-              <Button disabled={plan.amount < 1} onClick={async () => {
-                try {
-                  const checkout = await services.startCheckout(plan.id);
-                  submitEcpay(checkout.action, checkout.fields);
-                } catch (error) {
-                  setMessage(error instanceof ClientError ? error.message : "無法前往綠界");
-                }
-              }}>前往付款</Button>
-            </div>
-          </Card>
-        ))}
+        <div>
+          <h2 className="text-lg font-medium">已申請的方案</h2>
+          <p className="text-sm text-[var(--muted)]">已選但尚未核帳完成：待付款或待核帳。</p>
+        </div>
+        {appliedRows.length === 0 ? (
+          <Empty title="還沒有已申請方案" body="從下方「可選擇的方案」選一筆後會出現在這裡。" />
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+                <tr>
+                  <th className="p-3 font-medium">方案名稱</th>
+                  <th className="p-3 font-medium">金額（未稅）</th>
+                  <th className="p-3 font-medium">狀態</th>
+                  <th className="p-3 font-medium">建立</th>
+                  <th className="p-3 font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {appliedRows.map((row) => {
+                  const payable = row.status === "PENDING" || row.status === "QUOTED";
+                  return (
+                    <tr key={row.id} className="border-t border-[var(--line)]">
+                      <td className="p-3">{row.planName}</td>
+                      <td className="p-3">{formatTwd(row.amount)}</td>
+                      <td className="p-3">{paymentStatusLabels[row.status].label}</td>
+                      <td className="p-3">{formatTaipei(row.createdAt)}</td>
+                      <td className="p-3">
+                        {payable ? (
+                          <button type="button" className="text-[var(--link)] underline disabled:opacity-50" disabled={payingId === row.id} onClick={() => void payRow(row.id, row.planName)}>
+                            付款
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-medium">已通過的方案</h2>
+          <p className="text-sm text-[var(--muted)]">核帳完成、已開通相關功能的方案。</p>
+        </div>
+        {approvedRows.length === 0 ? (
+          <Empty title="還沒有已通過方案" body="付款並完成核帳後會出現在這裡。" />
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+                <tr>
+                  <th className="p-3 font-medium">方案名稱</th>
+                  <th className="p-3 font-medium">金額（未稅）</th>
+                  <th className="p-3 font-medium">狀態</th>
+                  <th className="p-3 font-medium">方式</th>
+                  <th className="p-3 font-medium">建立</th>
+                </tr>
+              </thead>
+              <tbody>
+                {approvedRows.map((row) => (
+                  <tr key={row.id} className="border-t border-[var(--line)]">
+                    <td className="p-3">{row.planName}</td>
+                    <td className="p-3">{formatTwd(row.amount)}</td>
+                    <td className="p-3">{paymentStatusLabels[row.status].label}</td>
+                    <td className="p-3">{ecpayMethodLabel(row.paymentMethod)}</td>
+                    <td className="p-3">{formatTaipei(row.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-medium">可選擇的方案</h2>
+          <p className="text-sm text-[var(--muted)]">尚未選過、目前對你開放的方案。</p>
+        </div>
+        {selectablePlans.length === 0 ? (
+          <Empty title="沒有可選方案" body={plans.length === 0 ? "窗口尚未開放方案。" : "你看得到的方案都已選過。"} />
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+                <tr>
+                  <th className="p-3 font-medium">方案名稱</th>
+                  <th className="p-3 font-medium">金額（未稅）</th>
+                  <th className="p-3 font-medium">狀態</th>
+                  <th className="p-3 font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectablePlans.map((plan) => (
+                  <tr key={plan.id} className="border-t border-[var(--line)]">
+                    <td className="p-3">{plan.name}</td>
+                    <td className="p-3">{formatTwd(plan.amount)}</td>
+                    <td className="p-3">{plan.isActive ? "開放" : "關閉"}</td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-3">
+                        <button type="button" className="text-[var(--link)] underline" onClick={() => setDetailPlanId(plan.id)}>內容</button>
+                        <button
+                          type="button"
+                          className="text-[var(--link)] underline"
+                          onClick={async () => {
+                            try {
+                              await services.selectPlan({ planId: plan.id });
+                              setMessage(`已選擇「${plan.name}」，請到「已申請的方案」付款。`);
+                              await client.invalidateQueries({ queryKey: ["my-payments"] });
+                            } catch (error) {
+                              setMessage(error instanceof ClientError ? error.message : "無法選擇方案");
+                            }
+                          }}
+                        >
+                          選擇
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {detailPlan ? (
+        <Card className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-medium">{detailPlan.name}</h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">{formatTwd(detailPlan.amount)}</p>
+            </div>
+            <button type="button" className="text-sm text-[var(--link)] underline" onClick={() => setDetailPlanId(null)}>關閉</button>
+          </div>
+          {detailPlan.description ? <p className="whitespace-pre-wrap text-sm leading-6">{detailPlan.description}</p> : <p className="text-sm text-[var(--muted)]">沒有說明文字。</p>}
+          {(detailPlan.images ?? []).length ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {detailPlan.images.map((image) => (
+                <ContentImage key={image.id} src={image.imageUrl} className="h-40 w-full rounded-md object-cover" fallback={<div className="h-40 rounded-md bg-[var(--panel)]" />} />
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
     </div>
   );
-}
-
-function submitEcpay(action: string, fields: Record<string, string>) {
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = action;
-  form.acceptCharset = "UTF-8";
-  for (const [name, value] of Object.entries(fields)) {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = name;
-    input.value = value;
-    form.appendChild(input);
-  }
-  document.body.appendChild(form);
-  form.submit();
 }
 

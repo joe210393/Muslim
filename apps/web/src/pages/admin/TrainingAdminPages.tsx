@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { useServices } from "../../app/session";
 import { CourseListPage } from "./AdminPages";
-import { Button, Card, Empty, ErrorText, Field, PageHeader, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { AdminPageHeader, Badge, Button, Card, DataTable, Empty, ErrorText, Field, Modal, SectionHeader, SelectInput, TextArea, TextInput, tableRowClass, NoticeText, confirmDelete, type Notice } from "../../components/ui";
 import { ClientError } from "../../services/types";
 
 const legacyTabRedirects: Record<string, string> = {
@@ -21,7 +21,7 @@ export function CourseTrainingPage() {
   if (tab && legacyTabRedirects[tab]) return <Navigate to={legacyTabRedirects[tab]} replace />;
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練管理" title="課程梯次" lede="管理公開線上／線下課程梯次與報名。" />
+      <AdminPageHeader title="課程梯次" description="管理公開線上／線下課程梯次與報名。" />
       <CourseListPage />
     </div>
   );
@@ -30,7 +30,7 @@ export function CourseTrainingPage() {
 export function BasicCoursesAdminPage() {
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練管理" title="基礎課" lede="可新增多門基礎課，設定標題、說明、YouTube 連結、需觀看百分比與教材。達標後由系統標示完成。" />
+      <AdminPageHeader title="基礎課" description="可新增多門基礎課，設定標題、說明、YouTube 連結、需觀看百分比與教材。達標後由系統標示完成。" />
       <BasicCoursesPanel />
     </div>
   );
@@ -39,7 +39,7 @@ export function BasicCoursesAdminPage() {
 export function QuestionBankAdminPage() {
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練管理" title="題庫" lede="新增題目後填寫選項 A～D，再選擇正確答案；測驗會依門檻設定從題庫抽題。" />
+      <AdminPageHeader title="題庫" description="新增題目後填寫選項 A～D，再選擇正確答案；測驗會依門檻設定從題庫抽題。" />
       <QuestionBankPanel />
     </div>
   );
@@ -48,7 +48,7 @@ export function QuestionBankAdminPage() {
 export function TrainingPolicyAdminPage() {
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練管理" title="門檻設定" lede="設定是否擋驗證申請、抽題數、及格題數與專班最低人數。" />
+      <AdminPageHeader title="門檻設定" description="設定是否擋驗證申請、抽題數、及格題數與專班最低人數。" />
       <PolicyPanel />
     </div>
   );
@@ -57,7 +57,7 @@ export function TrainingPolicyAdminPage() {
 export function CompanyTrainingAdminPage() {
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練管理" title="專班申請" lede="審核業者單獨開班申請。" />
+      <AdminPageHeader title="專班申請" description="審核業者單獨開班申請。" />
       <CompanyPanel />
     </div>
   );
@@ -66,7 +66,7 @@ export function CompanyTrainingAdminPage() {
 export function TrainingCertificatesAdminPage() {
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="教育訓練管理" title="一般課證書" lede="對已完課報名人工登錄訓練證書編號。" />
+      <AdminPageHeader title="一般課證書" description="對已完課報名人工登錄訓練證書編號。" />
       <CertificatesPanel />
     </div>
   );
@@ -78,7 +78,7 @@ function PolicyPanel() {
   const policy = useQuery({ queryKey: ["training-policy"], queryFn: () => services.trainingPolicy() });
   const bank = useQuery({ queryKey: ["admin-question-bank"], queryFn: () => services.adminQuestionBank() });
   const [form, setForm] = useState<{ requireBasicBeforeApply: boolean; quizDrawCount: number; quizPassCount: number; privateRequestMinHeadcount: number } | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Notice>(null);
   const [error, setError] = useState<string | null>(null);
   const current = form ?? (policy.data ? {
     requireBasicBeforeApply: policy.data.requireBasicBeforeApply,
@@ -105,7 +105,7 @@ function PolicyPanel() {
           setError(reason instanceof ClientError ? reason.message : "儲存失敗");
         }
       }}>儲存</Button>
-      {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
+      <NoticeText notice={message} />
       {error ? <ErrorText message={error} /> : null}
     </Card>
   );
@@ -148,20 +148,31 @@ function BasicCoursesPanel() {
   }
   return (
     <div className="space-y-4">
-      <Button onClick={startNew}>新增基礎課</Button>
-      {(modules.data ?? []).map((module) => (
-        <Card key={module.id} className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-medium">{module.title} · {module.isActive ? "啟用" : "停用"} · {module.isRequired ? "必做" : "選做"}</p>
-            <Button variant="secondary" onClick={() => startEdit(module.id)}>編輯</Button>
-          </div>
-          <p className="line-clamp-2 text-sm text-[var(--muted)]">{module.description || "（尚無說明）"}</p>
-          <p className="text-sm text-[var(--muted)]">{module.youtubeUrl ? `網址：${module.youtubeUrl}` : "尚未設定網址"} · 需觀看 {module.requiredWatchPercent}%{module.hasMaterial ? ` · 教材：${module.materialName ?? "已上傳"}` : " · 尚無教材"}</p>
-        </Card>
-      ))}
+      <SectionHeader
+        title="基礎課列表"
+        hint="業者完成全部必做基礎課並通過測驗後，才能建立驗證申請。"
+        actions={<Button onClick={startNew}>＋ 新增基礎課</Button>}
+      />
+      {modules.isLoading ? <p>載入中…</p> : null}
+      {!modules.isLoading && (modules.data ?? []).length === 0 ? <Empty title="尚無基礎課" body="按右上角「＋ 新增基礎課」建立第一門。" /> : null}
+      {(modules.data ?? []).length > 0 ? (
+        <DataTable columns={["標題", "影片", "需觀看", "教材", "類型", "狀態", "操作"]}>
+          {(modules.data ?? []).map((module) => (
+            <tr key={module.id} className={tableRowClass}>
+              <td className="p-3 font-medium">{module.title}</td>
+              <td className="p-3">{module.youtubeUrl ? "已設定" : <span className="text-[var(--muted)]">未設定</span>}</td>
+              <td className="p-3">{module.requiredWatchPercent}%</td>
+              <td className="p-3">{module.hasMaterial ? module.materialName ?? "已上傳" : <span className="text-[var(--muted)]">無</span>}</td>
+              <td className="p-3">{module.isRequired ? "必做" : "選做"}</td>
+              <td className="p-3"><Badge tone={module.isActive ? "success" : "neutral"}>{module.isActive ? "啟用" : "停用"}</Badge></td>
+              <td className="p-3"><button type="button" className="text-[var(--link)] underline" onClick={() => startEdit(module.id)}>編輯</button></td>
+            </tr>
+          ))}
+        </DataTable>
+      ) : null}
       {editing ? (
-        <Card className="space-y-3">
-          <h2 className="font-medium">{editing === "new" ? "新增基礎課" : "編輯基礎課"}</h2>
+        <Modal title={editing === "new" ? "新增基礎課" : "編輯基礎課"} onClose={() => setEditing(null)}>
+        <div className="max-h-[75vh] space-y-3 overflow-y-auto">
           <Field label="標題"><TextInput value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：基礎課1" /></Field>
           <Field label="說明"><TextArea value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
           <Field label="YouTube 連結" hint="業者需播放至設定百分比後，由系統自動標示完成。"><TextInput value={youtubeUrl} onChange={(event) => setYoutubeUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=" /></Field>
@@ -206,7 +217,8 @@ function BasicCoursesPanel() {
             <Button variant="ghost" onClick={() => setEditing(null)}>取消</Button>
           </div>
           {error ? <ErrorText message={error} /> : null}
-        </Card>
+        </div>
+        </Modal>
       ) : null}
     </div>
   );
@@ -269,7 +281,7 @@ function QuestionBankPanel() {
   const [prompt, setPrompt] = useState("");
   const [optionDraft, setOptionDraft] = useState(emptyOptionDraft);
   const [correctLabel, setCorrectLabel] = useState<(typeof OPTION_LABELS)[number]>("A");
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Notice>(null);
   const [error, setError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   function startNew() {
@@ -325,7 +337,7 @@ function QuestionBankPanel() {
   function renderEditor(title: string) {
     return (
       <div className="space-y-3">
-        <h2 className="font-medium">{title}</h2>
+        {title ? <h2 className="font-medium">{title}</h2> : null}
         <Field label="題目"><TextInput value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="請輸入題目內容" /></Field>
         {OPTION_LABELS.map((label) => (
           <Field key={label} label={`選項 ${label}`}>
@@ -354,13 +366,19 @@ function QuestionBankPanel() {
   }
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={startNew} disabled={editing === "new"}>新增題目</Button>
-        <Button variant="secondary" onClick={() => {
-          setShowImport((current) => !current);
-          if (!showImport) setEditing(null);
-        }}>{showImport ? "收合進階匯入" : "進階：檔案匯入"}</Button>
-      </div>
+      <SectionHeader
+        title="題目列表"
+        hint={`共 ${bank.data?.length ?? 0} 題。測驗依門檻設定隨機抽題。`}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => {
+              setShowImport((current) => !current);
+              if (!showImport) setEditing(null);
+            }}>{showImport ? "收合進階匯入" : "進階：檔案匯入"}</Button>
+            <Button onClick={startNew} disabled={editing === "new"}>＋ 新增題目</Button>
+          </>
+        }
+      />
       {showImport ? (
         <Card className="space-y-3">
           <p className="text-sm font-medium text-amber-900">注意：匯入會整批覆蓋目前題庫，不是追加。例如上傳 10 題後，舊題會被換成這 10 題。</p>
@@ -397,47 +415,42 @@ function QuestionBankPanel() {
           </div>
         </Card>
       ) : null}
-      {editing === "new" ? <Card className="space-y-3">{renderEditor("新增題目")}</Card> : null}
-      {(bank.data ?? []).map((question, index) => (
-        <Card key={question.id} className="space-y-2">
-          {editing === question.id ? (
-            renderEditor(`編輯第 ${index + 1} 題`)
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium">第 {index + 1} 題</p>
-                <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => startEdit(question.id)} disabled={editing != null}>編輯</Button>
-                  <Button variant="danger" disabled={editing != null} onClick={async () => {
-                    try {
-                      await services.deleteQuestion(question.id);
-                      setError(null);
-                      setMessage("已刪除題目");
-                      await refreshBank();
-                    } catch (reason) {
-                      setError(reason instanceof ClientError ? reason.message : "刪除失敗");
-                    }
-                  }}>刪除</Button>
-                </div>
-              </div>
-              <p className="text-sm">{question.prompt}</p>
-              <ul className="space-y-1 text-sm text-[var(--muted)]">
-                {question.options.map((option, optionIndex) => {
-                  const label = OPTION_LABELS[optionIndex] ?? String(optionIndex + 1);
-                  const isCorrect = optionIndex === question.correctIndex;
-                  return (
-                    <li key={`${question.id}-${label}`}>
-                      {label}. {option}{isCorrect ? "（正確答案）" : ""}
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-        </Card>
-      ))}
+      {(bank.data ?? []).length > 0 ? (
+        <DataTable columns={["#", "題目", "選項", "正確答案", "操作"]}>
+          {(bank.data ?? []).map((question, index) => (
+            <tr key={question.id} className={`${tableRowClass} align-top`}>
+              <td className="p-3">{index + 1}</td>
+              <td className="p-3 font-medium">{question.prompt}</td>
+              <td className="p-3 text-[var(--muted)]">
+                {question.options.map((option, optionIndex) => <div key={`${question.id}-${optionIndex}`}>{OPTION_LABELS[optionIndex] ?? optionIndex + 1}. {option}</div>)}
+              </td>
+              <td className="p-3">{OPTION_LABELS[question.correctIndex ?? 0]}</td>
+              <td className="p-3 whitespace-nowrap">
+                <button type="button" className="text-[var(--link)] underline disabled:opacity-50" disabled={editing != null} onClick={() => startEdit(question.id)}>編輯</button>
+                <button type="button" className="ml-3 text-[var(--danger)] underline disabled:opacity-50" disabled={editing != null} onClick={async () => {
+                  if (!confirmDelete(question.prompt)) return;
+                  try {
+                    await services.deleteQuestion(question.id);
+                    setError(null);
+                    setMessage("已刪除題目");
+                    await refreshBank();
+                  } catch (reason) {
+                    setError(reason instanceof ClientError ? reason.message : "刪除失敗");
+                  }
+                }}>刪除</button>
+              </td>
+            </tr>
+          ))}
+        </DataTable>
+      ) : null}
+      {editing ? (
+        <Modal title={editing === "new" ? "新增題目" : `編輯第 ${(bank.data ?? []).findIndex((item) => item.id === editing) + 1} 題`} onClose={cancelEdit}>
+          <div className="max-h-[75vh] overflow-y-auto">{renderEditor("")}</div>
+          {error ? <div className="mt-3"><ErrorText message={error} /></div> : null}
+        </Modal>
+      ) : null}
       {(bank.data ?? []).length === 0 && editing !== "new" ? <Empty title="尚無題目" body="按「新增題目」，填寫題目與選項 A～D，再選正確答案即可。" /> : null}
-      {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
+      <NoticeText notice={message} />
       {error ? <ErrorText message={error} /> : null}
     </div>
   );
@@ -447,46 +460,66 @@ function CompanyPanel() {
   const services = useServices();
   const client = useQueryClient();
   const rows = useQuery({ queryKey: ["admin-company-training"], queryFn: () => services.adminCompanyTrainingRequests() });
-  const [note, setNote] = useState<Record<string, string>>({});
+  const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const list = rows.data ?? [];
+  const open = list.find((item) => item.id === openId) ?? null;
+  const pending = list.filter((item) => item.status === "SUBMITTED").length;
+  const review = async (action: "APPROVE" | "REJECT") => {
+    if (!open) return;
+    try {
+      await services.reviewCompanyTrainingRequest(open.id, { action, adminNote: note, expectedVersion: open.version });
+      setError(null);
+      setOpenId(null);
+      setNote("");
+      await client.invalidateQueries({ queryKey: ["admin-company-training"] });
+    } catch (reason) {
+      setError(reason instanceof ClientError ? reason.message : action === "APPROVE" ? "核准失敗" : "退回失敗");
+    }
+  };
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <SectionHeader title="申請列表" hint={list.length ? `共 ${list.length} 筆，待審 ${pending} 筆。` : undefined} />
       {rows.isLoading ? <p>載入中…</p> : null}
-      {(rows.data ?? []).length === 0 ? <Empty title="沒有專班申請" body="業者送出後會出現在這裡。" /> : null}
-      {(rows.data ?? []).map((item) => (
-        <Card key={item.id} className="space-y-2 text-sm">
-          <p className="font-medium">{item.organizationName} · {companyTrainingRequestStatusLabels[item.status].label}</p>
-          <p>{item.headcount} 人 · {item.preferredStartsOn} 至 {item.preferredEndsOn} · {courseDeliveryLabels[item.delivery].label}{item.location ? ` · ${item.location}` : ""}</p>
-          <p>申請人：{item.requestedByName}</p>
-          {item.note ? <p>說明：{item.note}</p> : null}
-          {item.status === "SUBMITTED" ? (
-            <>
-              <Field label="管理員意見"><TextArea value={note[item.id] ?? ""} onChange={(event) => setNote((current) => ({ ...current, [item.id]: event.target.value }))} /></Field>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={async () => {
-                  try {
-                    await services.reviewCompanyTrainingRequest(item.id, { action: "APPROVE", adminNote: note[item.id] ?? "", expectedVersion: item.version });
-                    setError(null);
-                    await client.invalidateQueries({ queryKey: ["admin-company-training"] });
-                  } catch (reason) {
-                    setError(reason instanceof ClientError ? reason.message : "核准失敗");
-                  }
-                }}>核准</Button>
-                <Button variant="danger" onClick={async () => {
-                  try {
-                    await services.reviewCompanyTrainingRequest(item.id, { action: "REJECT", adminNote: note[item.id] ?? "", expectedVersion: item.version });
-                    setError(null);
-                    await client.invalidateQueries({ queryKey: ["admin-company-training"] });
-                  } catch (reason) {
-                    setError(reason instanceof ClientError ? reason.message : "退回失敗");
-                  }
-                }}>退回</Button>
+      {!rows.isLoading && list.length === 0 ? <Empty title="沒有專班申請" body="業者送出後會出現在這裡。" /> : null}
+      {list.length > 0 ? (
+        <DataTable columns={["業者", "人數", "希望期間", "方式", "申請人", "狀態", "操作"]}>
+          {list.map((item) => (
+            <tr key={item.id} className={tableRowClass}>
+              <td className="p-3 font-medium">{item.organizationName}</td>
+              <td className="p-3">{item.headcount} 人</td>
+              <td className="p-3 whitespace-nowrap">{item.preferredStartsOn} 至 {item.preferredEndsOn}</td>
+              <td className="p-3">{courseDeliveryLabels[item.delivery].label}{item.location ? ` · ${item.location}` : ""}</td>
+              <td className="p-3">{item.requestedByName}</td>
+              <td className="p-3"><Badge tone={companyTrainingRequestStatusLabels[item.status].tone}>{companyTrainingRequestStatusLabels[item.status].label}</Badge></td>
+              <td className="p-3"><button type="button" className="text-[var(--link)] underline" onClick={() => { setOpenId(item.id); setNote(""); setError(null); }}>{item.status === "SUBMITTED" ? "審核" : "查看"}</button></td>
+            </tr>
+          ))}
+        </DataTable>
+      ) : null}
+      {open ? (
+        <Modal title={`專班申請 · ${open.organizationName}`} onClose={() => setOpenId(null)}>
+          <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
+            <dt className="text-[var(--muted)]">人數</dt><dd>{open.headcount} 人</dd>
+            <dt className="text-[var(--muted)]">希望期間</dt><dd>{open.preferredStartsOn} 至 {open.preferredEndsOn}</dd>
+            <dt className="text-[var(--muted)]">方式</dt><dd>{courseDeliveryLabels[open.delivery].label}{open.location ? ` · ${open.location}` : ""}</dd>
+            <dt className="text-[var(--muted)]">申請人</dt><dd>{open.requestedByName}</dd>
+            <dt className="text-[var(--muted)]">說明</dt><dd>{open.note || "—"}</dd>
+            {open.status !== "SUBMITTED" ? <><dt className="text-[var(--muted)]">管理員意見</dt><dd>{open.adminNote || "—"}</dd></> : null}
+          </dl>
+          {open.status === "SUBMITTED" ? (
+            <div className="mt-4 space-y-3">
+              <Field label="管理員意見"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="danger" onClick={() => review("REJECT")}>退回</Button>
+                <Button onClick={() => review("APPROVE")}>核准</Button>
               </div>
-            </>
-          ) : item.adminNote ? <p>意見：{item.adminNote}</p> : null}
-        </Card>
-      ))}
-      {error ? <ErrorText message={error} /> : null}
+            </div>
+          ) : null}
+          {error ? <div className="mt-3"><ErrorText message={error} /></div> : null}
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -497,39 +530,62 @@ function CertificatesPanel() {
   const [courseId, setCourseId] = useState("");
   const enrollments = useQuery({ queryKey: ["admin-course-enrollments", courseId], queryFn: () => services.courseEnrollments(courseId), enabled: Boolean(courseId) });
   const [form, setForm] = useState({ enrollmentId: "", certificateNo: "", issuedOnDate: "", validUntilDate: "" });
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Notice>(null);
   const [error, setError] = useState<string | null>(null);
   const completed = (enrollments.data ?? []).filter((item) => item.completion === "COMPLETED");
+  const editing = completed.find((item) => item.id === form.enrollmentId) ?? null;
   return (
-    <Card className="space-y-3">
-      <p className="text-sm text-[var(--muted)]">只對已完課的報名登錄一般課訓練證書（人工編號）。</p>
-      <Field label="課程">
-        <SelectInput value={courseId} onChange={(event) => { setCourseId(event.target.value); setForm((current) => ({ ...current, enrollmentId: "" })); }}>
-          <option value="">選擇課程</option>
-          {(courses.data ?? []).map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
-        </SelectInput>
-      </Field>
-      <Field label="完課學員">
-        <SelectInput value={form.enrollmentId} onChange={(event) => setForm({ ...form, enrollmentId: event.target.value })}>
-          <option value="">選擇</option>
-          {completed.map((item) => <option key={item.id} value={item.id}>{item.userName}{item.trainingCertificateNo ? `（已有 ${item.trainingCertificateNo}）` : ""}</option>)}
-        </SelectInput>
-      </Field>
-      <Field label="證書編號"><TextInput value={form.certificateNo} onChange={(event) => setForm({ ...form, certificateNo: event.target.value })} /></Field>
-      <Field label="核發日"><TextInput type="date" value={form.issuedOnDate} onChange={(event) => setForm({ ...form, issuedOnDate: event.target.value })} /></Field>
-      <Field label="到期日"><TextInput type="date" value={form.validUntilDate} onChange={(event) => setForm({ ...form, validUntilDate: event.target.value })} /></Field>
-      <Button onClick={async () => {
-        try {
-          await services.registerTrainingCertificate(form);
-          setError(null);
-          setMessage("已登錄訓練證書");
-          await enrollments.refetch();
-        } catch (reason) {
-          setError(reason instanceof ClientError ? reason.message : "登錄失敗");
+    <div className="space-y-3">
+      <SectionHeader
+        title="完課學員"
+        hint="只對已完課的報名登錄一般課訓練證書（人工編號）。"
+        actions={
+          <SelectInput className="w-64" aria-label="課程" value={courseId} onChange={(event) => { setCourseId(event.target.value); setForm((current) => ({ ...current, enrollmentId: "" })); }}>
+            <option value="">選擇課程</option>
+            {(courses.data ?? []).map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
+          </SelectInput>
         }
-      }}>登錄證書</Button>
-      {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
-      {error ? <ErrorText message={error} /> : null}
-    </Card>
+      />
+      <NoticeText notice={editing ? null : message} />
+      {!courseId ? <Empty title="先選課程" body="選擇課程後會列出完課學員與已登錄的證書編號。" /> : null}
+      {courseId && enrollments.isLoading ? <p>載入中…</p> : null}
+      {courseId && !enrollments.isLoading && completed.length === 0 ? <Empty title="這門課還沒有完課學員" body="出席登錄達到完課門檻後，學員會出現在這裡。" /> : null}
+      {completed.length > 0 ? (
+        <DataTable columns={["學員", "證書編號", "操作"]}>
+          {completed.map((item) => (
+            <tr key={item.id} className={tableRowClass}>
+              <td className="p-3 font-medium">{item.userName}</td>
+              <td className="p-3">{item.trainingCertificateNo ?? <span className="text-[var(--muted)]">尚未登錄</span>}</td>
+              <td className="p-3">
+                <button type="button" className="table-action" onClick={() => { setMessage(null); setError(null); setForm({ enrollmentId: item.id, certificateNo: item.trainingCertificateNo ?? "", issuedOnDate: "", validUntilDate: "" }); }}>
+                  {item.trainingCertificateNo ? "更新" : "登錄證書"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </DataTable>
+      ) : null}
+      {editing ? (
+        <Modal title={`${editing.userName} 的訓練證書`} onClose={() => setForm({ ...form, enrollmentId: "" })}>
+          <div className="space-y-3">
+            <Field label="證書編號"><TextInput value={form.certificateNo} onChange={(event) => setForm({ ...form, certificateNo: event.target.value })} /></Field>
+            <Field label="核發日"><TextInput type="date" value={form.issuedOnDate} onChange={(event) => setForm({ ...form, issuedOnDate: event.target.value })} /></Field>
+            <Field label="到期日"><TextInput type="date" value={form.validUntilDate} onChange={(event) => setForm({ ...form, validUntilDate: event.target.value })} /></Field>
+            <Button onClick={async () => {
+              try {
+                await services.registerTrainingCertificate(form);
+                setError(null);
+                setMessage(`已登錄 ${editing.userName} 的訓練證書`);
+                setForm({ ...form, enrollmentId: "" });
+                await enrollments.refetch();
+              } catch (reason) {
+                setError(reason instanceof ClientError ? reason.message : "登錄失敗");
+              }
+            }}>儲存證書</Button>
+            {error ? <ErrorText message={error} /> : null}
+          </div>
+        </Modal>
+      ) : null}
+    </div>
   );
 }

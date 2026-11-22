@@ -58,7 +58,13 @@ export function TrainingPage() {
 function BasicTrainingPanel() {
   const services = useServices();
   const client = useQueryClient();
-  const status = useQuery({ queryKey: ["basic-training"], queryFn: () => services.basicTrainingStatus() });
+  const payments = useQuery({ queryKey: ["my-payments"], queryFn: () => services.myPayments() });
+  const unlocked = payments.data?.serviceUnlocked === true;
+  const status = useQuery({
+    queryKey: ["basic-training"],
+    queryFn: () => services.basicTrainingStatus(),
+    enabled: unlocked,
+  });
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [quiz, setQuiz] = useState<NonNullable<Awaited<ReturnType<typeof services.startBasicQuiz>>> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -73,7 +79,16 @@ function BasicTrainingPanel() {
       setAnswers({});
     }
   }, [data?.activeAttempt?.attemptId]);
-  if (status.isLoading) return <p>載入中…</p>;
+  if (payments.isLoading || (unlocked && status.isLoading)) return <p>載入中…</p>;
+  if (payments.isSuccess && !unlocked) {
+    return (
+      <Card className="space-y-2 text-sm">
+        <p className="font-medium">請先完成方案付款與核帳</p>
+        <p className="text-[var(--muted)]">核帳完成後才能觀看基礎教育訓練；通過測驗後才能建立驗證申請。</p>
+        <Link className="text-[var(--link)]" to="/portal/payments">前往方案與付款</Link>
+      </Card>
+    );
+  }
   if (!data) return <ErrorText message="無法載入基礎教育訓練" />;
   const activeQuiz = quiz ?? data.activeAttempt;
   return (

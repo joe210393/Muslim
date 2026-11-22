@@ -1,13 +1,18 @@
-import { EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, attachmentIsVisible, contractStatusLabels, reportFieldId, reportFieldsFor, sourceLabel, type ApplicationDetail, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
+import { CONTRACT_CHECKBOX_GROUPS, DEFAULT_CONTRACT_BODY, DEFAULT_CONTRACT_TITLE, EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, attachmentIsVisible, contractAdminTabs, contractStatusLabels, daysUntilContractExpiry, ensureContractHtml, isContractRenewalDue, reportFieldId, reportFieldsFor, sourceLabel, suggestedContractChecksForCategory, type ApplicationDetail, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { caseFactRows } from "./ApplicationReview";
+import { CaseFacts, CaseLayout, type CaseJump } from "./CaseLayout";
 import { useServices, useSession } from "../../app/session";
 import { AttachmentImages } from "../../components/AttachmentImages";
+import { ContractRichEditor } from "../../components/ContractRichEditor";
 import { standardReports } from "../../content/site-content";
 import { ApplicationPreview, FileChooser, OpenPdfButton } from "../portal/PortalPages";
-import { Badge, Button, Card, Empty, ErrorText, Field, PageHeader, SectionNav, SelectInput, TextArea, TextInput } from "../../components/ui";
-import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type EditorialUpdate, type EditorialWrite, type SiteSlotInput } from "../../services/types";
+import { ContractBodyViewWithSeals, ContractPdfViewer, formatSignedDate } from "../portal/ContractFlow";
+import { AdminPageHeader, Badge, Button, Card, DataTable, Empty, ErrorText, Field, Modal, PasswordInput, SectionHeader, SectionNav, SelectInput, StatCard, TextArea, TextInput, confirmDelete, tableRowClass, NoticeText, failNotice, type Notice } from "../../components/ui";
+import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type ContractTemplateItem, type EditorialUpdate, type EditorialWrite, type Services, type SiteSlotInput } from "../../services/types";
+import { formatTaipei } from "../../lib/format";
 
 const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string }>> = {
   ABOUT: { subtitle: "第一段", body: "第二段" },
@@ -43,7 +48,7 @@ export function CmsPage() {
   const list = entries.data ?? [];
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="內容管理" title={config.title} lede={config.lede} />
+      <AdminPageHeader title={config.title} description={config.lede} />
       {slots.isLoading || entries.isLoading ? <p>載入中…</p> : null}
       {slots.error || entries.error ? <ErrorText message="無法載入內容" /> : null}
       {page === "home" ? (
@@ -95,7 +100,7 @@ function SlotEditor({ slot, onSaved, mode }: { slot: AdminSiteSlot; onSaved: () 
     isPublished: slot.isPublished,
     expectedVersion: slot.version,
   });
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
   useEffect(() => {
     setForm({
       eyebrow: slot.eyebrow,
@@ -125,7 +130,7 @@ function SlotEditor({ slot, onSaved, mode }: { slot: AdminSiteSlot; onSaved: () 
             setMessage("已儲存");
             await onSaved();
           } catch (error) {
-            setMessage(error instanceof ClientError ? error.message : "儲存失敗");
+            setMessage(failNotice(error instanceof ClientError ? error.message : "儲存失敗"));
           }
         }}
       >
@@ -155,13 +160,13 @@ function SlotEditor({ slot, onSaved, mode }: { slot: AdminSiteSlot; onSaved: () 
                 setMessage("已更換圖片");
                 await onSaved();
               } catch (error) {
-                setMessage(error instanceof ClientError ? error.message : "上傳失敗");
+                setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
               }
             }} />
           </label>
         </div>
         {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="mt-3 h-36 w-full rounded-md object-cover" /> : <p className="text-sm text-[var(--muted)]">還沒有圖片。</p>}
-        {message ? <p className="text-sm">{message}</p> : null}
+        <NoticeText notice={message} />
       </form>
     </Card>
   );
@@ -181,7 +186,7 @@ const ENTRY_FIELDS: Record<EditorialKind, { title: string; summary?: string; bod
 function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
   const services = useServices();
   const slides = entries.filter((item) => item.kind === EditorialKind.HOME_GALLERY).sort((a, b) => a.sortOrder - b.sortOrder);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
   async function upload(files: File[]) {
     setMessage("上傳中…");
     let order = slides.reduce((max, item) => Math.max(max, item.sortOrder), 0);
@@ -212,7 +217,7 @@ function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; o
       setMessage("已加入輪播");
       await onChanged();
     } catch (error) {
-      setMessage(error instanceof ClientError ? error.message : "上傳失敗");
+      setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
     }
   }
   async function move(index: number, direction: -1 | 1) {
@@ -251,12 +256,12 @@ function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; o
             <div className="flex flex-wrap gap-2 p-3">
               <Button disabled={index === 0} onClick={() => void move(index, -1)}>往前</Button>
               <Button disabled={index === slides.length - 1} onClick={() => void move(index, 1)}>往後</Button>
-              <Button variant="danger" onClick={async () => { await services.deleteEntry(item.id); await onChanged(); }}>刪除</Button>
+              <Button variant="danger" onClick={async () => { if (!confirmDelete(item.title || "這張輪播圖")) return; await services.deleteEntry(item.id); await onChanged(); }}>刪除</Button>
             </div>
           </div>
         ))}
       </div>
-      {message ? <p className="text-sm">{message}</p> : null}
+      <NoticeText notice={message} />
     </Card>
   );
 }
@@ -279,23 +284,31 @@ function writeOf(item: AdminEditorialEntry): EditorialWrite {
 
 function EntryDesk({ kind, entries, onChanged }: { kind: EditorialKind; entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
   const mine = entries.filter((item) => item.kind === kind).sort((a, b) => (b.publishedOn ?? "").localeCompare(a.publishedOn ?? "") || a.sortOrder - b.sortOrder);
-  const [picked, setPicked] = useState<string | "new" | null>(null);
-  const active = picked ?? mine[0]?.id ?? "new";
-  const selected = mine.find((item) => item.id === active) ?? null;
+  const [editing, setEditing] = useState<string | "new" | null>(null);
+  const selected = mine.find((item) => item.id === editing) ?? null;
+  const fields = ENTRY_FIELDS[kind];
+  const noun = kind === EditorialKind.NEWS ? "消息" : kind === EditorialKind.FAQ ? "問答" : "項目";
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <div className="space-y-2">
-        <button type="button" className={`btn w-full rounded-md px-3 py-2 text-left text-sm ${active === "new" ? "is-selected" : ""}`} aria-pressed={active === "new"} onClick={() => setPicked("new")}>新增</button>
-        <div className="max-h-[28rem] space-y-2 overflow-auto">
+    <div className="space-y-3">
+      <SectionHeader title={`${noun}列表`} hint={`共 ${mine.length} 筆`} actions={<Button onClick={() => setEditing("new")}>＋ 新增{noun}</Button>} />
+      {mine.length === 0 ? <Empty title={`還沒有${noun}`} body={`按右上角「＋ 新增${noun}」。`} /> : (
+        <DataTable columns={[fields.title, ...(fields.date ? ["日期"] : []), ...(fields.group ? ["分類"] : []), "狀態", "操作"]}>
           {mine.map((item) => (
-            <button key={item.id} type="button" className={`btn block w-full rounded-md px-3 py-2 text-left text-sm ${active === item.id ? "is-selected" : ""}`} aria-pressed={active === item.id} onClick={() => setPicked(item.id)}>
-              <span className="block font-medium">{item.title}</span>
-              <span className="block text-[var(--muted)]">{item.publishedOn || item.groupLabel || (item.isPublished ? "發布中" : "未發布")}</span>
-            </button>
+            <tr key={item.id} className={tableRowClass}>
+              <td className="p-3 font-medium">{item.title}</td>
+              {fields.date ? <td className="p-3 whitespace-nowrap">{item.publishedOn ?? "—"}</td> : null}
+              {fields.group ? <td className="p-3">{item.groupLabel || "—"}</td> : null}
+              <td className="p-3"><Badge tone={item.isPublished ? "success" : "neutral"}>{item.isPublished ? "發布中" : "未發布"}</Badge></td>
+              <td className="p-3"><button type="button" className="table-action" onClick={() => setEditing(item.id)}>編輯</button></td>
+            </tr>
           ))}
-        </div>
-      </div>
-      <EntryForm key={`${kind}-${active}`} kind={kind} entry={active === "new" ? null : selected} onSaved={async (id) => { setPicked(id); await onChanged(); }} onDeleted={async () => { setPicked("new"); await onChanged(); }} />
+        </DataTable>
+      )}
+      {editing ? (
+        <Modal title={selected ? `編輯${noun}` : `新增${noun}`} wide onClose={() => setEditing(null)}>
+          <EntryForm key={`${kind}-${editing}`} kind={kind} entry={editing === "new" ? null : selected} onSaved={async (id) => { setEditing(id); await onChanged(); }} onDeleted={async () => { setEditing(null); await onChanged(); }} />
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -316,7 +329,7 @@ function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; e
     sortOrder: entry?.sortOrder ?? 1,
     isPublished: entry?.isPublished ?? true,
   });
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
   async function save() {
     const slug = fields.slug ? form.slug : entry?.slug || `item-${crypto.randomUUID().slice(0, 8)}`;
     const payload: EditorialWrite = { ...form, kind, slug, publishedOn: fields.date ? form.publishedOn : null, groupLabel: fields.group ? form.groupLabel : "", summary: fields.summary ? form.summary : "", note: fields.note ? form.note : "" };
@@ -332,12 +345,11 @@ function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; e
         await onSaved(saved.id);
       }
     } catch (error) {
-      setMessage(error instanceof ClientError ? error.message : "儲存失敗");
+      setMessage(failNotice(error instanceof ClientError ? error.message : "儲存失敗"));
     }
   }
   return (
-    <Card className="space-y-3">
-      <h2 className="text-xl">{entry ? entry.title : "新增"}</h2>
+    <div className="space-y-3">
       {fields.slug ? <Field label="代碼" hint="小寫英文、數字與連字號。消息的網址會用這個代碼，建立後不能改。"><TextInput value={form.slug} disabled={Boolean(entry)} onChange={(event) => setForm({ ...form, slug: event.target.value })} /></Field> : null}
       {fields.date ? <Field label="日期"><TextInput type="date" value={form.publishedOn ?? ""} onChange={(event) => setForm({ ...form, publishedOn: event.target.value || null })} /></Field> : null}
       {fields.group ? <Field label="分類"><TextInput value={form.groupLabel} onChange={(event) => setForm({ ...form, groupLabel: event.target.value })} /></Field> : null}
@@ -361,7 +373,7 @@ function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; e
                     setMessage("已更換圖片");
                     await onSaved(saved.id);
                   } catch (error) {
-                    setMessage(error instanceof ClientError ? error.message : "上傳失敗");
+                    setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
                   }
                 }} />
               </label>
@@ -375,10 +387,10 @@ function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; e
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPublished} onChange={(event) => setForm({ ...form, isPublished: event.target.checked })} />發布</label>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => void save()}>儲存</Button>
-        {entry ? <Button variant="danger" onClick={async () => { try { await services.deleteEntry(entry.id); await onDeleted(); } catch (error) { setMessage(error instanceof ClientError ? error.message : "刪除失敗"); } }}>刪除</Button> : null}
+        {entry ? <Button variant="danger" onClick={async () => { if (!confirmDelete(entry.title)) return; try { await services.deleteEntry(entry.id); await onDeleted(); } catch (error) { setMessage(failNotice(error instanceof ClientError ? error.message : "刪除失敗")); } }}>刪除</Button> : null}
       </div>
-      {message ? <p className="text-sm">{message}</p> : null}
-    </Card>
+      <NoticeText notice={message} />
+    </div>
   );
 }
 
@@ -389,13 +401,11 @@ export function SiteReviewPage() {
   const items = (query.data?.items ?? []).filter((item) => session.user?.role === "ADMIN" || item.siteReviewerId === session.user?.id);
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="內部後台" title="現場複審" lede="初審通過時指定的複審人員在這裡看送件預覽，並做現場複審。" />
+      <AdminPageHeader title="現場複審" description="初審通過時指定的複審人員在這裡看送件預覽，並做現場複審。" />
       {items.length === 0 ? <Empty title="目前沒有待現場複審的案件" body="初審通過並指定複審人員之後，案件會出現在這裡。" /> : (
-      <div className="overflow-x-auto rounded-xl bg-white">
-        <table className="min-w-full text-sm"><thead><tr className="text-left"><th className="p-3">編號</th><th className="p-3">業者</th><th className="p-3">類別</th><th className="p-3">複審人員</th><th className="p-3">狀態</th></tr></thead>
-          <tbody>{items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><Link className="text-[var(--link)]" to={`/admin/site-reviews/${item.id}`}>{item.applicationNo}</Link></td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.siteReviewerName ?? "未指定"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td></tr>)}</tbody>
-        </table>
-      </div>
+        <DataTable columns={["編號", "業者", "類別", "複審人員", "狀態", "操作"]}>
+          {items.map((item) => <tr key={item.id} className={tableRowClass}><td className="p-3 font-medium">{item.applicationNo}</td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.siteReviewerName ?? "未指定"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td><td className="p-3"><Link className="text-[var(--link)] underline" to={`/admin/site-reviews/${item.id}`}>複審</Link></td></tr>)}
+        </DataTable>
       )}
     </div>
   );
@@ -419,13 +429,13 @@ export function SiteReviewDetail() {
   return <SiteReviewBody item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); }} />;
 }
 
-export function SiteReviewBody({ item, onChanged, embedded = false }: { item: ApplicationDetail; onChanged: () => Promise<void>; embedded?: boolean }) {
+export function SiteReviewBody({ item, onChanged, onFlash, embedded = false, extraMain, extraJumps = [] }: { item: ApplicationDetail; onChanged: () => Promise<void>; onFlash?: (message: string) => void; embedded?: boolean; extraMain?: ReactNode; extraJumps?: CaseJump[] }) {
   const services = useServices();
   const session = useSession();
   const [note, setNote] = useState("");
   const [openNote, setOpenNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Notice>(null);
   const canAct = session.user?.role === "ADMIN" || item.siteReviewerId === session.user?.id;
   const canReject = session.user?.role === "ADMIN";
   const applicationFiles = item.definition.attachmentRequirements.filter((requirement) => requirement.group !== "checklist" && attachmentIsVisible(requirement, item.formData));
@@ -484,25 +494,33 @@ export function SiteReviewBody({ item, onChanged, embedded = false }: { item: Ap
         fieldReviews,
       });
       setError(null);
-      setMessage("已完成現場複審動作");
+      const done = `${{ PASS_SECOND: "複審通過", REQUEST_SUPPLEMENT: "要求補件", REJECT: "退件" }[action]}：已完成`;
+      if (onFlash) onFlash(done);
+      else setMessage(done);
       await onChanged();
     } catch (reason) {
       setError(reason instanceof ClientError ? reason.message : "動作失敗");
     }
   }
-  return (
-    <div className="space-y-4">
+  const main = (
+    <>
       {embedded ? null : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold">{item.applicationNo}</h1>
-          <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
-        </div>
+        <AdminPageHeader
+          title={item.applicationNo}
+          description={`${item.organizationName} · ${item.categoryName}`}
+          actions={
+            <>
+              <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
+              <Link className="text-sm text-[var(--link)] underline" to="/admin/site-reviews">回到現場複審</Link>
+            </>
+          }
+        />
       )}
       <p className="text-sm text-[var(--muted)]">現場複審人員：{item.siteReviewerName ?? "未指定"}。下面是初審通過的同一份線上預覽。通過後進入待核定。</p>
       {!canAct ? <p className="text-sm">這件已指定給 {item.siteReviewerName ?? "複審人員"}。你可以查看，不能改現場結果。</p> : null}
-      <ApplicationPreview item={item} categoryName={item.categoryName} />
-      <Card className="space-y-4">
-        <h2 className="text-xl">附件檢查</h2>
+      <section id="site-preview" className="scroll-mt-4"><ApplicationPreview item={item} categoryName={item.categoryName} /></section>
+      <Card id="site-checks" className="space-y-4">
+        <h2 className="text-lg font-semibold">附件檢查</h2>
         <p className="text-sm text-[var(--muted)]">核對業者送件附件。可以只按通過；有需要再拍現場存證，不取代業者原照。</p>
         {applicationFiles.length === 0 ? <p className="text-sm text-[var(--muted)]">這件沒有可見的送件附件項目。</p> : null}
         {applicationFiles.map((requirement) => {
@@ -525,55 +543,207 @@ export function SiteReviewBody({ item, onChanged, embedded = false }: { item: Ap
           );
         })}
       </Card>
+      {embedded ? extraMain : null}
+    </>
+  );
+  const panel = (
+    <>
+      {embedded ? <CaseFacts rows={caseFactRows(item)} /> : null}
       {canAct ? (
-        <Card className="space-y-3">
-          <Button variant="secondary" onClick={() => setOpenNote((current) => !current)}>{openNote ? "收合這次動作的意見" : "填寫這次動作的意見"}</Button>
+        <Card className="space-y-3 p-4">
+          <h2 className="text-base font-semibold">複審動作</h2>
+          <Button className="w-full" variant="secondary" onClick={() => setOpenNote((current) => !current)}>{openNote ? "收合這次動作的意見" : "填寫這次動作的意見"}</Button>
           {openNote ? <Field label="給業者的說明" hint="要求補件或退件時必填。複審通過可以不填。"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field> : null}
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-2">
             <Button onClick={() => void act("PASS_SECOND")}>複審通過</Button>
             <Button variant="secondary" onClick={() => void act("REQUEST_SUPPLEMENT")}>要求補件</Button>
-            {canReject ? <Button variant="danger" onClick={() => void act("REJECT")}>退件</Button> : null}
+            {canReject ? <Button variant="danger" onClick={() => { if (window.confirm("確定退件？退件後案件會結束。")) void act("REJECT"); }}>退件</Button> : null}
           </div>
         </Card>
       ) : null}
-      {message ? <p className="text-sm">{message}</p> : null}
+      <NoticeText notice={message} />
       {error ? <ErrorText message={error} /> : null}
-      {embedded ? null : <Link to="/admin/applications?status=SECOND_REVIEW">回到案件審查</Link>}
+    </>
+  );
+  if (embedded) return <CaseLayout main={main} panel={panel} jumps={[{ id: "site-preview", label: "送件內容" }, { id: "site-checks", label: "附件檢查" }, ...extraJumps]} />;
+  return (
+    <div className="space-y-4">
+      {main}
+      {panel}
+      <Link to="/admin/applications/second-review">回到案件審查</Link>
     </div>
   );
 }
 
-const NEW_TEMPLATE_BODY = `合約當事人：{{organizationName}}
-統一編號：{{taxId}}
-合約編號：{{contractNo}}
-發出日期：{{issuedOn}}
+const NEW_TEMPLATE_BODY = DEFAULT_CONTRACT_BODY;
 
-（請貼上這一版的合約內容）`;
-
-const issuedStatuses = ["ISSUED", "SIGNED", "RENEWED", "NOT_RENEWED"] as const satisfies readonly ContractStatus[];
+type AdminContractTab = (typeof contractAdminTabs)[number]["id"];
 
 export function IssuedContractsPage() {
   const services = useServices();
   const [params, setParams] = useSearchParams();
-  const requested = params.get("status");
-  const status = issuedStatuses.some((id) => id === requested) ? requested as (typeof issuedStatuses)[number] : "ISSUED";
+  const requested = params.get("tab");
+  const tab: AdminContractTab = contractAdminTabs.some((item) => item.id === requested) ? (requested as AdminContractTab) : "pending";
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const contracts = useQuery({ queryKey: ["admin-contracts"], queryFn: () => services.adminContracts() });
-  const rows = contracts.data?.filter((item) => item.status === status) ?? [];
+  const all = contracts.data ?? [];
+  const counts = {
+    pending: all.filter((item) => item.status === "ISSUED").length,
+    signed: all.filter((item) => item.status === "SIGNED" || item.status === "RENEWED").length,
+    renewable: all.filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt)).length,
+    not_renewed: all.filter((item) => item.status === "NOT_RENEWED").length,
+  };
+  const rows = tab
+    ? all.filter((item) => {
+        if (tab === "pending") return item.status === "ISSUED";
+        if (tab === "signed") return item.status === "SIGNED" || item.status === "RENEWED";
+        if (tab === "renewable") return item.status === "SIGNED" && isContractRenewalDue(item.signedAt);
+        if (tab === "not_renewed") return item.status === "NOT_RENEWED";
+        return false;
+      })
+    : [];
+  const tabLabel = contractAdminTabs.find((item) => item.id === tab)?.label ?? "合約";
+  const selectTab = (id: string) => {
+    setPreviewId(null);
+    setParams({ tab: id });
+  };
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="合約管理" title="已發出" lede="發出之後不能再改標題或內文。點開可以看狀態；已簽署的也能看到客戶簽名。" />
-      <SectionNav items={issuedStatuses.map((id) => ({ id, label: contractStatusLabels[id].label }))} value={status} onChange={(id) => setParams(id === "ISSUED" ? {} : { status: id })} />
-      {contracts.isLoading ? <p>載入中…</p> : null}
-      {rows.length === 0 && !contracts.isLoading ? <Empty title={`沒有${contractStatusLabels[status].label}的合約`} body="換上方的狀態，或到發給業者建立一份新合約。" /> : null}
-      <div className="space-y-2">
-        {rows.map((item) => (
-          <Link key={item.id} to={`/admin/contracts/issued/${item.id}`} className="btn block rounded-lg p-3 no-underline">
-            <span className="block font-medium">{item.contractNo}</span>
-            <span className="block text-sm text-[var(--muted)]">{item.organizationName} · {item.title}</span>
-          </Link>
+      <AdminPageHeader
+        title="合約管理"
+        description="發出的合約依狀態分開追蹤。業者下載 PDF 蓋章後上傳即完成簽約。"
+        actions={<Link to="/admin/contracts/issue" className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline">＋ 發送合約</Link>}
+      />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {contractAdminTabs.map((item) => (
+          <StatCard key={item.id} label={item.label} value={counts[item.id]} active={tab === item.id} onClick={() => selectTab(item.id)} />
         ))}
       </div>
+      {tab ? (
+        <>
+          <SectionHeader
+            title={`${tabLabel}列表`}
+            hint={
+              tab === "pending" ? "等業者下載 PDF、蓋章後上傳。"
+                : tab === "signed" ? "已簽約以實際上傳 PDF 當日為簽約日期。"
+                  : tab === "renewable" ? "效期一年、剩餘兩個月內的已簽約。續約付款方式尚未定。"
+                    : "業者已登記為未續約的合約。"
+            }
+          />
+          {contracts.isLoading ? <p>載入中…</p> : null}
+          {rows.length === 0 && !contracts.isLoading ? (
+            <Empty
+              title={`沒有${tabLabel}的合約`}
+              body={tab === "renewable" ? "目前沒有剩餘兩個月內到期的已簽約合約。" : "換上方的狀態，或到發送合約建立一份新合約。"}
+            />
+          ) : null}
+          {rows.length > 0 ? (
+            <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+                  <tr>
+                    <th className="p-3 font-medium">合約編號</th>
+                    <th className="p-3 font-medium">業者</th>
+                    <th className="p-3 font-medium">標題</th>
+                    <th className="p-3 font-medium">狀態</th>
+                    <th className="p-3 font-medium">{tab === "pending" ? "發出時間" : "簽約日期"}</th>
+                    {tab === "renewable" ? <th className="p-3 font-medium">剩餘天數</th> : null}
+                    <th className="p-3 font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((item) => (
+                    <tr key={item.id} className="border-t border-[var(--line)]">
+                      <td className="p-3 font-medium">{item.contractNo}</td>
+                      <td className="p-3">{item.organizationName}</td>
+                      <td className="p-3">{item.title}</td>
+                      <td className="p-3">
+                        <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
+                      </td>
+                      <td className="p-3">
+                        {tab === "pending"
+                          ? formatTaipei(item.createdAt)
+                          : item.signedAt
+                            ? formatSignedDate(item.signedAt)
+                            : "—"}
+                      </td>
+                      {tab === "renewable" ? (
+                        <td className="p-3">{item.signedAt ? `約 ${daysUntilContractExpiry(item.signedAt)} 天` : "—"}</td>
+                      ) : null}
+                      <td className="p-3">
+                        <button type="button" className="text-[var(--link)] underline" onClick={() => setPreviewId(item.id)}>
+                          預覽
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {previewId ? <ContractPreviewModal contractId={previewId} onClose={() => setPreviewId(null)} /> : null}
     </div>
+  );
+}
+
+function ContractPreviewModal({ contractId, onClose }: { contractId: string; onClose: () => void }) {
+  const services = useServices();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<Notice>(null);
+  const detail = useQuery({
+    queryKey: ["admin-contract", contractId],
+    queryFn: () => services.contract(contractId),
+  });
+  const item = detail.data;
+  return (
+    <Modal title={item ? `預覽 ${item.contractNo}` : "預覽合約"} onClose={onClose} wide>
+      {detail.isLoading ? <p>載入中…</p> : null}
+      {detail.error ? <ErrorText message={detail.error instanceof ClientError ? detail.error.message : "找不到合約"} /> : null}
+      {item ? (
+        <div className="max-h-[75vh] space-y-3 overflow-y-auto pr-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-xl">{item.title}</h3>
+            <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
+          </div>
+          <p className="text-sm text-[var(--muted)]">{item.organizationName}</p>
+          <p className="text-sm leading-7">{statusNote(item.status)}</p>
+          {item.signedAt ? <p className="text-sm font-medium">簽約日期（上傳 PDF）：{formatSignedDate(item.signedAt)}</p> : null}
+          <div className="flex flex-wrap gap-3">
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setMessage("");
+                try {
+                  await downloadBlob(await services.contractDocument(item.id));
+                  setMessage(item.status === "ISSUED" ? "已下載待蓋章 PDF。" : "已下載合約 PDF。");
+                } catch (error) {
+                  setMessage(failNotice(error instanceof ClientError ? error.message : "無法下載"));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {item.status === "ISSUED" ? "下載待蓋章 PDF" : "下載合約 PDF"}
+            </Button>
+            <Link to={`/admin/contracts/issued/${item.id}`} className="btn rounded-md px-3 py-2 text-sm no-underline" onClick={onClose}>
+              開啟完整頁
+            </Link>
+          </div>
+          <NoticeText notice={message} />
+          {item.hasPdf ? (
+            <>
+              <p className="text-sm text-[var(--muted)]">以下為業者上傳的蓋章 PDF 原檔。</p>
+              <ContractPdfViewer contractId={item.id} />
+            </>
+          ) : (
+            <ContractBodyViewWithSeals body={item.body} />
+          )}
+        </div>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -584,8 +754,11 @@ export function IssuedContractDetailPage() {
   const item = detail.data;
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="已發出" title={item?.contractNo ?? "合約"} lede="這一份維持發出或簽署當下的內容，管理員不能在這裡修改。" />
-      <Link to="/admin/contracts/issued">回到已發出</Link>
+      <AdminPageHeader
+        title={item?.contractNo ?? "合約"}
+        description="這一份維持發出當下的內容。業者下載 PDF 蓋章後上傳，管理員不能在這裡改內文。"
+        actions={<Link className="text-sm text-[var(--link)] underline" to="/admin/contracts">回到合約管理</Link>}
+      />
       {detail.isLoading ? <p>載入中…</p> : null}
       {detail.error ? <ErrorText message={detail.error instanceof ClientError ? detail.error.message : "找不到合約"} /> : null}
       {item ? (
@@ -596,23 +769,24 @@ export function IssuedContractDetailPage() {
           </div>
           <p className="mt-2 text-sm text-[var(--muted)]">{item.organizationName}</p>
           <p className="mt-3 text-sm leading-7">{statusNote(item.status)}</p>
-          {item.signerName ? <p className="mt-3 text-sm">簽署人 {item.signerName}{item.signerTitle ? ` · ${item.signerTitle}` : ""}{item.signedAt ? ` · ${item.signedAt.slice(0, 16).replace("T", " ")}` : ""}</p> : null}
-          {item.hasSignature ? (
-            <div className="mt-4">
-              <h3 className="font-medium">客戶簽名</h3>
-              <SignedImage id={item.id} kind="signature" alt={`${item.signerName ?? "客戶"}的簽名`} />
-            </div>
+          {item.signedAt ? <p className="mt-3 text-sm font-medium">簽約日期（上傳 PDF）：{formatSignedDate(item.signedAt)}</p> : null}
+          {item.signerName ? <p className="mt-1 text-sm text-[var(--muted)]">上傳人 {item.signerName}</p> : null}
+          {item.status === "SIGNED" && item.signedAt && isContractRenewalDue(item.signedAt) ? (
+            <p className="mt-2 text-sm text-amber-800">剩餘約 {daysUntilContractExpiry(item.signedAt)} 天到期，列在「可續約」。續約付款方式尚未定。</p>
           ) : null}
-          {item.hasFace ? (
-            <div className="mt-4">
-              <h3 className="font-medium">簽署人像</h3>
-              <SignedImage id={item.id} kind="face" alt={`${item.signerName ?? "客戶"}簽署時的人像`} />
-            </div>
-          ) : null}
-          <article className="mt-6 whitespace-pre-wrap border-t border-[var(--line)] pt-4 text-sm leading-7">{item.body}</article>
-          {item.status === "SIGNED" || item.status === "RENEWED" || item.status === "NOT_RENEWED" ? (
-            <Button className="mt-4" onClick={async () => downloadBlob(await services.contractDocument(item.id))}>下載已簽名 PDF</Button>
-          ) : null}
+          {item.hasPdf ? (
+            <>
+              <p className="mt-3 text-sm text-[var(--muted)]">以下為業者上傳的蓋章 PDF 原檔（含雙方印章）。</p>
+              <div className="mt-3">
+                <ContractPdfViewer contractId={item.id} />
+              </div>
+            </>
+          ) : (
+            <ContractBodyViewWithSeals body={item.body} />
+          )}
+          <Button className="mt-4" onClick={async () => downloadBlob(await services.contractDocument(item.id))}>
+            {item.hasPdf ? "下載業者上傳 PDF" : "下載待蓋章 PDF"}
+          </Button>
         </Card>
       ) : null}
     </div>
@@ -620,72 +794,356 @@ export function IssuedContractDetailPage() {
 }
 
 function statusNote(status: ContractStatus) {
-  if (status === "ISSUED") return "這份合約還在等業者簽署，目前沒有客戶簽名。";
-  if (status === "SIGNED") return "業者已簽署。下面是當時留下的簽名。";
-  if (status === "RENEWED") return "業者已把這份合約登記為已續約。簽名仍是簽署當下留下的。續約費用與是否重新現場複審仍待確認。";
-  if (status === "NOT_RENEWED") return "業者已把這份合約登記為未續約。簽名仍是簽署當下留下的。";
+  if (status === "ISSUED") return "這份合約還在等業者下載 PDF、蓋章後上傳。";
+  if (status === "SIGNED") return "業者已上傳蓋章 PDF。簽約日期以實際上傳當日為準。";
+  if (status === "RENEWED") return "業者已把這份合約登記為已續約。續約費用與是否重新現場複審仍待確認。";
+  if (status === "NOT_RENEWED") return "業者已把這份合約登記為未續約。";
   return "這份合約已作廢，內容不能再改。";
 }
 
-function SignedImage({ id, kind, alt }: { id: string; kind: "signature" | "face"; alt: string }) {
-  const services = useServices();
-  const file = useQuery({
-    queryKey: ["contract-capture", id, kind],
-    queryFn: () => (kind === "signature" ? services.contractSignature(id) : services.contractFace(id)),
-  });
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!file.data) return;
-    const next = URL.createObjectURL(file.data.blob);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [file.data]);
-  if (file.isLoading) return <p className="mt-2 text-sm text-[var(--muted)]">載入中…</p>;
-  if (file.error || !url) return <p className="mt-2 text-sm text-[var(--muted)]">圖檔無法顯示。</p>;
-  return <img src={url} alt={alt} className="mt-2 max-h-48 rounded-md border border-[var(--line)] bg-white" />;
-}
+type IssuableOrg = Awaited<ReturnType<Services["issuableOrganizations"]>>[number];
+type IssuableApp = IssuableOrg["pendingApplications"][number];
 
 export function IssueContractPage() {
   const services = useServices();
   const client = useQueryClient();
   const navigate = useNavigate();
   const templates = useQuery({ queryKey: ["contract-templates"], queryFn: () => services.contractTemplates() });
-  const organizations = useQuery({ queryKey: ["organizations", "contract"], queryFn: () => services.organizations() });
+  const issuable = useQuery({ queryKey: ["issuable-organizations"], queryFn: () => services.issuableOrganizations() });
   const [issueTemplateId, setIssueTemplateId] = useState("");
   const [organizationId, setOrganizationId] = useState("");
-  const [message, setMessage] = useState("");
+  const [applicationId, setApplicationId] = useState("");
+  const [siteName, setSiteName] = useState("");
+  const [feeAmount, setFeeAmount] = useState("");
+  const [categoryChecks, setCategoryChecks] = useState<Record<string, boolean>>({});
+  const [partyBName, setPartyBName] = useState("");
+  const [partyBAddress, setPartyBAddress] = useState("");
+  const [partyBOwner, setPartyBOwner] = useState("");
+  const [partyBTaxId, setPartyBTaxId] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
+  const [orgPickerOpen, setOrgPickerOpen] = useState(false);
+  const unlocked = issuable.data ?? [];
+  const selectedOrg = unlocked.find((item) => item.id === organizationId) ?? null;
+  const pendingApps = selectedOrg?.pendingApplications ?? [];
+  const selectedApp = pendingApps.find((item) => item.id === applicationId) ?? null;
+  const applyApplication = (app: IssuableApp | null) => {
+    if (!app) {
+      setApplicationId("");
+      return;
+    }
+    setApplicationId(app.id);
+    setSiteName(app.siteName?.trim() || app.label);
+    setCategoryChecks(suggestedContractChecksForCategory(app.categoryCode, app.formData ?? {}));
+  };
   useEffect(() => {
     if (!issueTemplateId && templates.data?.[0]) setIssueTemplateId(templates.data[0].id);
   }, [issueTemplateId, templates.data]);
+  useEffect(() => {
+    if (!selectedOrg) return;
+    setPartyBName(selectedOrg.organizationName);
+    setPartyBAddress(selectedOrg.address ?? "");
+    setPartyBOwner(selectedOrg.contactName ?? "");
+    setPartyBTaxId(selectedOrg.taxId ?? "");
+    if (selectedOrg.pendingApplications.length === 1) applyApplication(selectedOrg.pendingApplications[0] ?? null);
+    else {
+      setApplicationId("");
+      setCategoryChecks({});
+    }
+  }, [selectedOrg?.id]);
+  const checkValue = (key: string) => Boolean(categoryChecks[key]);
+  const setCheck = (key: string, checked: boolean) => setCategoryChecks((current) => ({ ...current, [key]: checked }));
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="合約管理" title="發給業者" lede="選擇業者和範本版本。發出後這一份就不能再改內容。" />
+      <AdminPageHeader title="發送合約" description="僅已核帳業者可發約。選業者後會帶出尚未完成合約的申請類別；有多筆時請先選要發哪一筆。發出後不可再改內文。" />
+      {issuable.isLoading ? <p>載入中…</p> : null}
+      {!issuable.isLoading && unlocked.length === 0 ? (
+        <div className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-6 text-sm">
+          <p className="font-medium text-[var(--ink)]">目前沒有可發約的業者</p>
+          <p className="leading-6 text-[var(--muted)]">業者付款後要先完成核帳才能發約。核帳完成的業者會出現在這裡。</p>
+          <Link className="btn btn-primary inline-block rounded-md px-3 py-2 no-underline" to="/admin/payments/reconciliation">去核帳</Link>
+        </div>
+      ) : null}
+      {unlocked.length > 0 ? (
       <Card>
-        <form className="flex flex-wrap items-end gap-3" onSubmit={async (event) => {
+        <form className="space-y-4" onSubmit={async (event) => {
           event.preventDefault();
+          if (pendingApps.length > 0 && !applicationId) {
+            setMessage(failNotice("此業者有多筆／待處理申請，請先選擇要發約的申請。"));
+            return;
+          }
           try {
-            const created = await services.issueContract(organizationId, issueTemplateId);
+            const created = await services.issueContract({
+              organizationId,
+              templateId: issueTemplateId,
+              applicationId: applicationId || null,
+              siteName,
+              feeAmount,
+              checkHalalKitchen: checkValue("checkHalalKitchen"),
+              checkHalalRestaurant: checkValue("checkHalalRestaurant"),
+              checkMuslimFriendlyRestaurant: checkValue("checkMuslimFriendlyRestaurant"),
+              checkMealService: checkValue("checkMealService"),
+              checkDrinksSnacks: checkValue("checkDrinksSnacks"),
+              checkFullHalalKitchen: checkValue("checkFullHalalKitchen"),
+              checkPartialKitchen: checkValue("checkPartialKitchen"),
+              checkRestaurantRestroom: checkValue("checkRestaurantRestroom"),
+              lodgingWithBreakfast: checkValue("lodgingWithBreakfast"),
+              lodgingWithoutBreakfast: checkValue("lodgingWithoutBreakfast"),
+              itemBreakfast: checkValue("itemBreakfast"),
+              itemGuestRoom: checkValue("itemGuestRoom"),
+              checkExperience: checkValue("checkExperience"),
+              checkExperienceWithFood: checkValue("checkExperienceWithFood"),
+              checkExperienceWithoutFood: checkValue("checkExperienceWithoutFood"),
+              checkEnvironment: checkValue("checkEnvironment"),
+              checkShop: checkValue("checkShop"),
+              partyBName,
+              partyBAddress,
+              partyBOwner,
+              partyBTaxId,
+            });
             await client.invalidateQueries({ queryKey: ["admin-contracts"] });
+            await client.invalidateQueries({ queryKey: ["issuable-organizations"] });
             navigate(`/admin/contracts/issued/${created.id}`);
           } catch (error) {
-            setMessage(error instanceof ClientError ? error.message : "發出失敗");
+            setMessage(failNotice(error instanceof ClientError ? error.message : "發出失敗"));
           }
         }}>
-          <Field label="業者">
-            <select className="rounded-md border border-[var(--line)] bg-white px-3 py-2" value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required>
-              <option value="">選擇業者</option>
-              {organizations.data?.map((org) => <option key={org.id} value={org.id}>{org.organizationName}</option>)}
-            </select>
-          </Field>
-          <Field label="範本版本">
-            <select className="rounded-md border border-[var(--line)] bg-white px-3 py-2" value={issueTemplateId} onChange={(event) => setIssueTemplateId(event.target.value)} required>
-              <option value="">選擇版本</option>
-              {templates.data?.map((item) => <option key={item.id} value={item.id}>{item.title} · 第 {item.revision} 版</option>)}
-            </select>
-          </Field>
-          <Button type="submit">發出合約</Button>
+          <div className="flex flex-wrap items-end gap-3">
+            <Field group label="業者（已核帳）">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-[16rem] rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm">
+                  {selectedOrg ? (
+                    <span>
+                      {selectedOrg.organizationName}
+                      {selectedOrg.taxId ? ` · ${selectedOrg.taxId}` : ""}
+                      {selectedApp ? ` · ${selectedApp.label}` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--muted)]">尚未選擇業者</span>
+                  )}
+                </div>
+                <Button type="button" onClick={() => setOrgPickerOpen(true)} disabled={unlocked.length === 0}>
+                  搜尋業者
+                </Button>
+                {selectedOrg ? (
+                  <button
+                    type="button"
+                    className="text-sm text-[var(--link)] underline"
+                    onClick={() => {
+                      setOrganizationId("");
+                      setApplicationId("");
+                      setSiteName("");
+                      setCategoryChecks({});
+                      setPartyBName("");
+                      setPartyBAddress("");
+                      setPartyBOwner("");
+                      setPartyBTaxId("");
+                    }}
+                  >
+                    清除
+                  </button>
+                ) : null}
+              </div>
+            </Field>
+            <Field label="範本版本">
+              <select className="rounded-md border border-[var(--line)] bg-white px-3 py-2" value={issueTemplateId} onChange={(event) => setIssueTemplateId(event.target.value)} required>
+                <option value="">選擇版本</option>
+                {templates.data?.map((item) => <option key={item.id} value={item.id}>{item.title} · 第 {item.revision} 版</option>)}
+              </select>
+            </Field>
+          </div>
+          {selectedOrg ? (
+            <div className="space-y-2 rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+              <p className="text-sm font-medium">尚未完成合約的申請</p>
+              {pendingApps.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">這家業者目前沒有待發約的申請，仍可手動填寫黃底欄位發約。</p>
+              ) : (
+                <div className="space-y-2">
+                  {pendingApps.map((app) => (
+                    <label key={app.id} className="flex cursor-pointer items-start gap-2 rounded-md border border-[var(--line)] px-3 py-2 text-sm">
+                      <input
+                        type="radio"
+                        name="issue-application"
+                        checked={applicationId === app.id}
+                        onChange={() => applyApplication(app)}
+                      />
+                      <span>
+                        <span className="font-medium">{app.label}</span>
+                        <span className="mt-1 block text-[var(--muted)]">{app.applicationNo} · {applicationStatusLabels[app.status as keyof typeof applicationStatusLabels]?.label ?? app.status}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+          {orgPickerOpen ? (
+            <IssuableOrganizationPickerModal
+              organizations={unlocked}
+              onClose={() => setOrgPickerOpen(false)}
+              onPick={(org) => {
+                setOrganizationId(org.id);
+                setOrgPickerOpen(false);
+              }}
+            />
+          ) : null}
+          <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-950">黃底欄位（管理員填寫）</p>
+            <Field label="驗證場域名稱"><TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} required /></Field>
+            <Field label="費用總金額（新臺幣元，稅外加）"><TextInput value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} required /></Field>
+            <div className="space-y-4 text-sm">
+              <p className="font-medium">驗證類別／項目勾選（依合約表格分組）</p>
+              {CONTRACT_CHECKBOX_GROUPS.map((group) => (
+                <div key={group.id} className="space-y-2 rounded-md border border-amber-100 bg-white/70 p-3">
+                  <p className="font-medium text-amber-950">{group.title}</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {group.items.map((item) => (
+                      <label key={item.key} className="flex items-center gap-2">
+                        <input type="checkbox" checked={checkValue(item.key)} onChange={(event) => setCheck(item.key, event.target.checked)} />
+                        {item.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Field label="乙方名稱"><TextInput value={partyBName} onChange={(event) => setPartyBName(event.target.value)} /></Field>
+            <Field label="乙方地址"><TextInput value={partyBAddress} onChange={(event) => setPartyBAddress(event.target.value)} /></Field>
+            <Field label="乙方負責人"><TextInput value={partyBOwner} onChange={(event) => setPartyBOwner(event.target.value)} /></Field>
+            <Field label="乙方統一編號"><TextInput value={partyBTaxId} onChange={(event) => setPartyBTaxId(event.target.value)} /></Field>
+          </div>
+          <p className="text-sm text-[var(--muted)]">發出後，立約方「甲方：伊斯蘭商務發展有限公司」與「負責人：簡佩平」會標示公司大章／負責人小章蓋章位置（蓋在名稱上）。</p>
+          <Button type="submit" disabled={!organizationId || !issueTemplateId || (pendingApps.length > 0 && !applicationId)}>發出合約</Button>
         </form>
-        {message ? <p className="mt-3 text-sm">{message}</p> : null}
+        <NoticeText notice={message} />
+      </Card>
+      ) : null}
+    </div>
+  );
+}
+
+function IssuableOrganizationPickerModal({
+  organizations,
+  onClose,
+  onPick,
+}: {
+  organizations: IssuableOrg[];
+  onClose: () => void;
+  onPick: (org: IssuableOrg) => void;
+}) {
+  const [keyword, setKeyword] = useState("");
+  const q = keyword.trim().toLowerCase();
+  const matched = organizations.filter((org) => {
+    if (!q) return true;
+    const apps = org.pendingApplications.map((item) => item.label).join(" ");
+    const haystack = `${org.organizationName} ${org.taxId ?? ""} ${org.contactName ?? ""} ${org.address ?? ""} ${apps}`.toLowerCase();
+    return haystack.includes(q);
+  });
+  return (
+    <Modal title="搜尋已核帳業者" onClose={onClose}>
+      <div className="space-y-3">
+        <Field label="關鍵字">
+          <TextInput
+            autoFocus
+            placeholder="業者名稱、統編、申請類別或地址"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            aria-label="搜尋業者"
+          />
+        </Field>
+        <p className="text-sm text-[var(--muted)]">
+          {q ? `符合 ${matched.length} 筆` : `共 ${organizations.length} 家已核帳業者，輸入關鍵字縮小範圍。`}
+        </p>
+        <div className="max-h-72 space-y-2 overflow-y-auto">
+          {matched.map((org) => (
+            <button
+              key={org.id}
+              type="button"
+              className="btn block w-full rounded-md px-3 py-2 text-left text-sm"
+              onClick={() => onPick(org)}
+            >
+              <span className="block font-medium">{org.organizationName}</span>
+              <span className="block text-[var(--muted)]">
+                {[org.taxId, org.contactName, org.address].filter(Boolean).join(" · ") || "尚無統編／聯絡資料"}
+              </span>
+              <span className="mt-1 block text-[var(--muted)]">
+                {org.pendingApplications.length
+                  ? `待發約：${org.pendingApplications.map((item) => item.label).join("、")}`
+                  : "目前沒有尚未完成合約的申請"}
+              </span>
+            </button>
+          ))}
+          {matched.length === 0 ? <p className="text-sm text-[var(--muted)]">沒有符合的業者。</p> : null}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function ContractSealsPage() {
+  const services = useServices();
+  const client = useQueryClient();
+  const seals = useQuery({ queryKey: ["contract-seals"], queryFn: () => services.contractSeals() });
+  const [message, setMessage] = useState<Notice>(null);
+  const upload = async (kind: "company" | "person", file: File | undefined) => {
+    if (!file) return;
+    try {
+      await services.uploadContractSeal(kind, file);
+      setMessage(kind === "company" ? "公司大章已儲存" : "負責人小章已儲存");
+      await client.invalidateQueries({ queryKey: ["contract-seals"] });
+    } catch (error) {
+      setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
+    }
+  };
+  return (
+    <div className="space-y-4">
+      <AdminPageHeader title="大小章" description="上傳甲方公司大章與負責人小章電子檔（JPEG／PNG）。蓋章位置請到「合約範本 → 內文排版」的立約方甲方欄拖曳調整，放開後會同步到預覽與下載 PDF。" />
+      <Card>
+        {seals.isLoading ? <p>載入中…</p> : null}
+        <div className="grid gap-6 md:grid-cols-2">
+          <div>
+            <h2 className="text-lg font-medium">公司大章</h2>
+            {seals.data?.companySealUrl ? (
+              <img src={seals.data.companySealUrl} alt="公司大章" className="mt-3 h-36 w-36 object-contain" />
+            ) : (
+              <p className="mt-3 text-sm text-[var(--muted)]">尚未上傳</p>
+            )}
+            <label className="btn mt-3 inline-flex cursor-pointer rounded-md px-3.5 py-2 text-sm font-medium">
+              上傳大章
+              <input
+                className="hidden"
+                type="file"
+                accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  void upload("company", file);
+                }}
+              />
+            </label>
+          </div>
+          <div>
+            <h2 className="text-lg font-medium">負責人小章</h2>
+            {seals.data?.personSealUrl ? (
+              <img src={seals.data.personSealUrl} alt="負責人小章" className="mt-3 h-28 w-28 object-contain" />
+            ) : (
+              <p className="mt-3 text-sm text-[var(--muted)]">尚未上傳</p>
+            )}
+            <label className="btn mt-3 inline-flex cursor-pointer rounded-md px-3.5 py-2 text-sm font-medium">
+              上傳小章
+              <input
+                className="hidden"
+                type="file"
+                accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  void upload("person", file);
+                }}
+              />
+            </label>
+          </div>
+        </div>
+        <NoticeText notice={message} />
       </Card>
     </div>
   );
@@ -695,70 +1153,165 @@ export function ContractTemplatesPage() {
   const services = useServices();
   const client = useQueryClient();
   const templates = useQuery({ queryKey: ["contract-templates"], queryFn: () => services.contractTemplates() });
-  const [draft, setDraft] = useState({ title: "", body: "", expectedVersion: 1 });
-  const [templateMode, setTemplateMode] = useState<"edit" | "create">("edit");
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [message, setMessage] = useState("");
-  const selectedTemplate = templates.data?.find((item) => item.id === selectedTemplateId) ?? (selectedTemplateId ? undefined : templates.data?.[0]);
+  const [editor, setEditor] = useState<"new" | ContractTemplateItem | null>(null);
+  const [message, setMessage] = useState<Notice>(null);
+  const rows = [...(templates.data ?? [])].sort((left, right) => left.title.localeCompare(right.title, "zh-Hant") || right.revision - left.revision);
   useEffect(() => {
-    if (templateMode === "create" || !selectedTemplate) return;
-    setDraft({ title: selectedTemplate.title, body: selectedTemplate.body, expectedVersion: selectedTemplate.version });
-  }, [templateMode, selectedTemplate]);
+    if (!editor || editor === "new") return;
+    const fresh = templates.data?.find((item) => item.id === editor.id);
+    if (fresh && fresh !== editor) setEditor(fresh);
+  }, [templates.data, editor]);
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: ["contract-templates"] });
+  };
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="合約管理" title="合約範本" lede="可以新增多份範本，同一份範本也能留下很多版。已發出的合約不會跟著改。" />
-      <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="space-y-2">
-          <Button type="button" onClick={() => { setTemplateMode("create"); setDraft({ title: "", body: NEW_TEMPLATE_BODY, expectedVersion: 1 }); }}>新增範本</Button>
-          {templates.data?.map((item) => (
-            <button key={item.id} type="button" className={`btn block w-full rounded-lg p-3 text-left ${templateMode === "edit" && selectedTemplate?.id === item.id ? "is-selected" : ""}`} aria-pressed={templateMode === "edit" && selectedTemplate?.id === item.id} onClick={() => { setTemplateMode("edit"); setSelectedTemplateId(item.id); }}>
-              <span className="block font-medium">{item.title}</span>
-              <span className="block text-sm text-[var(--muted)]">第 {item.revision} 版</span>
-            </button>
-          ))}
+      <AdminPageHeader title="合約範本" description="用視覺編輯器排版、畫表格，可填欄位用工具列插入。已發出的合約不會跟著改。" />
+      <NoticeText notice={message} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-medium">範本列表</h2>
+          <p className="text-sm text-[var(--muted)]">同一代碼可留多版；發出時選定當下那一版。</p>
         </div>
-        <Card>
-          <h2 className="text-2xl">{templateMode === "create" ? "新增範本" : "編輯這一版"}</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">可用 {"{{organizationName}}"}、{"{{taxId}}"}、{"{{contractNo}}"}、{"{{issuedOn}}"}。新增版本會留下舊版。</p>
-          <form className="mt-4 space-y-3" onSubmit={async (event) => {
-            event.preventDefault();
-            try {
-              if (templateMode === "create") {
-                const created = await services.createContractTemplate({ title: draft.title, body: draft.body });
-                setTemplateMode("edit");
-                setSelectedTemplateId(created.id);
-                setMessage("已新增範本");
-              } else if (selectedTemplate) {
-                await services.saveContractTemplate(selectedTemplate.id, draft);
-                setMessage("這一版已儲存");
-              }
-              await client.invalidateQueries({ queryKey: ["contract-templates"] });
-            } catch (error) {
-              setMessage(error instanceof ClientError ? error.message : "儲存失敗");
-            }
-          }}>
-            <Field label="標題"><TextInput value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></Field>
-            <Field label="內文"><textarea className="min-h-64 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} required /></Field>
-            <div className="flex flex-wrap gap-3">
-              <Button type="submit">{templateMode === "create" ? "建立範本" : "儲存這一版"}</Button>
-              {templateMode === "edit" && selectedTemplate ? (
-                <Button type="button" onClick={async () => {
-                  try {
-                    const created = await services.createContractTemplateVersion(selectedTemplate.id, { title: draft.title, body: draft.body });
-                    setSelectedTemplateId(created.id);
-                    setMessage(`已新增第 ${created.revision} 版`);
-                    await client.invalidateQueries({ queryKey: ["contract-templates"] });
-                  } catch (error) {
-                    setMessage(error instanceof ClientError ? error.message : "新增版本失敗");
-                  }
-                }}>新增版本</Button>
-              ) : null}
-            </div>
-          </form>
-          {message ? <p className="mt-3 text-sm">{message}</p> : null}
-        </Card>
+        <Button onClick={() => setEditor("new")}>＋ 新增範本</Button>
       </div>
+      {templates.isLoading ? <p>載入中…</p> : null}
+      {!templates.isLoading && rows.length === 0 ? (
+        <Empty title="還沒有合約範本" body="按右上角「＋ 新增範本」建立第一份。" />
+      ) : null}
+      {rows.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--surface)]">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--line)] text-[var(--muted)]">
+              <tr>
+                <th className="p-3 font-medium">標題</th>
+                <th className="p-3 font-medium">版次</th>
+                <th className="p-3 font-medium">更新時間</th>
+                <th className="p-3 font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((item) => (
+                <tr key={item.id} className="border-t border-[var(--line)]">
+                  <td className="p-3">{item.title}</td>
+                  <td className="p-3">第 {item.revision} 版</td>
+                  <td className="p-3">{formatTaipei(item.updatedAt)}</td>
+                  <td className="p-3">
+                    <button type="button" className="text-[var(--link)] underline" onClick={() => setEditor(item)}>編輯</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {editor ? (
+        <ContractTemplateEditorModal
+          template={editor === "new" ? null : editor}
+          onClose={() => setEditor(null)}
+          onMessage={setMessage}
+          onSaved={async () => {
+            await refresh();
+            setEditor(null);
+          }}
+          onVersionSaved={async (created) => {
+            setMessage(`已新增第 ${created.revision} 版`);
+            await refresh();
+            setEditor(created);
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function ContractTemplateEditorModal({
+  template,
+  onClose,
+  onMessage,
+  onSaved,
+  onVersionSaved,
+}: {
+  template: ContractTemplateItem | null;
+  onClose: () => void;
+  onMessage: (message: Notice) => void;
+  onSaved: () => Promise<void>;
+  onVersionSaved: (created: ContractTemplateItem) => Promise<void>;
+}) {
+  const services = useServices();
+  const creating = !template;
+  const [title, setTitle] = useState(template?.title ?? DEFAULT_CONTRACT_TITLE);
+  const [body, setBody] = useState(ensureContractHtml(template?.body ?? NEW_TEMPLATE_BODY));
+  const [expectedVersion, setExpectedVersion] = useState(template?.version ?? 1);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setTitle(template?.title ?? DEFAULT_CONTRACT_TITLE);
+    setBody(ensureContractHtml(template?.body ?? NEW_TEMPLATE_BODY));
+    setExpectedVersion(template?.version ?? 1);
+  }, [template]);
+  return (
+    <Modal title={creating ? "新增範本" : "編輯範本"} onClose={onClose} wide>
+      <div className="max-h-[75vh] space-y-3 overflow-y-auto pr-1">
+        <p className="text-sm text-[var(--muted)]">可直接編排文字與表格。立約方為左右對列；在內文排版裡拖曳甲方大小章即可調整蓋章位置。</p>
+        <Field label="標題"><TextInput value={title} onChange={(event) => setTitle(event.target.value)} required /></Field>
+        <Field group label="內文排版">
+          <ContractRichEditor
+            contentKey={template ? `${template.id}:${template.revision}:${template.version}` : "new"}
+            value={body}
+            onChange={setBody}
+          />
+        </Field>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            disabled={busy || !title.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const html = ensureContractHtml(body);
+                if (creating) {
+                  await services.createContractTemplate({ title, body: html });
+                  onMessage("已新增範本");
+                } else if (template) {
+                  await services.saveContractTemplate(template.id, { title, body: html, expectedVersion });
+                  onMessage("這一版已儲存");
+                }
+                await onSaved();
+              } catch (error) {
+                onMessage(failNotice(error instanceof ClientError ? error.message : "儲存失敗"));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {creating ? "建立範本" : "儲存這一版"}
+          </Button>
+          {!creating && template ? (
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const created = await services.createContractTemplateVersion(template.id, { title, body: ensureContractHtml(body) });
+                  await onVersionSaved(created);
+                } catch (error) {
+                  onMessage(failNotice(error instanceof ClientError ? error.message : "新增版本失敗"));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              另存新版
+            </Button>
+          ) : null}
+        </div>
+        <div className="border-t border-[var(--line)] pt-4">
+          <h3 className="text-lg font-medium">預覽</h3>
+          <p className="mb-2 text-sm text-[var(--muted)]">預覽僅供查看；大小章位置請在上方內文排版調整。</p>
+          <ContractBodyViewWithSeals body={body} />
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -767,7 +1320,7 @@ export function ReportsPage() {
   const [part, setPart] = useState("built");
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="內部後台" title="報表" lede="既有報表維持原樣。自訂報表可以同時勾選案件、業者、訓練報名和合約，存下來之後在畫面上看表格、長條圖或圓餅圖。" />
+      <AdminPageHeader title="報表" description="自訂報表可以同時勾選案件、業者、訓練報名和合約，存下來之後在畫面上看表格、長條圖或圓餅圖。" />
       <SectionNav items={[{ id: "built", label: "既有報表" }, { id: "custom", label: "自訂報表" }]} value={part} onChange={setPart} />
       {part === "built" ? (
         <>
@@ -821,7 +1374,7 @@ function CustomReports() {
   const [chartField, setChartField] = useState("");
   const [version, setVersion] = useState<number | undefined>(undefined);
   const [saved, setSaved] = useState<SavedReport | null>(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
   const [error, setError] = useState("");
   const selections = selectionsFrom(picked);
   const preview = useQuery({
@@ -871,7 +1424,7 @@ function CustomReports() {
   return (
     <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       <div className="space-y-2">
-        <Button onClick={() => load(null)}>新增報表</Button>
+        <Button onClick={() => load(null)}>＋ 新增報表</Button>
         {(reports.data ?? []).map((report) => (
           <button key={report.id} className={`btn block w-full rounded-md px-3 py-2 text-left text-sm ${selectedId === report.id ? "is-selected" : ""}`} type="button" onClick={() => load(report)}>
             {report.name}
@@ -904,12 +1457,12 @@ function CustomReports() {
           </div>
           <p className="text-sm text-[var(--muted)]">換到下一個來源時，前面勾過的欄位會留著。密碼、登入憑證、簽名圖檔與合約全文不能選。案件只包含這個帳號看得到的案件。</p>
           {error ? <ErrorText message={error} /> : null}
-          {message ? <p className="text-sm">{message}</p> : null}
+          <NoticeText notice={message} />
           <div className="flex flex-wrap gap-3">
             <Button onClick={() => void save()}>儲存</Button>
             <Button disabled={!saved} onClick={async () => { if (!saved) return; downloadText(`${saved.name}.csv`, await services.exportReport(saved.id)); }}>下載 CSV</Button>
             <Button variant="danger" disabled={!saved} onClick={async () => {
-              if (!saved) return;
+              if (!saved || !confirmDelete(saved.name)) return;
               await services.deleteReport(saved.id);
               load(null);
               await queryClient.invalidateQueries({ queryKey: ["saved-reports"] });
@@ -1071,10 +1624,10 @@ export function PermissionsPage() {
   const services = useServices();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["access"], queryFn: () => services.accessSettings() });
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
   const [tab, setTab] = useState("staff");
   const [keyword, setKeyword] = useState("");
-  const [selectedId, setSelectedId] = useState<string | "new">("new");
+  const [selectedId, setSelectedId] = useState<string | "new" | null>(null);
   const [integrationKey, setIntegrationKey] = useState("");
   const [form, setForm] = useState({ email: "", displayName: "", password: "", features: [] as string[] });
   const accounts = (query.data?.accounts ?? []).filter((account) => `${account.displayName} ${account.email}`.toLowerCase().includes(keyword.trim().toLowerCase()));
@@ -1082,32 +1635,41 @@ export function PermissionsPage() {
   const integration = query.data?.integrations.find((item) => item.key === integrationKey) ?? query.data?.integrations[0];
   return (
     <div className="space-y-4">
-      <PageHeader eyebrow="內部後台" title="員工" lede="這裡只管理公司員工。建立帳號時一併勾選這個人能用的功能。業者請用前台註冊，功能固定，不會出現在這份名單。" />
+      <AdminPageHeader title="員工" description="這裡只管理公司員工。建立帳號時一併勾選這個人能用的功能。業者請用前台註冊，功能固定，不會出現在這份名單。" />
       <SectionNav items={[{ id: "staff", label: "員工與權限" }, { id: "integrations", label: "串接" }]} value={tab} onChange={setTab} />
+      {selectedId ? null : <NoticeText notice={message} />}
       {query.isLoading ? <p>載入中…</p> : null}
       {query.error ? <ErrorText message={query.error instanceof ClientError ? query.error.message : "無法載入設定"} /> : null}
       {tab === "staff" && query.data ? (
-        <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-          <div className="space-y-2 lg:sticky lg:top-4">
-            <TextInput placeholder="搜尋姓名或 Email" value={keyword} onChange={(event) => setKeyword(event.target.value)} aria-label="搜尋員工" />
-            <button type="button" className={`btn w-full rounded-md px-3 py-2 text-left text-sm ${selectedId === "new" ? "is-selected" : ""}`} aria-pressed={selectedId === "new"} onClick={() => setSelectedId("new")}>新增員工</button>
-            <div className="max-h-[28rem] space-y-2 overflow-auto">
+        <div className="space-y-3">
+          <SectionHeader
+            title="員工列表"
+            hint={`共 ${accounts.length} 位`}
+            actions={<>
+              <TextInput className="w-56" placeholder="搜尋姓名或 Email" value={keyword} onChange={(event) => setKeyword(event.target.value)} aria-label="搜尋員工" />
+              <Button onClick={() => setSelectedId("new")}>＋ 新增員工</Button>
+            </>}
+          />
+          {accounts.length === 0 ? <Empty title="沒有符合的員工" body="換個關鍵字，或按「＋ 新增員工」。" /> : (
+            <DataTable columns={["名稱", "Email", "狀態", "已開通功能", "操作"]}>
               {accounts.map((account) => (
-                <button key={account.id} type="button" className={`btn block w-full rounded-md px-3 py-2 text-left text-sm ${selectedId === account.id ? "is-selected" : ""}`} aria-pressed={selectedId === account.id} onClick={() => setSelectedId(account.id)}>
-                  <span className="block font-medium">{account.displayName}</span>
-                  <span className="block text-[var(--muted)]">{account.email}</span>
-                </button>
+                <tr key={account.id} className={tableRowClass}>
+                  <td className="p-3 font-medium">{account.displayName}</td>
+                  <td className="p-3 break-all">{account.email}</td>
+                  <td className="p-3"><Badge tone={account.isActive ? "success" : "neutral"}>{account.isActive ? "啟用" : "停用"}</Badge></td>
+                  <td className="p-3">{account.features.filter((feature) => feature.enabled).length} 項</td>
+                  <td className="p-3"><button type="button" className="table-action" onClick={() => setSelectedId(account.id)}>管理</button></td>
+                </tr>
               ))}
-              {accounts.length === 0 ? <p className="text-sm text-[var(--muted)]">沒有符合的員工。</p> : null}
-            </div>
-          </div>
+            </DataTable>
+          )}
           {selectedId === "new" ? (
-            <Card className="space-y-3">
-              <h2 className="text-xl">建立員工帳號</h2>
+            <Modal title="新增員工" wide onClose={() => setSelectedId(null)}>
+            <div className="space-y-3">
               <div className="grid gap-3 md:grid-cols-3">
                 <Field label="Email"><TextInput value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
                 <Field label="名稱"><TextInput value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} /></Field>
-                <Field label="密碼"><TextInput type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></Field>
+                <Field label="密碼"><PasswordInput value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></Field>
               </div>
               <FeatureChecks selected={form.features} onChange={(features) => setForm({ ...form, features })} />
               <Button onClick={async () => {
@@ -1115,20 +1677,21 @@ export function PermissionsPage() {
                   await services.createUser(form);
                   setForm({ email: "", displayName: "", password: "", features: [] });
                   setMessage("已建立員工帳號，並套用勾選的功能");
+                  setSelectedId(null);
                   await client.invalidateQueries({ queryKey: ["access"] });
                   await client.invalidateQueries({ queryKey: ["users"] });
                 } catch (error) {
-                  setMessage(error instanceof ClientError ? error.message : "建立失敗");
+                  setMessage(failNotice(error instanceof ClientError ? error.message : "建立失敗"));
                 }
               }}>建立帳號</Button>
-            </Card>
+              <NoticeText notice={message} />
+            </div>
+            </Modal>
           ) : selected ? (
-            <Card className="space-y-3">
+            <Modal title={selected.displayName} wide onClose={() => setSelectedId(null)}>
+            <div className="space-y-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl">{selected.displayName}</h2>
-                  <p className="text-sm text-[var(--muted)]">{selected.email} · {selected.isActive ? "啟用" : "停用"}</p>
-                </div>
+                <p className="text-sm text-[var(--muted)]">{selected.email} · {selected.isActive ? "啟用" : "停用"}</p>
                 <Button variant="secondary" onClick={async () => {
                   try {
                     await services.updateUser(selected.id, { isActive: !selected.isActive });
@@ -1136,7 +1699,7 @@ export function PermissionsPage() {
                     await client.invalidateQueries({ queryKey: ["access"] });
                     await client.invalidateQueries({ queryKey: ["users"] });
                   } catch (error) {
-                    setMessage(error instanceof ClientError ? error.message : "更新失敗");
+                    setMessage(failNotice(error instanceof ClientError ? error.message : "更新失敗"));
                   }
                 }}>{selected.isActive ? "停用" : "啟用"}</Button>
               </div>
@@ -1154,7 +1717,7 @@ export function PermissionsPage() {
                           await client.invalidateQueries({ queryKey: ["access"] });
                           await client.invalidateQueries({ queryKey: ["me"] });
                         } catch (error) {
-                          setMessage(error instanceof ClientError ? error.message : "更新失敗");
+                          setMessage(failNotice(error instanceof ClientError ? error.message : "更新失敗"));
                         }
                       }}
                     />
@@ -1162,8 +1725,10 @@ export function PermissionsPage() {
                   </label>
                 ))}
               </div>
-            </Card>
-          ) : <p className="text-sm text-[var(--muted)]">從左邊選擇員工，或新增一位。</p>}
+              <NoticeText notice={message} />
+            </div>
+            </Modal>
+          ) : null}
         </div>
       ) : null}
       {tab === "integrations" && integration ? (
@@ -1182,7 +1747,7 @@ export function PermissionsPage() {
               setMessage("串接設定已更新");
               await client.invalidateQueries({ queryKey: ["access"] });
             } catch (error) {
-              setMessage(error instanceof ClientError ? error.message : "更新失敗");
+              setMessage(failNotice(error instanceof ClientError ? error.message : "更新失敗"));
             }
           }}>
             <h2 className="text-xl">{integration.label}</h2>
@@ -1194,7 +1759,6 @@ export function PermissionsPage() {
           </form>
         </Card>
       ) : null}
-      {message ? <p className="text-sm">{message}</p> : null}
     </div>
   );
 }

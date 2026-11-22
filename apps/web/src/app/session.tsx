@@ -28,7 +28,15 @@ export function Providers({ children }: { children: ReactNode }) {
   const [services, setServices] = useState<Services | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    createServices().then(setServices).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "無法啟動"));
+    createServices()
+      .then((next) => {
+        // 展示模式：供本機端到端腳本呼叫同一組 mock 服務（含 PDF 下載）。
+        if (import.meta.env.DEV && next.mode === "mock") {
+          (window as Window & { __mfServices?: Services }).__mfServices = next;
+        }
+        setServices(next);
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "無法啟動"));
   }, []);
   if (error) return <p className="p-6 text-rose-700">{error}</p>;
   if (!services) return <p className="p-6 text-stone-600">系統載入中…</p>;

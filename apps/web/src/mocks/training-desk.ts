@@ -272,7 +272,11 @@ export function ensureTrainingData(data: Data) {
   }
 }
 
-export function assertCanApply(data: Data, actor: Actor) {
+export function assertCanApply(data: Data, actor: Actor, platform?: { payments?: Array<{ organizationId: string; status?: string }> }) {
+  if (platform && actor.organizationId) {
+    const unlocked = (platform.payments ?? []).some((item) => item.organizationId === actor.organizationId && item.status === "PAID");
+    if (!unlocked) throw new ClientError("請先完成方案付款與核帳後，才能建立驗證申請", { status: 403, code: "FORBIDDEN" });
+  }
   const policy = policyOf(data);
   const passed = Boolean(data.userBasicTrainings.find((item) => item.userId === actor.id)?.passedAt);
   const gate = canStartVerificationApplication({ requireBasicBeforeApply: policy.requireBasicBeforeApply, basicPassed: passed });

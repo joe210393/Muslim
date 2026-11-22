@@ -27,7 +27,7 @@
 | `GET /organizations/me` | 業者 | 自己的組織 |
 | `PATCH /organizations/me` | 業者 | 不改統編 |
 | `GET /application-categories` | 已登入 | 啟用類別與最新表單版本 |
-| `GET /applications` | 依角色 | 業者看同組織，承辦看派給自己的，管理員看全部 |
+| `GET /applications` | 依角色 | 業者看同組織，承辦看派給自己的，管理員看全部。可加 `certification=pending\|issued` 篩是否已發證；每列帶 `certificateNo`（未發證為 null） |
 | `POST /applications` | 業者 | 建立草稿並綁定最新表單版本 |
 | `GET /applications/:id` | 依角色 | 無權限回 404 |
 | `PATCH /applications/:id` | 業者 | 草稿或補件；版本不符 409 |

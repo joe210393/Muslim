@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
 import { CourseCalendar } from "../../components/CourseCalendar";
-import { Badge, Button, Card, ContentImage, ErrorText, Field, PageHeader, PageMedia, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ContentImage, ErrorText, Field, PageHeader, PageMedia, PasswordInput, TextInput } from "../../components/ui";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError, type SiteSlot } from "../../services/types";
 import { useEffect, useState, type ReactNode } from "react";
@@ -272,7 +272,7 @@ export function LoginPage() {
         }
       })}>
         <Field label="Email" error={form.formState.errors.email?.message}><TextInput type="email" {...form.register("email")} /></Field>
-        <Field label="密碼" error={form.formState.errors.password?.message}><TextInput type="password" {...form.register("password")} /></Field>
+        <Field label="密碼" error={form.formState.errors.password?.message}><PasswordInput {...form.register("password")} /></Field>
         {error ? <ErrorText message={error} /> : null}
         <Button type="submit">登入</Button>
       </form>
@@ -302,8 +302,8 @@ export function RegisterPage() {
       })}>
         <Field label="聯絡人" error={form.formState.errors.displayName?.message}><TextInput {...form.register("displayName")} /></Field>
         <Field label="Email" error={form.formState.errors.email?.message}><TextInput type="email" {...form.register("email")} /></Field>
-        <Field label="密碼" error={form.formState.errors.password?.message}><TextInput type="password" {...form.register("password")} /></Field>
-        <Field label="確認密碼" error={form.formState.errors.confirmPassword?.message}><TextInput type="password" {...form.register("confirmPassword")} /></Field>
+        <Field label="密碼" error={form.formState.errors.password?.message}><PasswordInput {...form.register("password")} /></Field>
+        <Field label="確認密碼" error={form.formState.errors.confirmPassword?.message}><PasswordInput {...form.register("confirmPassword")} /></Field>
         <Field label="業者名稱" error={form.formState.errors.organizationName?.message}><TextInput {...form.register("organizationName")} /></Field>
         <Field label="統一編號" hint="暫定 8 位數字，海外規則待確認" error={form.formState.errors.taxId?.message}><TextInput {...form.register("taxId")} /></Field>
         {error ? <ErrorText message={error} /> : null}
@@ -342,8 +342,8 @@ export function ResetPage() {
   return (
     <Card className="mx-auto max-w-md space-y-3">
       <h1 className="text-xl font-semibold">重設密碼</h1>
-      <Field label="新密碼"><TextInput type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></Field>
-      <Field label="確認密碼"><TextInput type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></Field>
+      <Field label="新密碼"><PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} /></Field>
+      <Field label="確認密碼"><PasswordInput value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></Field>
       <Button onClick={async () => {
         try {
           const result = await services.reset(params.get("token") ?? "", password, confirmPassword);

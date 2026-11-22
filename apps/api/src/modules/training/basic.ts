@@ -144,6 +144,10 @@ async function presentActiveAttempt(userId: string) {
 }
 
 export async function basicStatus(actor: SessionActor) {
+  if (actor.role === UserRole.APPLICANT) {
+    const { assertServiceUnlocked } = await import("../payments/service");
+    await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能使用教育訓練");
+  }
   const policy = presentPolicy(await ensurePolicy());
   const modules = await moduleRows(false);
   const progress = await prisma.basicTrainingProgress.findMany({ where: { userId: actor.id } });
@@ -178,6 +182,8 @@ export async function basicStatus(actor: SessionActor) {
 
 export async function recordModuleWatch(actor: SessionActor, moduleId: string, body: unknown) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可累計基礎課觀看");
+  const { assertServiceUnlocked } = await import("../payments/service");
+  await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能使用教育訓練");
   const input = basicWatchProgressSchema.parse(body);
   const module = await prisma.basicTrainingModule.findFirst({ where: { id: moduleId, isActive: true }, include: { material: true } });
   if (!module) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
@@ -215,6 +221,10 @@ export async function recordModuleWatch(actor: SessionActor, moduleId: string, b
 }
 
 export async function startQuiz(actor: SessionActor) {
+  if (actor.role === UserRole.APPLICANT) {
+    const { assertServiceUnlocked } = await import("../payments/service");
+    await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能使用教育訓練");
+  }
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可參加測驗");
   const status = await basicStatus(actor);
   if (status.passed) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "已通過基礎教育訓練");

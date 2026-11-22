@@ -33,7 +33,6 @@ import {
   contractTemplateWriteSchema,
   issueContractSchema,
   contractRenewalSchema,
-  signContractFieldsSchema,
   featureToggleSchema,
   integrationWriteSchema,
   contentSlotSchema,
@@ -63,6 +62,7 @@ import * as basicTraining from "./modules/training/basic";
 import * as access from "./modules/platform/access";
 import * as siteContent from "./modules/platform/content";
 import * as contracts from "./modules/platform/contracts";
+import * as contractSeals from "./modules/platform/contract-seals";
 import * as reports from "./modules/reports/service";
 import * as payments from "./modules/payments/service";
 import { createStorage } from "./storage/storage";
@@ -600,30 +600,18 @@ export function createApp() {
 
   api.get("/contracts/mine", route(async (req, res) => ok(res, req, await contracts.listMyContracts(await requireActor(req)))));
   api.get("/contracts/:id/document", route(async (req, res) => {
-    const file = await contracts.readContractPdf(await requireActor(req), storage, String(req.params.id));
+    const file = await contracts.readContractPdf(await requireActor(req), storage, repoRoot(), String(req.params.id));
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
     res.send(Buffer.from(file.bytes));
   }));
-  api.get("/contracts/:id/signature", route(async (req, res) => {
-    const file = await contracts.readContractCapture(await requireActor(req), storage, String(req.params.id), "signature");
-    res.setHeader("Content-Type", file.mimeType);
-    res.send(Buffer.from(file.bytes));
-  }));
-  api.get("/contracts/:id/face", route(async (req, res) => {
-    const file = await contracts.readContractCapture(await requireActor(req), storage, String(req.params.id), "face");
-    res.setHeader("Content-Type", file.mimeType);
-    res.send(Buffer.from(file.bytes));
-  }));
   api.get("/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
   api.post("/contracts/:id/renewal", route(async (req, res) => ok(res, req, await contracts.recordRenewal(await requireActor(req), String(req.params.id), contractRenewalSchema.parse(req.body)))));
-  api.post("/contracts/:id/sign", upload.fields([{ name: "face", maxCount: 1 }, { name: "signature", maxCount: 1 }]), route(async (req, res) => {
-    const uploaded = req.files as { face?: Express.Multer.File[]; signature?: Express.Multer.File[] } | undefined;
-    const face = uploaded?.face?.[0];
-    const signature = uploaded?.signature?.[0];
-    if (!face || !signature) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請拍攝人像並手寫簽名");
-    const fields = signContractFieldsSchema.parse(req.body);
-    ok(res, req, await contracts.signContract(await requireActor(req), storage, repoRoot(), String(req.params.id), fields, face, signature));
+  api.post("/contracts/:id/upload-signed", upload.single("pdf"), route(async (req, res) => {
+    const file = req.file;
+    if (!file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請上傳蓋章後的 PDF");
+    const expectedVersion = z.coerce.number().int().positive().parse(req.body?.expectedVersion);
+    ok(res, req, await contracts.uploadSignedContractPdf(await requireActor(req), storage, String(req.params.id), { expectedVersion }, file));
   }));
 
   api.get("/admin/contract-templates", route(async (req, res) => ok(res, req, await contracts.listTemplates(await requireActor(req)))));
@@ -631,16 +619,40 @@ export function createApp() {
   api.post("/admin/contract-templates/:id/versions", route(async (req, res) => ok(res, req, await contracts.createTemplateVersion(await requireActor(req), String(req.params.id), contractTemplateCreateSchema.parse(req.body)))));
   api.patch("/admin/contract-templates/:id", route(async (req, res) => ok(res, req, await contracts.saveTemplate(await requireActor(req), String(req.params.id), contractTemplateWriteSchema.parse(req.body)))));
   api.get("/admin/contracts", route(async (req, res) => ok(res, req, await contracts.listAdminContracts(await requireActor(req)))));
+  api.get("/admin/contracts/issuable-organizations", route(async (req, res) => ok(res, req, await contracts.listIssuableOrganizations(await requireActor(req)))));
   api.post("/admin/contracts", route(async (req, res) => {
-    const input = issueContractSchema.parse(req.body);
-    ok(res, req, await contracts.issueContract(await requireActor(req), input.organizationId, input.templateId));
+    ok(res, req, await contracts.issueContract(await requireActor(req), issueContractSchema.parse(req.body)));
   }));
   api.get("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
+  api.get("/contract-seals", route(async (req, res) => ok(res, req, await contractSeals.getContractSeals(await requireActor(req)))));
+  api.get("/contract-seals/media/:kind", route(async (req, res) => {
+    await requireActor(req);
+    const kind = z.enum(["company", "person"]).parse(req.params.kind);
+    const file = await contractSeals.readSealMedia(storage, kind);
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.post("/admin/contract-seals/:kind", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇印章圖檔");
+    const kind = z.enum(["company", "person"]).parse(req.params.kind);
+    ok(res, req, await contractSeals.uploadContractSeal(await requireActor(req), storage, kind, req.file));
+  }));
+  api.patch("/admin/contract-seals/positions", route(async (req, res) => {
+    ok(res, req, await contractSeals.updateSealPositions(await requireActor(req), req.body));
+  }));
 
+  api.post("/payments/select-plan", route(async (req, res) => {
+    ok(res, req, await payments.selectPlan(await requireActor(req), req.body));
+  }));
+  api.post("/payments/pay", route(async (req, res) => {
+    const paymentId = z.string().uuid().parse((req.body as { paymentId?: unknown } | undefined)?.paymentId);
+    ok(res, req, await payments.markPaidPending(await requireActor(req), paymentId));
+  }));
   api.post("/payments/checkout", route(async (req, res) => {
     const actor = await requireActor(req);
-    const planId = z.string().uuid().parse((req.body as { planId?: unknown } | undefined)?.planId);
-    ok(res, req, await payments.startCheckout(actor, planId, env));
+    const paymentId = z.string().uuid().parse((req.body as { paymentId?: unknown } | undefined)?.paymentId);
+    ok(res, req, await payments.startCheckout(actor, paymentId, env));
   }));
   api.post("/payments/ecpay/notify", async (req, res) => {
     try {
@@ -667,6 +679,16 @@ export function createApp() {
   api.get("/admin/payments", route(async (req, res) => ok(res, req, await payments.paymentDesk(await requireActor(req)))));
   api.post("/admin/plans", route(async (req, res) => ok(res, req, await payments.createPlan(await requireActor(req), servicePlanWriteSchema.parse(req.body)))));
   api.patch("/admin/plans/:id", route(async (req, res) => ok(res, req, await payments.updatePlan(await requireActor(req), String(req.params.id), servicePlanUpdateSchema.parse(req.body)))));
+  api.post("/admin/plans/:id/images", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    const caption = typeof (req.body as { caption?: unknown })?.caption === "string" ? String((req.body as { caption?: string }).caption) : "";
+    ok(res, req, await payments.uploadPlanImage(await requireActor(req), storage, String(req.params.id), req.file, caption));
+  }));
+  api.delete("/admin/plans/:id/images/:imageId", route(async (req, res) => {
+    ok(res, req, await payments.removePlanImage(await requireActor(req), String(req.params.id), String(req.params.imageId)));
+  }));
+  api.post("/admin/payments/confirm-reconciliation", route(async (req, res) => ok(res, req, await payments.confirmReconciliation(await requireActor(req), req.body))));
+  api.post("/admin/payments/confirm-accounting", route(async (req, res) => ok(res, req, await payments.confirmReconciliation(await requireActor(req), req.body))));
   api.post("/admin/payments", route(async (req, res) => ok(res, req, await payments.recordPayment(await requireActor(req), paymentRecordWriteSchema.parse(req.body)))));
 
   api.get("/admin/access", route(async (req, res) => {

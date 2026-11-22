@@ -23,23 +23,60 @@ export const siteContentWriteSchema = z.object({
 
 export const contractTemplateCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  body: z.string().trim().min(20).max(12000),
+  body: z.string().trim().min(20).max(100000),
 });
 
 export const contractTemplateWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  body: z.string().trim().min(20).max(12000),
+  body: z.string().trim().min(20).max(100000),
   expectedVersion: z.number().int().positive(),
+});
+
+/** 立約方甲方欄位內大小章位置（百分比 0–100）。 */
+export const contractSealPositionsSchema = z.object({
+  companySealX: z.number().min(0).max(100),
+  companySealY: z.number().min(0).max(100),
+  personSealX: z.number().min(0).max(100),
+  personSealY: z.number().min(0).max(100),
 });
 
 export const issueContractSchema = z.object({
   organizationId: z.string().uuid(),
   templateId: z.string().uuid(),
+  /** 對應業者尚未完成合約的申請；有多筆時必選 */
+  applicationId: z.string().uuid().optional().nullable(),
+  /** 黃底欄位：管理員發出前填寫 */
+  siteName: z.string().trim().min(1, "請填驗證場域名稱").max(200),
+  feeAmount: z.string().trim().min(1, "請填費用總金額").max(40),
+  checkHalalKitchen: z.boolean().default(false),
+  checkHalalRestaurant: z.boolean().default(false),
+  checkMuslimFriendlyRestaurant: z.boolean().default(false),
+  checkMealService: z.boolean().default(false),
+  checkDrinksSnacks: z.boolean().default(false),
+  checkFullHalalKitchen: z.boolean().default(false),
+  checkPartialKitchen: z.boolean().default(false),
+  checkRestaurantRestroom: z.boolean().default(false),
+  lodgingWithBreakfast: z.boolean().default(false),
+  lodgingWithoutBreakfast: z.boolean().default(false),
+  itemBreakfast: z.boolean().default(false),
+  itemGuestRoom: z.boolean().default(false),
+  checkExperience: z.boolean().default(false),
+  checkExperienceWithFood: z.boolean().default(false),
+  checkExperienceWithoutFood: z.boolean().default(false),
+  checkEnvironment: z.boolean().default(false),
+  checkShop: z.boolean().default(false),
+  partyBName: z.string().trim().max(200).optional(),
+  partyBAddress: z.string().trim().max(300).optional(),
+  partyBOwner: z.string().trim().max(100).optional(),
+  partyBTaxId: z.string().trim().max(20).optional(),
+  signYear: z.string().trim().max(4).optional(),
+  signMonth: z.string().trim().max(2).optional(),
+  signDay: z.string().trim().max(2).optional(),
 });
 
 export const contractBodyWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  body: z.string().trim().min(20).max(12000),
+  body: z.string().trim().min(20).max(100000),
   expectedVersion: z.number().int().positive(),
 });
 
@@ -120,7 +157,9 @@ export type EditorialCreate = z.infer<typeof editorialCreateSchema>;
 export type EditorialUpdate = z.infer<ReturnType<typeof editorialUpdateSchemaFor>>;
 export type ContractTemplateCreate = z.infer<typeof contractTemplateCreateSchema>;
 export type ContractTemplateWrite = z.infer<typeof contractTemplateWriteSchema>;
+export type ContractSealPositions = z.infer<typeof contractSealPositionsSchema>;
 export type ContractBodyWrite = z.infer<typeof contractBodyWriteSchema>;
+export type IssueContractInput = z.infer<typeof issueContractSchema>;
 export type ContractRenewal = z.infer<typeof contractRenewalSchema>;
 export type FeatureToggle = z.infer<typeof featureToggleSchema>;
 export type IntegrationWrite = z.infer<typeof integrationWriteSchema>;

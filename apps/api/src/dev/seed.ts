@@ -1,5 +1,5 @@
 import { getEnv, repoRoot } from "../config/env";
-import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, buildDemoDataset, formatContractNo, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
+import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, OFFICIAL_SERVICE_PLANS_2026, buildDemoDataset, formatContractNo, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
 import { ContractStatus } from "@mf/db/enums";
 import { prisma, type Prisma } from "@mf/db/server";
 import bcrypt from "bcryptjs";
@@ -156,6 +156,26 @@ for (const category of data.categories) {
     create: category,
     update: { name: category.name, description: category.description, isActive: category.isActive, displayOrder: category.displayOrder },
   });
+}
+
+{
+  const existingPlans = await prisma.servicePlan.findMany({ select: { name: true } });
+  const names = new Set(existingPlans.map((item) => item.name));
+  let created = 0;
+  for (const plan of OFFICIAL_SERVICE_PLANS_2026) {
+    if (names.has(plan.name)) continue;
+    await prisma.servicePlan.create({
+      data: {
+        name: plan.name,
+        amount: plan.amount,
+        description: plan.description,
+        paymentUrl: "",
+        isActive: true,
+      },
+    });
+    created += 1;
+  }
+  if (created > 0) console.info(`已補上 ${created} 筆 2026 官方方案目錄。`);
 }
 
 for (const version of data.formVersions) {

@@ -3,7 +3,7 @@ import { ContentSlot, EditorialKind, UserRole } from "@mf/db/enums";
 export const PLATFORM_FEATURES = [
   { key: "cms.edit", label: "編輯首頁內容" },
   { key: "contracts.issue", label: "發出與修改合約" },
-  { key: "contracts.sign", label: "簽署合約" },
+  { key: "contracts.sign", label: "合約下載與上傳" },
   { key: "applications.create", label: "建立驗證申請" },
   { key: "applications.review", label: "審查案件" },
   { key: "applications.decide", label: "派案與核定" },
@@ -68,36 +68,8 @@ export type IntegrationKey = (typeof INTEGRATION_DEFAULTS)[number]["key"];
 
 export const CONTRACT_TEMPLATE_CODE = "HALAL_SERVICE_V1";
 
-export const DEFAULT_CONTRACT_TITLE = "HALAL 驗證服務合約（示範）";
-
-export const DEFAULT_CONTRACT_BODY = `HALAL 驗證服務合約
-
-合約編號：{{contractNo}}
-發出日期：{{issuedOn}}
-甲方（申請業者）：{{organizationName}}
-統一編號：{{taxId}}
-乙方：HALAL 驗證服務窗口（正式機構名稱待甲方確認後，可在合約管理整份替換）
-
-一、目的
-乙方受理甲方提出的穆斯林友善驗證申請，並依當時有效的審查流程處理文件、補件與現場複審安排。本合約是系統內可測試的示範文本，正式法律文字以甲方日後提供並儲存的版本為準。
-
-二、甲方義務
-甲方保證註冊資料、申請表與附件內容真實。場所地址、聯絡人與營業資料若有變更，應在會員區更新。甲方應配合補件與約定的現場訪查，並指定有權簽署本合約的人員。
-
-三、費用
-文件初審、現場複審、證書與續約的金額尚未核定，本合約不記載推測金額，也不構成扣款授權。金流服務商未設定前，系統不會向甲方收款。
-
-四、效期
-本合約自簽署日起一年內有效。到期前是否須重新審查、重新簽約或只做資料更新，待甲方確認後改寫本段。合約一經發出，這一份內容不再修改；若要換文字，應另發新合約。
-
-五、簽署方式
-甲方指定人員須核對本人姓名與職稱，拍攝當時人像，並在簽名欄手寫簽名。系統會把人像與簽名嵌進 PDF。簽署完成後，本份文字、人像與簽名不再隨範本修改而改變。此電子簽署供本系統測試與歸檔；是否等同法定電子簽章，待甲方法務確認。
-
-六、資料使用
-人像、簽名與申請資料只供本案審查、歸檔與爭議核對，不在未獲授權時公開。甲方可下載自己已簽署的 PDF。
-
-七、其他
-本合約未約定的審查標準、標章使用與授權素材，仍以甲方另行提供的規範為準。若與後續正式合約不一致，以正式合約替換後新發出的文件為準，已簽署文件保持原樣。`;
+export { OFFICIAL_CONTRACT_BODY as DEFAULT_CONTRACT_BODY, OFFICIAL_CONTRACT_TITLE as DEFAULT_CONTRACT_TITLE, renderContractBody } from "./official-contract";
+export type { ContractFillValues } from "./official-contract";
 
 export const DEFAULT_SITE_CONTENT: Record<
   ContentSlot,
@@ -265,17 +237,6 @@ export function youtubeVideoId(value: string): string | null {
     return null;
   }
   return null;
-}
-
-export function renderContractBody(
-  template: string,
-  values: { organizationName: string; taxId: string; contractNo: string; issuedOn: string },
-): string {
-  return template
-    .replaceAll("{{organizationName}}", values.organizationName)
-    .replaceAll("{{taxId}}", values.taxId || "未填")
-    .replaceAll("{{contractNo}}", values.contractNo)
-    .replaceAll("{{issuedOn}}", values.issuedOn);
 }
 
 export function formatContractNo(year: number, sequence: number): string {

@@ -46,9 +46,20 @@ export async function ensureContent() {
       })),
     });
   }
-  const template = await prisma.contractTemplate.findFirst({ where: { code: CONTRACT_TEMPLATE_CODE } });
+  const template = await prisma.contractTemplate.findFirst({ where: { code: CONTRACT_TEMPLATE_CODE }, orderBy: { revision: "desc" } });
   if (!template) {
     await prisma.contractTemplate.create({ data: { code: CONTRACT_TEMPLATE_CODE, revision: 1, title: DEFAULT_CONTRACT_TITLE, body: DEFAULT_CONTRACT_BODY } });
+  } else if (
+    template.title.includes("示範")
+    || !template.body.includes("<table")
+    || (!template.body.includes("data-contract-parties") && !template.body.includes("<<<PARTIES>>>"))
+    || !template.body.includes("checkHalalKitchen")
+    || !template.body.includes("contract-parties-grid")
+  ) {
+    await prisma.contractTemplate.update({
+      where: { id: template.id },
+      data: { title: DEFAULT_CONTRACT_TITLE, body: DEFAULT_CONTRACT_BODY, version: { increment: 1 } },
+    });
   }
 }
 
@@ -235,6 +246,8 @@ export async function readSiteImage(actor: SessionActor | null, storage: Storage
     if (course.status === "DRAFT" && !staffCanSeeDraft(actor)) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到圖片");
     return readStoredFile(storage, fileId);
   }
+  const planImage = await prisma.servicePlanImage.findFirst({ where: { fileId } });
+  if (planImage) return readStoredFile(storage, fileId);
   throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到圖片");
 }
 

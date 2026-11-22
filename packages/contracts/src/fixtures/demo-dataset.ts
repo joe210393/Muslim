@@ -198,6 +198,8 @@ export type DemoDataset = {
     certificateNo: string;
     issuedOnDate: string;
     validUntilDate: string;
+    templateKey?: string | null;
+    bodyHtml?: string | null;
     registeredById: string;
     registeredAt: string;
     updatedAt: string;
@@ -861,6 +863,303 @@ export function buildDemoDataset(): DemoDataset {
     enrollment(0x609, courses[4]!.id, applicants[5]!.id, EnrollmentStatus.CONFIRMED, AttendanceStatus.NOT_RECORDED, 0, 120, null),
   ];
 
+  // 展示改為只留已核定、尚未發證的案件：七類各兩筆，方便測證書對應與登錄。
+  applications.length = 0;
+  submissions.length = 0;
+  events.length = 0;
+  files.length = 0;
+  attachments.length = 0;
+  certifications.length = 0;
+  notificationJobs.length = 0;
+
+  const approvedSpecs: Array<{
+    categoryCode: string;
+    formData: Record<string, string | number | boolean | null>;
+    siteLabel: string;
+  }> = [
+    {
+      categoryCode: "CAT_01",
+      siteLabel: "友善餐廳正餐示範店",
+      formData: {
+        applyType: "friendly_restaurant",
+        mealBreakfast: false,
+        mealLunch: true,
+        mealDinner: true,
+        mealDrink: false,
+        mealSnack: false,
+        certificateNameEn: "Star Moon Kitchen Demo Restaurant",
+        certificateAddressEn: "1 Demo Rd., Da’an Dist., Taipei City, Taiwan",
+        certificatePhone: "+886-2-2700-0001",
+        usesMeat: false,
+      },
+    },
+    {
+      categoryCode: "CAT_01",
+      siteLabel: "Halal廚房示範店",
+      formData: {
+        applyType: "halal_kitchen",
+        mealBreakfast: false,
+        mealLunch: false,
+        mealDinner: false,
+        mealDrink: false,
+        mealSnack: false,
+        certificateNameEn: "Halal Kitchen Demo Co.",
+        certificateAddressEn: "2 Demo Rd., Da’an Dist., Taipei City, Taiwan",
+        certificatePhone: "+886-2-2700-0002",
+        usesMeat: false,
+      },
+    },
+    {
+      categoryCode: "CAT_02",
+      siteLabel: "Halal產品示範廠 A",
+      formData: {
+        certificateNameEn: "Halal Product Demo Factory A",
+        certificateAddressEn: "3 Demo Rd., Taichung City, Taiwan",
+        certificatePhone: "+886-4-2200-0001",
+        productDetail: "示範產品清單（非正式）",
+        halalTeam: "示範清真小組名單",
+        usesMeat: false,
+      },
+    },
+    {
+      categoryCode: "CAT_02",
+      siteLabel: "Halal產品示範廠 B",
+      formData: {
+        certificateNameEn: "Halal Product Demo Factory B",
+        certificateAddressEn: "4 Demo Rd., Taichung City, Taiwan",
+        certificatePhone: "+886-4-2200-0002",
+        productDetail: "示範產品清單 B",
+        halalTeam: "示範清真小組名單 B",
+        usesMeat: false,
+      },
+    },
+    {
+      categoryCode: "CAT_03",
+      siteLabel: "友善旅宿含早餐示範",
+      formData: {
+        applyType: "with_breakfast",
+        certificateNameEn: "Friendly Stay with Breakfast Demo",
+        certificateAddressEn: "5 Demo Rd., Hualien City, Taiwan",
+        certificatePhone: "+886-3-8200-0001",
+        lodgingLicenseNo: "LODGE-DEMO-001",
+        roomDetail: "101 雙人房 2 間",
+        usesMeat: false,
+      },
+    },
+    {
+      categoryCode: "CAT_03",
+      siteLabel: "友善旅宿不含早餐示範",
+      formData: {
+        applyType: "without_breakfast",
+        certificateNameEn: "Friendly Stay without Breakfast Demo",
+        certificateAddressEn: "6 Demo Rd., Hualien City, Taiwan",
+        certificatePhone: "+886-3-8200-0002",
+        lodgingLicenseNo: "LODGE-DEMO-002",
+        roomDetail: "201 雙人房 3 間",
+      },
+    },
+    {
+      categoryCode: "CAT_04",
+      siteLabel: "友善商店示範 A",
+      formData: {
+        certificateNameEn: "Muslim Friendly Store Demo A",
+        certificateAddressEn: "7 Demo Rd., Tainan City, Taiwan",
+        certificatePhone: "+886-6-2200-0001",
+      },
+    },
+    {
+      categoryCode: "CAT_04",
+      siteLabel: "友善商店示範 B",
+      formData: {
+        certificateNameEn: "Muslim Friendly Store Demo B",
+        certificateAddressEn: "8 Demo Rd., Tainan City, Taiwan",
+        certificatePhone: "+886-6-2200-0002",
+      },
+    },
+    {
+      categoryCode: "CAT_05",
+      siteLabel: "友善旅行社示範 A",
+      formData: {
+        certificateNameEn: "Muslim Friendly Travel Demo A",
+        certificateAddressEn: "9 Demo Rd., Kaohsiung City, Taiwan",
+        certificatePhone: "+886-7-3300-0001",
+      },
+    },
+    {
+      categoryCode: "CAT_05",
+      siteLabel: "友善旅行社示範 B",
+      formData: {
+        certificateNameEn: "Muslim Friendly Travel Demo B",
+        certificateAddressEn: "10 Demo Rd., Kaohsiung City, Taiwan",
+        certificatePhone: "+886-7-3300-0002",
+      },
+    },
+    {
+      categoryCode: "CAT_06",
+      siteLabel: "友善環境示範 A",
+      formData: {
+        certificateNameEn: "Muslim Friendly Environment Demo A",
+        certificateAddressEn: "11 Demo Rd., Taoyuan City, Taiwan",
+        certificatePhone: "+886-3-3500-0001",
+      },
+    },
+    {
+      categoryCode: "CAT_06",
+      siteLabel: "友善環境示範 B",
+      formData: {
+        certificateNameEn: "Muslim Friendly Environment Demo B",
+        certificateAddressEn: "12 Demo Rd., Taoyuan City, Taiwan",
+        certificatePhone: "+886-3-3500-0002",
+      },
+    },
+    {
+      categoryCode: "CAT_07",
+      siteLabel: "友善體驗活動示範 A",
+      formData: {
+        certificateNameEn: "Muslim Friendly Experience Demo A",
+        certificateAddressEn: "13 Demo Rd., Nantou County, Taiwan",
+        certificatePhone: "+886-49-220-0001",
+      },
+    },
+    {
+      categoryCode: "CAT_07",
+      siteLabel: "友善體驗活動示範 B",
+      formData: {
+        certificateNameEn: "Muslim Friendly Experience Demo B",
+        certificateAddressEn: "14 Demo Rd., Nantou County, Taiwan",
+        certificatePhone: "+886-49-220-0002",
+      },
+    },
+  ];
+
+  approvedSpecs.forEach((spec, index) => {
+    const n = index + 1;
+    const category = categories.find((item) => item.code === spec.categoryCode)!;
+    const formVersion = [...formVersions]
+      .filter((item) => item.categoryId === category.id && item.configurationStatus === ConfigurationStatus.CONFIRMED)
+      .sort((a, b) => b.version - a.version)[0]!;
+    const org = organizations[(n - 1) % organizations.length]!;
+    const applicant = applicants[(n - 1) % applicants.length]!;
+    const assignee = officers[n % officers.length]!;
+    const siteReviewer = officers[(n + 1) % officers.length]!;
+    const applicationId = demoUuid(0x1800 + n);
+    const applicationNo = formatApplicationNo(2026, 900 + n);
+    const formData = {
+      ...spec.formData,
+      managerName: "示範主管",
+      managerTitle: "經理",
+    };
+    const application: DemoApplication = {
+      id: applicationId,
+      applicationNo,
+      organizationId: org.id,
+      createdById: applicant.id,
+      categoryId: category.id,
+      categoryFormVersionId: formVersion.id,
+      status: ApplicationStatus.APPROVED,
+      resumeStatus: null,
+      assignedToId: assignee.id,
+      siteReviewerId: siteReviewer.id,
+      siteChecks: [],
+      version: 4,
+      organizationNameSnapshot: org.organizationName,
+      taxIdSnapshot: org.taxId,
+      contactNameSnapshot: org.contactName,
+      contactPhoneSnapshot: org.contactPhone,
+      contactEmailSnapshot: org.contactEmail,
+      organizationAddressSnapshot: org.address,
+      siteName: spec.siteLabel,
+      siteAddress: org.address,
+      applicationDescription: `已核定待發證示範案件（${category.name}）。`,
+      declarationAccepted: true,
+      formData,
+      sourceSystem: DEMO_SOURCE_SYSTEM,
+      sourceRecordKey: `demo-cert-ready-${String(n).padStart(2, "0")}`,
+      submittedAt: isoDaysBefore(20),
+      decidedAt: isoDaysBefore(1),
+      createdAt: isoDaysBefore(25),
+      updatedAt: isoDaysBefore(1),
+    };
+    applications.push(application);
+
+    const attachmentIds: string[] = [];
+    for (const key of ["registration_copy", "operating_license"]) {
+      const fileId = demoUuid(0x4800 + files.length + 1);
+      const attachmentId = demoUuid(0x5800 + attachments.length + 1);
+      files.push({
+        id: fileId,
+        uploadedById: applicant.id,
+        storageKey: `demo/${application.id}/${key}.png`,
+        originalName: `${key}.png`,
+        mimeType: "image/png",
+        sizeBytes: 70,
+        sha256: "demo-placeholder-hash",
+        contentBase64: TINY_PNG_BASE64,
+        createdAt: isoDaysBefore(18),
+      });
+      attachments.push({
+        id: attachmentId,
+        applicationId: application.id,
+        fileId,
+        requirementKey: key,
+        capturedOnSite: false,
+        createdAt: isoDaysBefore(18),
+        removedAt: null,
+      });
+      attachmentIds.push(attachmentId);
+    }
+
+    const submissionId = demoUuid(0x2800 + n);
+    submissions.push({
+      id: submissionId,
+      applicationId: application.id,
+      revision: 1,
+      submittedById: applicant.id,
+      submittedAt: application.submittedAt!,
+      formVersionId: formVersion.id,
+      payloadSnapshot: {
+        schemaVersion: 1,
+        categoryFormVersionId: formVersion.id,
+        organizationName: application.organizationNameSnapshot,
+        taxId: application.taxIdSnapshot,
+        contactName: application.contactNameSnapshot,
+        contactPhone: application.contactPhoneSnapshot,
+        contactEmail: application.contactEmailSnapshot,
+        organizationAddress: application.organizationAddressSnapshot,
+        siteName: application.siteName,
+        siteAddress: application.siteAddress,
+        applicationDescription: application.applicationDescription,
+        declarationAccepted: true,
+        formData,
+      },
+      attachmentIdsSnapshot: attachmentIds,
+    });
+
+    const flow: Array<{ action: ApplicationAction; actorId: string; from: ApplicationStatus; to: ApplicationStatus; comment?: string }> = [
+      { action: ApplicationAction.SUBMIT, actorId: applicant.id, from: ApplicationStatus.DRAFT, to: ApplicationStatus.SUBMITTED },
+      { action: ApplicationAction.START_REVIEW, actorId: assignee.id, from: ApplicationStatus.SUBMITTED, to: ApplicationStatus.INITIAL_REVIEW },
+      { action: ApplicationAction.PASS_INITIAL, actorId: assignee.id, from: ApplicationStatus.INITIAL_REVIEW, to: ApplicationStatus.SECOND_REVIEW, comment: `已指定複審：${siteReviewer.displayName}` },
+      { action: ApplicationAction.PASS_SECOND, actorId: siteReviewer.id, from: ApplicationStatus.SECOND_REVIEW, to: ApplicationStatus.FINAL_REVIEW },
+      { action: ApplicationAction.APPROVE, actorId: admin.id, from: ApplicationStatus.FINAL_REVIEW, to: ApplicationStatus.APPROVED, comment: "核定通過，待發證（示範）。" },
+    ];
+    flow.forEach((step, stepIndex) => {
+      events.push({
+        id: demoUuid(0x3800 + events.length + 1),
+        applicationId: application.id,
+        submissionId: step.action === ApplicationAction.SUBMIT ? submissionId : null,
+        actorId: step.actorId,
+        action: step.action,
+        fromStatus: step.from,
+        toStatus: step.to,
+        publicComment: step.comment ?? null,
+        internalNote: step.action === ApplicationAction.PASS_INITIAL ? step.comment ?? null : null,
+        requestId: `seed-cert-${application.id}-${step.action}`,
+        requestHash: `seed-cert-${step.action}`,
+        createdAt: isoDaysBefore(15 - stepIndex),
+      });
+    });
+  });
+
   const auditLogs: DemoDataset["auditLogs"] = [
     {
       id: demoUuid(0x801),
@@ -869,7 +1168,7 @@ export function buildDemoDataset(): DemoDataset {
       entityType: "Dataset",
       entityId: null,
       requestId: "seed-demo",
-      safeChanges: { applications: 0, note: "示範帳號仍在，案件審查的測試案件已清空" },
+      safeChanges: { applications: applications.length, note: "七類各兩筆已核定待發證示範案件" },
       createdAt: isoDaysBefore(1),
     },
     {
@@ -988,14 +1287,14 @@ export function buildDemoDataset(): DemoDataset {
     users,
     categories,
     formVersions,
-    applications: [],
-    submissions: [],
-    events: [],
-    files: [],
-    attachments: [],
+    applications,
+    submissions,
+    events,
+    files,
+    attachments,
     courses,
     enrollments,
-    certifications: [],
+    certifications,
     trainingPolicy,
     basicModules,
     basicQuestions,

@@ -89,12 +89,28 @@ export const importBatchStatusLabels = record<ImportBatchStatus>({
 });
 
 export const contractStatusLabels = record<ContractStatus>({
-  [ContractStatus.ISSUED]: { label: "待簽署", tone: "warning" },
-  [ContractStatus.SIGNED]: { label: "已簽署", tone: "success" },
+  [ContractStatus.ISSUED]: { label: "待上傳合約", tone: "warning" },
+  [ContractStatus.SIGNED]: { label: "已簽約", tone: "success" },
   [ContractStatus.RENEWED]: { label: "已續約", tone: "success" },
   [ContractStatus.NOT_RENEWED]: { label: "未續約", tone: "neutral" },
   [ContractStatus.VOID]: { label: "已作廢", tone: "neutral" },
 });
+
+/** 合約指揮台分頁（可續約為依效期計算，不是獨立狀態）。 */
+export const contractAdminTabs = [
+  { id: "pending", label: "待上傳合約", status: "ISSUED" as const },
+  { id: "signed", label: "已簽約", status: "SIGNED" as const },
+  { id: "renewable", label: "可續約", status: null },
+  { id: "not_renewed", label: "未續約", status: "NOT_RENEWED" as const },
+] as const;
+
+/** 業者端合約指揮台（用詞較短）。 */
+export const contractPortalTabs = [
+  { id: "pending", label: "未簽訂", status: "ISSUED" as const },
+  { id: "signed", label: "已簽", status: "SIGNED" as const },
+  { id: "renewable", label: "可續約", status: null },
+  { id: "not_renewed", label: "未續約", status: "NOT_RENEWED" as const },
+] as const;
 
 export const completionLabels = {
   PENDING: { label: "待登錄", tone: "warning" },

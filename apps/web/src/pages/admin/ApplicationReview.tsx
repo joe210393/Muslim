@@ -1,10 +1,12 @@
-import { attachmentIsVisible, fieldIsVisible, reviewTargets, type ApplicationDetail, type FieldReview } from "@mf/contracts";
+import { applicationStatusLabels, attachmentIsVisible, fieldIsVisible, reviewTargets, type ApplicationDetail, type FieldReview } from "@mf/contracts";
 import { AttachmentImages } from "../../components/AttachmentImages";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServices, useSession } from "../../app/session";
-import { Button, Card, ErrorText, Field, SelectInput, TextArea } from "../../components/ui";
+import { Badge, Button, Card, ErrorText, Field, SelectInput, SuccessText, TextArea } from "../../components/ui";
+import { formatTaipei } from "../../lib/format";
 import { ClientError } from "../../services/types";
+import { CaseFacts, CaseLayout, type CaseJump } from "./CaseLayout";
 
 type Mark = { needsSupplement: boolean; publicComment: string; internalNote: string };
 
@@ -33,7 +35,7 @@ function marksFrom(item: ApplicationDetail): Record<string, Mark> {
   return marks;
 }
 
-export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail; onChanged: () => Promise<void> }) {
+export function ApplicationReview({ item, onChanged, onFlash, leadMain, leadJumps = [], extraMain, extraJumps = [] }: { item: ApplicationDetail; onChanged: () => Promise<void>; onFlash?: (message: string) => void; leadMain?: ReactNode; leadJumps?: CaseJump[]; extraMain?: ReactNode; extraJumps?: CaseJump[] }) {
   const services = useServices();
   const session = useSession();
   const client = useQueryClient();
@@ -88,7 +90,9 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
       await services.assign(item.id, userId, item.version, crypto.randomUUID());
       setReassign(false);
       setError(null);
-      setMessage(item.assignedToId ? "已改派，之後仍由這位承辦續審" : "已指派承辦");
+      const done = item.assignedToId ? "已改派，之後仍由這位承辦續審" : "已指派承辦";
+      if (onFlash) onFlash(done);
+      else setMessage(done);
       await onChanged();
     } catch (reason) {
       setError(reason instanceof ClientError ? reason.message : "派案失敗");
@@ -120,7 +124,9 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
         siteReviewerId: action === "PASS_INITIAL" ? siteReviewerId : undefined,
       });
       setError(null);
-      setMessage("已完成審查動作");
+      const done = `${availableActions(item.status, true).find((entry) => entry.code === action)?.label ?? "開始初審"}：已完成`;
+      if (onFlash) onFlash(done);
+      else setMessage(done);
       await client.invalidateQueries({ queryKey: ["events", item.id] });
       await onChanged();
     } catch (reason) {
@@ -128,11 +134,13 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
     }
   }
   const actions = availableActions(item.status, canDecide).filter(() => session.user?.role === "ADMIN" || isAssignee);
-  return (
-    <div className="space-y-4">
-      <Card className="space-y-3">
-        <h2 className="text-xl">承辦</h2>
-        {item.assignedToId ? <p>目前承辦：{item.assignedToName}。初審由這位承辦處理。初審通過時要另外指定現場複審人員，承辦不會被換掉。</p> : <p>這件還沒有承辦。請管理員先指派。</p>}
+  const canStart = item.status === "SUBMITTED" && Boolean(item.assignedToId) && (session.user?.role === "ADMIN" || isAssignee);
+  const panel = (
+    <>
+      <CaseFacts rows={caseFactRows(item)} />
+      <Card className="space-y-3 p-4">
+        <h2 className="text-base font-semibold">承辦</h2>
+        {item.assignedToId ? <p className="text-sm">{item.assignedToName} 負責初審。初審通過時另外指定現場複審人員，承辦不變。</p> : <p className="text-sm">這件還沒有承辦。請管理員先指派。</p>}
         {!item.assignedToId && session.user?.role === "CASE_OFFICER" ? <p className="text-sm text-[var(--muted)]">承辦不能自己接案。請管理員指派後再開始審查。</p> : null}
         {canDecide && !item.assignedToId ? <AssignFields users={users.data ?? []} value={assignee} onChange={setAssignee} onSubmit={() => void assignTo(assignee)} label="指派承辦" /> : null}
         {canDecide && item.assignedToId ? (
@@ -141,10 +149,54 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
             {reassign ? <div className="mt-3"><AssignFields users={users.data ?? []} value={assignee} onChange={setAssignee} onSubmit={() => void assignTo(assignee)} label="確認改派" /></div> : null}
           </div>
         ) : null}
+        {canStart ? <Button className="w-full" onClick={() => void run("START_REVIEW")}>開始初審</Button> : null}
       </Card>
-      {sections.map((section) => (
-        <Card key={section} className="space-y-4">
-          <h2 className="text-xl">{section}</h2>
+      {canMark ? (
+        <Card className="space-y-3 p-4">
+          <h2 className="text-base font-semibold">審查動作</h2>
+          <Button className="w-full" variant="secondary" onClick={() => void saveMarks()}>儲存補件勾選</Button>
+          <Button className="w-full" variant="secondary" onClick={() => setOpenActionNote((current) => !current)}>{openActionNote ? "收合這次動作的意見" : "填寫這次動作的意見"}</Button>
+          {openActionNote ? (
+            <>
+              <Field label="這次動作的內部註記" hint="業者看不到。初審或複審通過時，至少要有公開意見或內部註記。"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
+              {actions.some((action) => action.code === "APPROVE" || action.code === "REJECT") ? <Field label="核定或退件的公開意見"><TextArea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></Field> : null}
+            </>
+          ) : null}
+          {actions.some((action) => action.code === "PASS_INITIAL") ? (
+            <Field label="複審人員" required>
+              <SelectInput value={siteReviewerId} onChange={(event) => setSiteReviewerId(event.target.value)}>
+                <option value="">選擇現場複審人員</option>
+                {(reviewers.data ?? []).map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}
+              </SelectInput>
+            </Field>
+          ) : null}
+          <div className="grid gap-2">
+            {actions.map((action) => (
+              <Button
+                key={action.code}
+                variant={action.code === "REJECT" ? "danger" : action.code === "REQUEST_SUPPLEMENT" ? "secondary" : "primary"}
+                onClick={() => {
+                  if (action.code === "REJECT" && !window.confirm("確定退件？退件後案件會結束。")) return;
+                  void run(action.code);
+                }}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+      {message ? <SuccessText message={message} /> : null}
+      {error ? <ErrorText message={error} /> : null}
+    </>
+  );
+  const main = (
+    <>
+      {leadMain}
+      <p className="text-sm text-[var(--muted)]">下面是業者送件的同一份表。要補的項目在該欄後面勾選，並寫給業者看的公開意見。內部註記只有員工看得到。</p>
+      {sections.map((section, index) => (
+        <Card key={section} id={`review-section-${index}`} className="space-y-4">
+          <h2 className="text-lg font-semibold">{section}</h2>
           {targets.filter((target) => target.section === section).map((target) => {
             const mark = marks[target.key] ?? { needsSupplement: false, publicComment: "", internalNote: "" };
             const files = target.key.startsWith("attachment:") ? item.attachments.filter((attachment) => attachment.requirementKey === target.key.slice("attachment:".length) && !attachment.capturedOnSite) : [];
@@ -177,36 +229,20 @@ export function ApplicationReview({ item, onChanged }: { item: ApplicationDetail
           })}
         </Card>
       ))}
-      {canMark ? (
-        <Card className="space-y-3">
-          <Button variant="secondary" onClick={() => void saveMarks()}>儲存補件勾選</Button>
-          <Button variant="secondary" onClick={() => setOpenActionNote((current) => !current)}>{openActionNote ? "收合這次動作的意見" : "填寫這次動作的意見"}</Button>
-          {openActionNote ? (
-            <>
-              <Field label="這次動作的內部註記" hint="業者看不到。初審或複審通過時，至少要有公開意見或內部註記。"><TextArea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
-              {actions.some((action) => action.code === "APPROVE" || action.code === "REJECT") ? <Field label="核定或退件的公開意見"><TextArea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} /></Field> : null}
-            </>
-          ) : null}
-          <div className="flex flex-wrap items-end gap-2">
-            {actions.map((action) => action.code === "PASS_INITIAL" ? (
-              <div key={action.code} className="flex flex-wrap items-end gap-2">
-                <Field label="複審人員" required>
-                  <SelectInput value={siteReviewerId} onChange={(event) => setSiteReviewerId(event.target.value)}>
-                    <option value="">選擇現場複審人員</option>
-                    {(reviewers.data ?? []).map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}
-                  </SelectInput>
-                </Field>
-                <Button onClick={() => void run(action.code)}>{action.label}</Button>
-              </div>
-            ) : <Button key={action.code} onClick={() => void run(action.code)}>{action.label}</Button>)}
-          </div>
-        </Card>
-      ) : null}
-      {item.status === "SUBMITTED" && item.assignedToId && (session.user?.role === "ADMIN" || isAssignee) ? <Button onClick={() => void run("START_REVIEW")}>開始初審</Button> : null}
-      {message ? <p className="text-sm">{message}</p> : null}
-      {error ? <ErrorText message={error} /> : null}
-    </div>
+      {extraMain}
+    </>
   );
+  return <CaseLayout main={main} panel={panel} jumps={[...leadJumps, ...sections.map((section, index) => ({ id: `review-section-${index}`, label: section })), ...extraJumps]} />;
+}
+
+export function caseFactRows(item: ApplicationDetail): Array<[string, ReactNode]> {
+  return [
+    ["狀態", <Badge key="status" tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>],
+    ["承辦", item.assignedToName ?? "未派案"],
+    ...(item.siteReviewerName ? [["複審人員", item.siteReviewerName] as [string, ReactNode]] : []),
+    ["送件時間", item.submittedAt ? formatTaipei(item.submittedAt) : "—"],
+    ...(item.certificateNo ? [["證書編號", item.certificateNo] as [string, ReactNode]] : []),
+  ];
 }
 
 function AssignFields({ users, value, onChange, onSubmit, label }: { users: Array<{ id: string; displayName: string; role: string; isActive: boolean }>; value: string; onChange: (value: string) => void; onSubmit: () => void; label: string }) {

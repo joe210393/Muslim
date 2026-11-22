@@ -1,11 +1,13 @@
-import { applicationStatusLabels, attachmentIsRequired, attachmentIsVisible, fieldIsRequired, fieldIsVisible, reviewTargets, splitCertificateFields, validateSubmit, VERIFICATION_EXCLUSIVE, VERIFICATION_PICK_KEYS, type ApplicationDetail, type CategoryField } from "@mf/contracts";
+import { applicationStatusLabels, attachmentIsRequired, attachmentIsVisible, fieldIsRequired, fieldIsVisible, layoutCertificateRowsHtml, reviewTargets, splitCertificateFields, validateSubmit, VERIFICATION_EXCLUSIVE, VERIFICATION_PICK_KEYS, type ApplicationDetail, type CategoryField } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useServices } from "../../app/session";
 import { AttachmentImages } from "../../components/AttachmentImages";
+import { ImageAdjustDialog } from "../../components/ImageAdjustDialog";
 import { TrainingPage } from "./TrainingPage";
-import { Badge, Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Empty, ErrorText, Field, Modal, scrollToPageTop, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { describeSubmitIssue, issueAnchorId, stepForIssuePath, validateApplicationStep } from "../../lib/application-steps";
 import { formatBytes, formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
 
@@ -212,8 +214,21 @@ export function ApplicationEditPage() {
   const [confirm, setConfirm] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [previewed, setPreviewed] = useState(false);
+  const [pendingStep, setPendingStep] = useState<{ next: number; issues: { path: string; message: string }[] } | null>(null);
+  const [adjust, setAdjust] = useState<{ key: string; files: File[] } | null>(null);
+  const [focusPath, setFocusPath] = useState<string | null>(null);
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
   useEffect(() => { if (query.data) setDraft(query.data); }, [query.data]);
+  useEffect(() => {
+    if (!focusPath) return;
+    const node = document.getElementById(issueAnchorId(focusPath));
+    if (node) {
+      node.scrollIntoView({ block: "center" });
+      const control = node.matches("input, textarea, select, button") ? node : node.querySelector("input, textarea, select, button");
+      if (control instanceof HTMLElement) control.focus({ preventScroll: true });
+    }
+    setFocusPath(null);
+  }, [focusPath, step]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
     window.addEventListener("beforeunload", handler);
@@ -255,7 +270,16 @@ export function ApplicationEditPage() {
     }
     return true;
   }
-  async function openStep(next: number) {
+  async function openStep(next: number, force = false) {
+    if (!draft) return;
+    if (next > step && !force) {
+      const issues = validateApplicationStep(step, draft);
+      if (issues.length > 0) {
+        setPendingStep({ next, issues });
+        return;
+      }
+    }
+    setPendingStep(null);
     if (next === confirmStep && !previewed) {
       setError("請先打開線上預覽，確認內容後再送件。");
       return;
@@ -267,6 +291,13 @@ export function ApplicationEditPage() {
     setError(null);
     if (next === previewStep) setPreviewed(true);
     setStep(next);
+    scrollToPageTop();
+  }
+  function goToIssue(path: string) {
+    setPendingStep(null);
+    setError(null);
+    setStep(stepForIssuePath(path));
+    setFocusPath(path);
   }
   const categoryName = categories.data?.find((category) => category.id === draft.categoryId)?.name ?? draft.categoryName;
   const submitIssues = validateSubmit({
@@ -288,19 +319,19 @@ export function ApplicationEditPage() {
       <p className="text-sm text-[var(--muted)]">案件 {draft.applicationNo} · 版本 {draft.version} · {draft.configurationStatus === "DEMO" ? "此類別為示範設定" : "類別已確認"}</p>
       {supplements.length ? <Card className="space-y-1 text-sm"><p className="font-medium">審查請補這些項目</p>{supplements.map((item) => <p key={item.key}>{reviewTargets(draft.definition).find((target) => target.key === item.key)?.label ?? item.key}：{item.publicComment}</p>)}</Card> : null}
       {step === 0 ? (
-        <Field label="類別" hint="只有未送件草稿可以改類別，不相容的額外欄位會被清掉。">
+        <Field id={issueAnchorId("categoryId")} label="類別" hint="只有未送件草稿可以改類別，不相容的額外欄位會被清掉。">
           <CategorySelect value={draft.categoryId} disabled={draft.status !== "DRAFT"} onChange={(categoryId) => { setDraft({ ...draft, categoryId }); setDirty(true); }} />
           {supplementFor("category") ? <p className="text-sm">審查請補件：{supplementFor("category")?.publicComment}</p> : null}
         </Field>
       ) : null}
       {step === 1 ? (
         <div className="grid gap-3 md:grid-cols-2">
-          <Field required label="業者名稱">{supplementFor("organizationName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("organizationName")?.publicComment}</p> : null}<TextInput value={draft.organizationName ?? ""} onChange={(event) => { setDraft({ ...draft, organizationName: event.target.value }); setDirty(true); }} /></Field>
-          <Field label="統一編號" hint="沒有統編可以留空。有填的話暫定 8 位數字。">{supplementFor("taxId") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("taxId")?.publicComment}</p> : null}<TextInput value={draft.taxId ?? ""} onChange={(event) => { setDraft({ ...draft, taxId: event.target.value }); setDirty(true); }} /></Field>
-          <Field required label="聯絡人">{supplementFor("contactName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactName")?.publicComment}</p> : null}<TextInput value={draft.contactName ?? ""} onChange={(event) => { setDraft({ ...draft, contactName: event.target.value }); setDirty(true); }} /></Field>
-          <Field required label="電話">{supplementFor("contactPhone") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactPhone")?.publicComment}</p> : null}<TextInput value={draft.contactPhone ?? ""} onChange={(event) => { setDraft({ ...draft, contactPhone: event.target.value }); setDirty(true); }} /></Field>
-          <Field required label="Email">{supplementFor("contactEmail") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactEmail")?.publicComment}</p> : null}<TextInput value={draft.contactEmail ?? ""} onChange={(event) => { setDraft({ ...draft, contactEmail: event.target.value }); setDirty(true); }} /></Field>
-          <Field required label="地址">{supplementFor("organizationAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("organizationAddress")?.publicComment}</p> : null}<TextInput value={draft.organizationAddress ?? ""} onChange={(event) => { setDraft({ ...draft, organizationAddress: event.target.value }); setDirty(true); }} /></Field>
+          <Field id={issueAnchorId("organizationName")} required label="業者名稱">{supplementFor("organizationName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("organizationName")?.publicComment}</p> : null}<TextInput value={draft.organizationName ?? ""} onChange={(event) => { setDraft({ ...draft, organizationName: event.target.value }); setDirty(true); }} /></Field>
+          <Field id={issueAnchorId("taxId")} label="統一編號" hint="沒有統編可以留空。有填的話暫定 8 位數字。">{supplementFor("taxId") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("taxId")?.publicComment}</p> : null}<TextInput value={draft.taxId ?? ""} onChange={(event) => { setDraft({ ...draft, taxId: event.target.value }); setDirty(true); }} /></Field>
+          <Field id={issueAnchorId("contactName")} required label="聯絡人">{supplementFor("contactName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactName")?.publicComment}</p> : null}<TextInput value={draft.contactName ?? ""} onChange={(event) => { setDraft({ ...draft, contactName: event.target.value }); setDirty(true); }} /></Field>
+          <Field id={issueAnchorId("contactPhone")} required label="電話">{supplementFor("contactPhone") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactPhone")?.publicComment}</p> : null}<TextInput value={draft.contactPhone ?? ""} onChange={(event) => { setDraft({ ...draft, contactPhone: event.target.value }); setDirty(true); }} /></Field>
+          <Field id={issueAnchorId("contactEmail")} required label="Email">{supplementFor("contactEmail") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("contactEmail")?.publicComment}</p> : null}<TextInput value={draft.contactEmail ?? ""} onChange={(event) => { setDraft({ ...draft, contactEmail: event.target.value }); setDirty(true); }} /></Field>
+          <Field id={issueAnchorId("organizationAddress")} required label="地址">{supplementFor("organizationAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("organizationAddress")?.publicComment}</p> : null}<TextInput value={draft.organizationAddress ?? ""} onChange={(event) => { setDraft({ ...draft, organizationAddress: event.target.value }); setDirty(true); }} /></Field>
         </div>
       ) : null}
       {step === 2 ? (
@@ -314,10 +345,10 @@ export function ApplicationEditPage() {
             const needed = attachmentIsRequired(requirement, draft.formData);
             const image = requirement.accept === "image";
             return (
-              <Card key={requirement.key}>
+              <Card key={requirement.key} id={issueAnchorId(`attachments.${requirement.key}`)}>
                 <p className="font-medium">{needed ? <span className="text-[var(--danger)]">* </span> : null}{requirement.label}</p>
                 {supplementFor(`attachment:${requirement.key}`) ? <p className="text-sm">審查請補件：{supplementFor(`attachment:${requirement.key}`)?.publicComment}</p> : null}
-                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。" : "PDF、JPEG、PNG。"}單檔 10 MiB。可一次選擇多個檔案。{requirement.helpText}</p>
+                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。選好後可旋轉、裁切，或直接使用原檔。" : "PDF、JPEG、PNG。照片可先旋轉、裁切。"}單檔 10 MiB。可一次選擇多個檔案。{requirement.helpText}</p>
                 {files.length === 0 ? <p className="text-sm text-[var(--muted)]">尚未上傳</p> : files.map((file) => (
                   <div key={file.id} className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                     {file.mimeType === "application/pdf" ? <OpenPdfButton fileId={file.fileId} name={file.originalName} /> : <span>{file.originalName}</span>}
@@ -335,8 +366,15 @@ export function ApplicationEditPage() {
                     try {
                       const saved = await save();
                       if (!saved) return;
-                      for (const file of selected) await services.upload(draft.id, requirement.key, file);
-                      setMessage(image ? "照片已上傳，可以在下方查看。" : "附件已上傳");
+                      const photos = selected.filter((file) => file.type.startsWith("image/"));
+                      const docs = selected.filter((file) => !file.type.startsWith("image/"));
+                      for (const file of docs) await services.upload(draft.id, requirement.key, file);
+                      if (photos.length > 0) {
+                        setAdjust({ key: requirement.key, files: photos });
+                        if (docs.length > 0) setMessage("文件已上傳。照片請先調整再使用。");
+                        return;
+                      }
+                      setMessage("附件已上傳");
                       await client.invalidateQueries({ queryKey: ["application", applicationId] });
                     } catch (reason) {
                       setError(reason instanceof ClientError ? reason.message : "上傳失敗");
@@ -358,11 +396,18 @@ export function ApplicationEditPage() {
         <Card className="space-y-2 text-sm">
           <p>線上預覽已看過。送出後會留下這一版內容。</p>
           {supplementFor("declarationAccepted") ? <p>審查請補件：{supplementFor("declarationAccepted")?.publicComment}</p> : null}
-          <label className="flex items-center gap-2"><input type="checkbox" checked={draft.declarationAccepted} onChange={(event) => { setDraft({ ...draft, declarationAccepted: event.target.checked }); setDirty(true); }} /><span><span className="text-[var(--danger)]">* </span>我確認以上資料可作為本次送件內容</span></label>
+          <label id={issueAnchorId("declarationAccepted")} className="flex scroll-mt-24 items-center gap-2"><input type="checkbox" checked={draft.declarationAccepted} onChange={(event) => { setDraft({ ...draft, declarationAccepted: event.target.checked }); setDirty(true); }} /><span><span className="text-[var(--danger)]">* </span>我確認以上資料可作為本次送件內容</span></label>
           {submitIssues.length ? (
             <div className="space-y-1 text-[var(--danger)]">
-              <p>還有必填項目沒完成，不能送件。</p>
-              {submitIssues.map((issue) => <p key={issue.path}>{issue.message}</p>)}
+              <p>還有必填項目沒完成，不能送件。點項目會回到要填的位置。</p>
+              {submitIssues.map((issue, index) => {
+                const described = describeSubmitIssue(issue.path, issue.message, draft.definition);
+                return (
+                  <p key={`${issue.path}-${index}`}>
+                    <button type="button" className="text-left underline" onClick={() => goToIssue(issue.path)}>{described.text}</button>
+                  </p>
+                );
+              })}
             </div>
           ) : <p>必填項目都有了，可以送件。</p>}
           <Button disabled={submitIssues.length > 0} onClick={() => { if (submitIssues.length === 0) setConfirm(true); }}>送出申請</Button>
@@ -376,6 +421,32 @@ export function ApplicationEditPage() {
       </div>
       {message ? <p className="text-sm text-emerald-800">{message}</p> : null}
       {error ? <ErrorText message={error} /> : null}
+      {pendingStep ? (
+        <Modal title="還有必填沒完成" onClose={() => setPendingStep(null)}>
+          <p className="text-sm">這一頁還有必填項目。可以先略過，送件前仍要補齊。</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {pendingStep.issues.map((issue) => <li key={issue.path}>{issue.message}</li>)}
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={() => void openStep(pendingStep.next, true)}>略過，先繼續</Button>
+            <Button variant="ghost" onClick={() => setPendingStep(null)}>留在這一步</Button>
+          </div>
+        </Modal>
+      ) : null}
+      {adjust ? (
+        <ImageAdjustDialog
+          files={adjust.files}
+          onClose={() => {
+            setAdjust(null);
+            void client.invalidateQueries({ queryKey: ["application", applicationId] });
+          }}
+          onUse={async (file) => {
+            await services.upload(draft.id, adjust.key, file);
+            setMessage("照片已上傳，可以在下方查看。");
+            await client.invalidateQueries({ queryKey: ["application", applicationId] });
+          }}
+        />
+      ) : null}
       {deleteOpen ? (
         <Modal title="刪除草稿" onClose={() => setDeleteOpen(false)}>
           <p className="text-sm">刪除 {draft.applicationNo} 後不能復原。</p>
@@ -536,7 +607,7 @@ function DefinitionField({ field, draft, setDraft, setDirty, supplementFor }: { 
     setDirty(true);
   };
   return (
-    <Field required={fieldIsRequired(field, draft.formData)} label={field.label} hint={field.helpText}>
+    <Field id={issueAnchorId(`formData.${field.key}`)} required={fieldIsRequired(field, draft.formData)} label={field.label} hint={field.helpText}>
       {supplementFor(field.key) ? <p className="mb-1 text-sm">審查請補件：{supplementFor(field.key)?.publicComment}</p> : null}
       {field.inputType === "textarea" ? <TextArea value={String(draft.formData[field.key] ?? "")} onChange={(event) => write(event.target.value)} /> : null}
       {field.inputType === "select" ? <SelectInput value={String(draft.formData[field.key] ?? "")} onChange={(event) => write(event.target.value)}><option value="">請選擇</option>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectInput> : null}
@@ -553,17 +624,17 @@ function ApplicationContentStep({ draft, setDraft, setDirty, supplementFor }: { 
   const pickFields = certificate.rest.filter((field) => picks.has(field.key));
   return (
     <div className="space-y-3">
-      <Field required label="單位名稱（中文）" hint="印在證書上的名稱。">{supplementFor("siteName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteName")?.publicComment}</p> : null}<TextInput value={draft.siteName ?? ""} onChange={(event) => { setDraft({ ...draft, siteName: event.target.value }); setDirty(true); }} /></Field>
+      <Field id={issueAnchorId("siteName")} required label="單位名稱（中文）" hint="印在證書上的名稱。">{supplementFor("siteName") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteName")?.publicComment}</p> : null}<TextInput value={draft.siteName ?? ""} onChange={(event) => { setDraft({ ...draft, siteName: event.target.value }); setDirty(true); }} /></Field>
       {certificate.nameEn ? <DefinitionField field={certificate.nameEn} draft={draft} setDraft={setDraft} setDirty={setDirty} supplementFor={supplementFor} /> : null}
-      <Field required label="單位地址（中文）" hint="印在證書上的地址。">{supplementFor("siteAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteAddress")?.publicComment}</p> : null}<TextInput value={draft.siteAddress ?? ""} onChange={(event) => { setDraft({ ...draft, siteAddress: event.target.value }); setDirty(true); }} /></Field>
+      <Field id={issueAnchorId("siteAddress")} required label="單位地址（中文）" hint="印在證書上的地址。">{supplementFor("siteAddress") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("siteAddress")?.publicComment}</p> : null}<TextInput value={draft.siteAddress ?? ""} onChange={(event) => { setDraft({ ...draft, siteAddress: event.target.value }); setDirty(true); }} /></Field>
       {certificate.addressEn ? <DefinitionField field={certificate.addressEn} draft={draft} setDraft={setDraft} setDirty={setDirty} supplementFor={supplementFor} /> : null}
-      <Field required label="申請說明" hint="申請表沒有獨立的說明欄。這裡留給審查閱讀，送件仍要填。">{supplementFor("applicationDescription") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("applicationDescription")?.publicComment}</p> : null}<TextArea value={draft.applicationDescription ?? ""} onChange={(event) => { setDraft({ ...draft, applicationDescription: event.target.value }); setDirty(true); }} /></Field>
+      <Field id={issueAnchorId("applicationDescription")} required label="申請說明" hint="申請表沒有獨立的說明欄。這裡留給審查閱讀，送件仍要填。">{supplementFor("applicationDescription") ? <p className="mb-1 text-sm">審查請補件：{supplementFor("applicationDescription")?.publicComment}</p> : null}<TextArea value={draft.applicationDescription ?? ""} onChange={(event) => { setDraft({ ...draft, applicationDescription: event.target.value }); setDirty(true); }} /></Field>
       {pickFields.length ? (
         <Card className="space-y-2">
           <p className="font-medium">驗證項目</p>
           <p className="text-sm text-[var(--muted)]">可複選。早餐、午餐、晚餐、飲品、點心各自勾。旅宿含早餐與不含早餐只能擇一。體驗活動含食用品與不含食用品只能擇一。沒勾的附件不會出現。</p>
           {pickFields.map((field) => (
-            <label key={field.key} className="flex items-center gap-2 text-sm">
+            <label key={field.key} id={issueAnchorId(`formData.${field.key}`)} className="flex scroll-mt-24 items-center gap-2 text-sm">
               <input type="checkbox" checked={draft.formData[field.key] === true} onChange={(event) => { setDraft({ ...draft, formData: setChecked(draft.formData, field.key, event.target.checked) }); setDirty(true); }} />
               {field.label}
             </label>
@@ -708,12 +779,61 @@ export function LearningPage() {
 export function CertificationPage() {
   const services = useServices();
   const rows = useQuery({ queryKey: ["certifications"], queryFn: () => services.certifications() });
+  const [preview, setPreview] = useState<{ title: string; html: string } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">電子證書</h1>
-      <p className="text-sm text-[var(--muted)]">證書由管理員人工登錄，系統不自動產製，也不會自動換證。</p>
-      {(rows.data ?? []).length === 0 ? <Empty title="尚無證書資料" body="核定後才會出現人工登錄的紀錄。" /> : null}
-      {rows.data?.map((item) => <Card key={item.id}><p className="font-medium">{item.certificateNo}</p><p className="text-sm">案件 {item.applicationNo} · {item.issuedOnDate} 至 {item.validUntilDate} · {item.validityLabel}</p></Card>)}
+      <p className="text-sm text-[var(--muted)]">管理員核定並發證後，可在此預覽與下載 PDF。</p>
+      {message ? <p className="text-sm">{message}</p> : null}
+      {(rows.data ?? []).length === 0 ? <Empty title="尚無證書資料" body="案件核定並發證後才會出現。" /> : null}
+      {rows.data?.map((item) => (
+        <Card key={item.id} className="space-y-2">
+          <p className="font-medium">{item.certificateNo}</p>
+          <p className="text-sm text-[var(--muted)]">
+            {item.templateTitle ?? "驗證證書"} · 案件 {item.applicationNo} · {item.issuedOnDate} 至 {item.validUntilDate} · {item.validityLabel}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!item.bodyHtml}
+              onClick={() => setPreview({ title: item.templateTitle ?? item.certificateNo, html: item.bodyHtml ?? "" })}
+            >
+              預覽
+            </Button>
+            <Button
+              type="button"
+              disabled={busyId === item.applicationId || !item.hasDocument}
+              onClick={async () => {
+                setBusyId(item.applicationId);
+                setMessage("");
+                try {
+                  const file = await services.certificationDocument(item.applicationId);
+                  const url = URL.createObjectURL(file.blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = file.name;
+                  link.click();
+                  URL.revokeObjectURL(url);
+                } catch (error) {
+                  setMessage(error instanceof ClientError ? error.message : "無法下載證書");
+                } finally {
+                  setBusyId(null);
+                }
+              }}
+            >
+              下載 PDF
+            </Button>
+          </div>
+        </Card>
+      ))}
+      {preview ? (
+        <Modal title={preview.title} onClose={() => setPreview(null)} wide>
+          <div className="certificate-sheet contract-body-view max-w-3xl border border-[var(--line)] bg-white text-sm" dangerouslySetInnerHTML={{ __html: layoutCertificateRowsHtml(preview.html) }} />
+        </Modal>
+      ) : null}
     </div>
   );
 }

@@ -217,6 +217,8 @@ export async function uploadCourseVideo(actor: SessionActor, storage: StorageAda
 
 export async function enroll(actor: SessionActor, courseId: string) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "請使用業者帳號報名");
+  const { assertServiceUnlocked } = await import("../payments/service");
+  await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能報名教育訓練");
   const enrollment = await prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(`SELECT id FROM courses WHERE id = $1::uuid FOR UPDATE`, courseId);
     const course = await tx.course.findUnique({ where: { id: courseId } });

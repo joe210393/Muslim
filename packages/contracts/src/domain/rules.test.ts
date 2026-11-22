@@ -53,7 +53,8 @@ describe("申請驗證", () => {
   it("未使用肉品時不必上傳肉品證書", () => {
     const definition = officialCategoryDefinition("CAT_01");
     const formData = {
-      scopeKitchen: true,
+      applyType: "halal_kitchen",
+      mealBreakfast: true,
       certificateNameEn: "Star Kitchen",
       certificateAddressEn: "1 Demo Road",
       certificatePhone: "02-12345678",
@@ -75,10 +76,41 @@ describe("申請驗證", () => {
     };
     const issues = validateSubmit({ ...filled, formData }, definition, []);
     expect(issues.some((issue) => issue.path === "attachments.meat_certificate")).toBe(false);
-    expect(issues.some((issue) => issue.path === "attachments.photo_kitchen_set")).toBe(true);
+    expect(issues.some((issue) => issue.path === "attachments.photo_environment")).toBe(true);
     expect(issues.some((issue) => issue.path === "attachments.menu_bilingual")).toBe(true);
-    expect(issues.some((issue) => issue.path === "attachments.photo_shop_zone")).toBe(false);
+    expect(issues.some((issue) => issue.path === "attachments.menu_drink_snack")).toBe(false);
+    expect(issues.some((issue) => issue.path === "attachments.photo_shop_display")).toBe(false);
     expect(issues.some((issue) => issue.path === "attachments.check_menu")).toBe(false);
+  });
+
+  it("只勾飲品時只要飲品／點心附件", () => {
+    const definition = officialCategoryDefinition("CAT_01");
+    const formData = {
+      applyType: "friendly_restaurant",
+      mealDrink: true,
+      certificateNameEn: "Tea House",
+      certificateAddressEn: "2 Demo Road",
+      certificatePhone: "02-87654321",
+      ownerName: "負責人",
+      supervisorName: "主管",
+      supervisorTitle: "經理",
+      supervisorPhone: "0912000001",
+      supervisorEmail: "lead@example.test",
+      liaisonName: "窗口",
+      liaisonTitle: "專員",
+      liaisonPhone: "0912000002",
+      liaisonEmail: "desk@example.test",
+      managerName: "餐廳主管",
+      managerTitle: "主管",
+      chefName: "廚師",
+      chefTitle: "主廚",
+      usesMeat: "no",
+      ingredientDetailDrinkSnack: "紅茶：茶葉、糖",
+    };
+    const issues = validateSubmit({ ...filled, formData }, definition, []);
+    expect(issues.some((issue) => issue.path === "attachments.menu_drink_snack")).toBe(true);
+    expect(issues.some((issue) => issue.path === "attachments.menu_bilingual")).toBe(false);
+    expect(issues.some((issue) => issue.path === "attachments.meat_certificate")).toBe(false);
   });
 });
 

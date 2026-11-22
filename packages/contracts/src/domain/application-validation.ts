@@ -177,7 +177,7 @@ export function validateSubmit(
   }
   if (definition.fields.some((field) => field.key === "mealBreakfast")) {
     const picked = VERIFICATION_PICK_KEYS.some((key) => input.formData[key] === true);
-    if (!picked) issues.push({ path: "formData.mealBreakfast", message: "請至少勾選一項驗證項目" });
+    if (!picked) issues.push({ path: "formData.mealBreakfast", message: "請至少勾選一項申請餐點種類" });
   }
   for (const [left, right] of VERIFICATION_EXCLUSIVE) {
     if (input.formData[left] === true && input.formData[right] === true) {

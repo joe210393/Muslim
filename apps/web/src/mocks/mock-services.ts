@@ -57,8 +57,16 @@ import {
   enrollmentStatusLabels,
   attendanceStatusLabels,
   contractStatusLabels,
+  DEFAULT_CONTRACT_BODY,
+  DEFAULT_CONTRACT_TITLE,
+  ensureContractHtml,
+  buildCertificateFillValues,
+  fillCertificateHtml,
+  findCertificateTemplateDef,
+  matchCertificateTemplates,
   parseCsv,
   rowsToObjects,
+  type CertificateTemplateKey,
   type DemoDataset,
 } from "@mf/contracts";
 import { ClientError, type Services } from "../services/types";
@@ -69,36 +77,51 @@ import {
   contractDocument,
   contractOf,
   createInitialPlatform,
+  assertMockServiceUnlocked,
+  confirmReconciliation,
   createPlan,
+  markPaidPending,
   paymentDesk,
   recordPayment,
   myPayments,
+  removePlanImage,
+  selectPlan,
   updatePlan,
+  uploadPlanImage,
   adminEntries,
   createEntry,
   deleteEntry,
   ensureAccountFeatures,
+  ensureCertificateTemplates,
   ensureEditorial,
   fixHalalSpelling,
   grantAccountFeatures,
   hasFeature,
   createTemplate,
   createTemplateVersion,
+  getContractSeals,
   issueContract,
+  listCertificateTemplates,
+  listIssuableOrganizations,
   listTemplates,
   myContracts,
   publicSite,
   rememberFile,
+  renderCertificateBrowserPdf,
+  uploadCertificateLogo,
+  uploadCertificateSignature,
+  uploadContractSeal,
+  updateSealPositions,
   updateEntry,
   recordRenewal,
+  saveCertificateTemplate,
   saveSite,
   saveTemplate,
-  signContract,
+  uploadSignedContractPdf,
   updateFeature,
   updateIntegration,
   uploadEntryImage,
   uploadSiteImage,
-  contractCapture,
   type PlatformState,
 } from "./platform";
 import { assertCanApply, ensureTrainingData, trainingDesk } from "./training-desk";
@@ -150,9 +173,33 @@ function ensureOfficialCategories(state: State) {
         newestHasApplicantChecklist = false;
       }
     }
-    const sharedPicks = new Set(["CAT_01", "CAT_03", "CAT_04", "CAT_06", "CAT_07"]);
-    const hasPicks = parsed.some((definition) => definition.fields.some((field) => field.key === "mealBreakfast"));
-    if (hasForm && !newestHasApplicantChecklist && (!sharedPicks.has(blueprint.code) || hasPicks)) continue;
+    let newestDefinition = null as ReturnType<typeof parseCategoryDefinition> | null;
+    if (newest) {
+      try { newestDefinition = parseCategoryDefinition(newest.definition); } catch { newestDefinition = null; }
+    }
+    const hasFixedForm = (() => {
+      if (!newestDefinition) return false;
+      if (newestDefinition.fields.some((field) => ["scopeKitchen", "mealBreakfast", "lodgingBreakfast", "scopeShop", "scopeEnvironment", "activityWithFood"].includes(field.key))) {
+        return false;
+      }
+      if (blueprint.code === "CAT_01") {
+        return newestDefinition.fields.some((field) => field.key === "applyType")
+          && newestDefinition.fields.some((field) => field.key === "mealBreakfast")
+          && newestDefinition.attachmentRequirements.some((item) => item.key === "menu_drink_snack")
+          && !newestDefinition.fields.some((field) => field.key === "mealMain");
+      }
+      if (blueprint.code === "CAT_03") {
+        return newestDefinition.fields.some((field) => field.key === "applyType"
+          && field.options?.some((option) => option.value === "with_breakfast"));
+      }
+      if (blueprint.code === "CAT_02") return newestDefinition.attachmentRequirements.some((item) => item.key === "halal_team_list");
+      if (blueprint.code === "CAT_04") return newestDefinition.attachmentRequirements.some((item) => item.key === "photo_shop_display");
+      if (blueprint.code === "CAT_05") return newestDefinition.attachmentRequirements.some((item) => item.key === "itinerary_files");
+      if (blueprint.code === "CAT_06") return newestDefinition.attachmentRequirements.some((item) => item.key === "photo_prayer_restroom");
+      if (blueprint.code === "CAT_07") return newestDefinition.attachmentRequirements.some((item) => item.key === "photo_activity_set");
+      return true;
+    })();
+    if (hasForm && !newestHasApplicantChecklist && hasFixedForm) continue;
     const nextVersion = versions.reduce((max, item) => Math.max(max, item.version), 0) + 1;
     state.data.formVersions.push({
       id: crypto.randomUUID(),
@@ -246,6 +293,7 @@ function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]
     assignedToName: assignee?.displayName ?? null,
     siteReviewerId: staff ? app.siteReviewerId ?? null : null,
     siteReviewerName: staff ? siteReviewer?.displayName ?? null : null,
+    certificateNo: state.data.certifications.find((item) => item.applicationId === app.id)?.certificateNo ?? null,
     version: app.version,
     submittedAt: app.submittedAt,
     updatedAt: app.updatedAt,
@@ -457,6 +505,29 @@ function reportRows(state: State, actor: DemoDataset["users"][number], source: "
   }));
 }
 
+function presentCertification(state: State, item: DemoDataset["certifications"][number]) {
+  const app = state.data.applications.find((entry) => entry.id === item.applicationId)!;
+  const org = state.data.organizations.find((entry) => entry.id === app.organizationId)!;
+  const validity = certificationValidity(item);
+  const def = item.templateKey ? findCertificateTemplateDef(item.templateKey) : null;
+  return {
+    id: item.id,
+    applicationId: item.applicationId,
+    applicationNo: app.applicationNo,
+    organizationName: org.organizationName,
+    certificateNo: item.certificateNo,
+    issuedOnDate: item.issuedOnDate,
+    validUntilDate: item.validUntilDate,
+    templateKey: item.templateKey ?? null,
+    templateTitle: def?.titleZh ?? null,
+    bodyHtml: item.bodyHtml ?? null,
+    isCurrent: validity.isCurrent,
+    validityLabel: validity.label,
+    registeredAt: item.registeredAt,
+    hasDocument: Boolean(item.bodyHtml),
+  };
+}
+
 export async function createMockServices(): Promise<Services> {
   const digest = await sha256Hex(DEMO_PASSWORD);
   const blank = (): State => {
@@ -482,7 +553,107 @@ export async function createMockServices(): Promise<Services> {
   });
   state.platform.plans ??= [];
   state.platform.payments ??= [];
+  for (const plan of state.platform.plans) {
+    plan.images ??= [];
+    plan.visibleUserIds ??= [];
+  }
+  // 清掉舊版「示範直接開通」紀錄，避免一進業者端就已開通、也無法走選方案→付款→核帳。
+  state.platform.payments = state.platform.payments.filter((item) => item.note !== "示範帳號已入帳開通" && item.paymentMethod !== "DEMO");
+  for (const payment of state.platform.payments) {
+    payment.status ??= "PENDING";
+  }
+  // 合約範本改為旅宿資料夾正式空白版（黃底欄位＋甲乙雙方對列立約頁）。
+  for (const template of state.platform.templates ?? []) {
+    if (
+      template.title.includes("示範")
+      || template.body.includes("HALAL 驗證服務合約")
+      || !template.body.includes("<table")
+      || (!template.body.includes("data-contract-parties") && !template.body.includes("<<<PARTIES>>>") && !template.body.includes("data-contract-field"))
+      || !template.body.includes("checkHalalKitchen")
+      || !template.body.includes("contract-parties-grid")
+    ) {
+      template.title = DEFAULT_CONTRACT_TITLE;
+      template.body = DEFAULT_CONTRACT_BODY;
+      template.version += 1;
+      template.updatedAt = new Date().toISOString();
+    } else {
+      template.body = ensureContractHtml(template.body);
+    }
+  }
+  if (
+    state.platform.template
+    && (
+      state.platform.template.title.includes("示範")
+      || !state.platform.template.body.includes("<table")
+      || !state.platform.template.body.includes("checkHalalKitchen")
+      || !state.platform.template.body.includes("contract-parties-grid")
+    )
+  ) {
+    state.platform.template.title = DEFAULT_CONTRACT_TITLE;
+    state.platform.template.body = DEFAULT_CONTRACT_BODY;
+    state.platform.template.version += 1;
+    state.platform.template.updatedAt = new Date().toISOString();
+  } else if (state.platform.template) {
+    state.platform.template.body = ensureContractHtml(state.platform.template.body);
+  }
+  state.platform.seals ??= {
+    companySealFileId: null,
+    personSealFileId: null,
+    companySealX: 8,
+    companySealY: 4,
+    personSealX: 42,
+    personSealY: 14,
+    updatedAt: new Date().toISOString(),
+  };
+  // 補上七類各兩筆「已核定待發證」示範案件（不整包重設）。
+  if (!state.data.applications.some((item) => item.sourceRecordKey?.startsWith("demo-cert-ready-"))) {
+    const fresh = buildDemoDataset();
+    const keepIds = new Set(fresh.applications.map((item) => item.id));
+    const versionKey = (item: { categoryId: string; version: number }) => `${item.categoryId}:${item.version}`;
+    const existingVersions = new Set(state.data.formVersions.map(versionKey));
+    state.data.formVersions = [
+      ...state.data.formVersions,
+      ...fresh.formVersions.filter((item) => !existingVersions.has(versionKey(item))),
+    ];
+    state.data.applications = [
+      ...state.data.applications.filter((item) => !item.sourceRecordKey?.startsWith("demo-cert-ready-")),
+      ...fresh.applications,
+    ];
+    state.data.submissions = [
+      ...state.data.submissions.filter((item) => !keepIds.has(item.applicationId)),
+      ...fresh.submissions,
+    ];
+    state.data.events = [
+      ...state.data.events.filter((item) => !keepIds.has(item.applicationId)),
+      ...fresh.events,
+    ];
+    state.data.attachments = [
+      ...state.data.attachments.filter((item) => !keepIds.has(item.applicationId)),
+      ...fresh.attachments,
+    ];
+    const freshFileIds = new Set(fresh.files.map((item) => item.id));
+    state.data.files = [
+      ...state.data.files.filter((item) => !freshFileIds.has(item.id)),
+      ...fresh.files,
+    ];
+  }
+  state.platform.seals.companySealX ??= 8;
+  state.platform.seals.companySealY ??= 4;
+  state.platform.seals.personSealX ??= 42;
+  state.platform.seals.personSealY ??= 14;
+  for (const contract of state.platform.contracts) {
+    contract.body = ensureContractHtml(contract.body);
+  }
+  const hasOfficialCatalog = state.platform.plans.some((item) => item.name === "穆斯林友善環境" && item.amount === 15000)
+    && state.platform.plans.some((item) => item.name === "Halal廚房");
+  if (!hasOfficialCatalog) {
+    const fresh = createInitialPlatform(state.data);
+    const keptIds = new Set(state.platform.payments.map((item) => item.planId));
+    const keepCustom = state.platform.plans.filter((item) => keptIds.has(item.id) && !fresh.plans.some((official) => official.name === item.name));
+    state.platform.plans = [...fresh.plans, ...keepCustom];
+  }
   ensureOfficialCategories(state);
+  ensureCertificateTemplates(state.platform);
   ensureSiteReview(state);
   ensureTrainingData(state.data);
   ensureAccountFeatures(state.platform, state.data.users);
@@ -493,6 +664,7 @@ export async function createMockServices(): Promise<Services> {
     course.imageFileId ??= null;
   }
   const save = () => idbSet(state);
+  await save();
 
   const services: Services = {
     mode: "mock",
@@ -593,6 +765,10 @@ export async function createMockServices(): Promise<Services> {
       let rows = state.data.applications.filter((app) => canViewApplication(actor, app));
       if (query.status) rows = rows.filter((app) => app.status === query.status);
       if (query.categoryId) rows = rows.filter((app) => app.categoryId === query.categoryId);
+      if (query.certification) {
+        const certified = new Set(state.data.certifications.map((item) => item.applicationId));
+        rows = rows.filter((app) => certified.has(app.id) === (query.certification === "issued"));
+      }
       if (query.q) {
         const q = query.q.toLowerCase();
         rows = rows.filter((app) => {
@@ -610,7 +786,7 @@ export async function createMockServices(): Promise<Services> {
     async createApplication(categoryId) {
       const actor = requireActor(state);
       if (actor.role !== UserRole.APPLICANT || !actor.organizationId) throw new ClientError("只有業者可以建立申請", { status: 403 });
-      assertCanApply(state.data, actor);
+      assertCanApply(state.data, actor, state.platform);
       const org = state.data.organizations.find((item) => item.id === actor.organizationId)!;
       const versions = state.data.formVersions.filter((item) => item.categoryId === categoryId).sort((a, b) => b.version - a.version);
       const latest = versions[0];
@@ -722,6 +898,7 @@ export async function createMockServices(): Promise<Services> {
       app.version += 1;
       app.updatedAt = new Date().toISOString();
       state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: ApplicationAction.ASSIGN, fromStatus: app.status, toStatus: app.status, publicComment: `已指派承辦：${assignee.displayName}`, internalNote: null, requestId, requestHash: requestId, createdAt: app.updatedAt });
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "ASSIGN", entityType: "Application", entityId: id, requestId, safeChanges: { assignedToId }, createdAt: app.updatedAt });
       await save();
       return toDetail(state, id, actor);
     },
@@ -753,6 +930,7 @@ export async function createMockServices(): Promise<Services> {
       const now = new Date().toISOString();
       const visibleComment = [publicComment?.trim(), assignmentNote].filter(Boolean).join("\n");
       state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: input.action as ApplicationAction, fromStatus: app.status, toStatus: decision.toStatus, publicComment: visibleComment || null, internalNote: input.internalNote ?? null, requestId: input.requestId, requestHash: input.requestId, createdAt: now });
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: input.action, entityType: "Application", entityId: id, requestId: input.requestId, safeChanges: { fromStatus: app.status, toStatus: decision.toStatus, siteReviewerId: app.siteReviewerId ?? null }, createdAt: now });
       app.fieldReviews = reviews;
       app.status = decision.toStatus;
       app.resumeStatus = decision.nextResumeStatus;
@@ -947,6 +1125,7 @@ export async function createMockServices(): Promise<Services> {
     },
     async enroll(courseId) {
       const actor = requireActor(state);
+      assertMockServiceUnlocked(state.platform, actor);
       const course = state.data.courses.find((item) => item.id === courseId);
       if (!course) throw new ClientError("找不到課程", { status: 404 });
       const existing = state.data.enrollments.find((item) => item.courseId === courseId && item.userId === actor.id);
@@ -1012,16 +1191,29 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return learningOf(state, enrollment);
     },
+    async certificateTemplates() {
+      return listCertificateTemplates(state.platform, requireActor(state));
+    },
+    async saveCertificateTemplate(key, input) {
+      const saved = saveCertificateTemplate(state.platform, requireActor(state), key as CertificateTemplateKey, input);
+      await save();
+      return saved;
+    },
+    async uploadCertificateLogo(key, file) {
+      const saved = await uploadCertificateLogo(state.platform, requireActor(state), state.data, key as CertificateTemplateKey, file);
+      await save();
+      return saved;
+    },
+    async uploadCertificateSignature(key, file) {
+      const saved = await uploadCertificateSignature(state.platform, requireActor(state), state.data, key as CertificateTemplateKey, file);
+      await save();
+      return saved;
+    },
     async certifications() {
       const actor = requireActor(state);
       return state.data.certifications
-        .filter((item) => state.data.applications.find((app) => app.id === item.applicationId)?.organizationId === actor.organizationId || actor.role === UserRole.ADMIN)
-        .map((item) => {
-          const app = state.data.applications.find((entry) => entry.id === item.applicationId)!;
-          const org = state.data.organizations.find((entry) => entry.id === app.organizationId)!;
-          const validity = certificationValidity(item);
-          return { id: item.id, applicationId: item.applicationId, applicationNo: app.applicationNo, organizationName: org.organizationName, certificateNo: item.certificateNo, issuedOnDate: item.issuedOnDate, validUntilDate: item.validUntilDate, isCurrent: validity.isCurrent, validityLabel: validity.label, registeredAt: item.registeredAt };
-        });
+        .filter((item) => state.data.applications.find((app) => app.id === item.applicationId)?.organizationId === actor.organizationId || actor.role === UserRole.ADMIN || actor.role === UserRole.CASE_OFFICER)
+        .map((item) => presentCertification(state, item));
     },
     async saveCertification(applicationId, input) {
       const actor = requireActor(state);
@@ -1030,13 +1222,101 @@ export async function createMockServices(): Promise<Services> {
       if (issues.length) throw new ClientError("證書日期不正確", { fieldErrors: issues });
       const app = state.data.applications.find((item) => item.id === applicationId);
       if (!app || app.status !== ApplicationStatus.APPROVED) throw new ClientError("只有已核定案件可以登錄證書", { code: "INVALID_TRANSITION" });
+      const category = state.data.categories.find((item) => item.id === app.categoryId);
+      const matched = matchCertificateTemplates({
+        categoryCode: category?.code ?? "",
+        applyType: typeof app.formData.applyType === "string" ? app.formData.applyType : null,
+        mealBreakfast: Boolean(app.formData.mealBreakfast),
+        mealLunch: Boolean(app.formData.mealLunch),
+        mealDinner: Boolean(app.formData.mealDinner),
+        mealDrink: Boolean(app.formData.mealDrink),
+        mealSnack: Boolean(app.formData.mealSnack),
+      });
+      const templateKey = (input.templateKey as CertificateTemplateKey | undefined) ?? matched[0]?.key;
+      if (!templateKey) throw new ClientError("找不到對應的證書範本");
+      if (matched.length && !matched.some((item) => item.key === templateKey)) {
+        throw new ClientError("此案件不能使用所選證書範本");
+      }
+      const templates = ensureCertificateTemplates(state.platform);
+      const template = templates.find((item) => item.key === templateKey);
+      if (!template) throw new ClientError("找不到證書範本");
+      const def = findCertificateTemplateDef(templateKey);
+      const org = state.data.organizations.find((item) => item.id === app.organizationId);
+      const values = buildCertificateFillValues({
+        organizationName: app.organizationNameSnapshot || org?.organizationName || "",
+        siteName: app.siteName,
+        addressZh: app.siteAddress || app.organizationAddressSnapshot || org?.address,
+        certificateNameEn: typeof app.formData.certificateNameEn === "string" ? app.formData.certificateNameEn : null,
+        certificateAddressEn: typeof app.formData.certificateAddressEn === "string" ? app.formData.certificateAddressEn : null,
+        certificatePhone: typeof app.formData.certificatePhone === "string" ? app.formData.certificatePhone : null,
+        certificateNo: input.certificateNo,
+        issuedOnDate: input.issuedOnDate,
+        validUntilDate: input.validUntilDate,
+        template: def,
+      });
+      const bodyHtml = fillCertificateHtml(template.body, values, template.logoUrl, template.signatureUrl);
       const now = new Date().toISOString();
       const current = state.data.certifications.find((item) => item.applicationId === applicationId);
-      if (current) Object.assign(current, input, { updatedAt: now });
-      else state.data.certifications.push({ id: crypto.randomUUID(), applicationId, ...input, registeredById: actor.id, registeredAt: now, updatedAt: now });
-      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "CERTIFICATION_SAVE", entityType: "Certification", entityId: applicationId, requestId: crypto.randomUUID(), safeChanges: { certificateNo: input.certificateNo }, createdAt: now });
+      if (current) {
+        Object.assign(current, {
+          certificateNo: input.certificateNo,
+          issuedOnDate: input.issuedOnDate,
+          validUntilDate: input.validUntilDate,
+          templateKey,
+          bodyHtml,
+          updatedAt: now,
+        });
+      } else {
+        state.data.certifications.push({
+          id: crypto.randomUUID(),
+          applicationId,
+          certificateNo: input.certificateNo,
+          issuedOnDate: input.issuedOnDate,
+          validUntilDate: input.validUntilDate,
+          templateKey,
+          bodyHtml,
+          registeredById: actor.id,
+          registeredAt: now,
+          updatedAt: now,
+        });
+      }
+      state.data.auditLogs.unshift({
+        id: crypto.randomUUID(),
+        actorId: actor.id,
+        action: "CERTIFICATION_SAVE",
+        entityType: "Certification",
+        entityId: applicationId,
+        requestId: crypto.randomUUID(),
+        safeChanges: { certificateNo: input.certificateNo, templateKey },
+        createdAt: now,
+      });
       await save();
       return (await services.certifications()).find((item) => item.applicationId === applicationId)!;
+    },
+    async certificationDocument(applicationId) {
+      const actor = requireActor(state);
+      const item = state.data.certifications.find((row) => row.applicationId === applicationId);
+      if (!item?.bodyHtml) throw new ClientError("尚未發證或沒有證書內容");
+      const app = state.data.applications.find((row) => row.id === applicationId);
+      if (!app) throw new ClientError("找不到案件");
+      const canSee =
+        actor.role === UserRole.ADMIN
+        || actor.role === UserRole.CASE_OFFICER
+        || app.organizationId === actor.organizationId;
+      if (!canSee) throw new ClientError("沒有權限下載此證書", { status: 403 });
+      const def = item.templateKey ? findCertificateTemplateDef(item.templateKey) : null;
+      const title = def?.titleZh ?? "驗證許可證明書";
+      const template = item.templateKey
+        ? ensureCertificateTemplates(state.platform).find((row) => row.key === item.templateKey)
+        : null;
+      const bytes = await renderCertificateBrowserPdf({
+        title,
+        certificateNo: item.certificateNo,
+        body: item.bodyHtml,
+        logoUrl: template?.logoUrl ?? null,
+        signatureUrl: template?.signatureUrl ?? null,
+      });
+      return { blob: new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }), name: `${item.certificateNo}.pdf` };
     },
     async users(q) {
       if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
@@ -1075,6 +1355,31 @@ export async function createMockServices(): Promise<Services> {
     async paymentDesk() {
       return paymentDesk(state.platform, requireActor(state), state.data);
     },
+    async selectPlan(input) {
+      const saved = selectPlan(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async confirmReconciliation(input) {
+      const saved = confirmReconciliation(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async markPaidPending(paymentId) {
+      const saved = markPaidPending(state.platform, requireActor(state), paymentId);
+      await save();
+      return saved;
+    },
+    async uploadPlanImage(planId, file, caption) {
+      const saved = await uploadPlanImage(state.platform, requireActor(state), state.data, planId, file, caption);
+      await save();
+      return saved;
+    },
+    async removePlanImage(planId, imageId) {
+      const saved = removePlanImage(state.platform, requireActor(state), state.data, planId, imageId);
+      await save();
+      return saved;
+    },
     async createPlan(input) {
       const saved = createPlan(state.platform, requireActor(state), state.data, input);
       await save();
@@ -1091,11 +1396,12 @@ export async function createMockServices(): Promise<Services> {
       return saved;
     },
     async myPayments() {
-      return myPayments(state.platform, requireActor(state));
+      return myPayments(state.platform, requireActor(state), state.data);
     },
-    async startCheckout() {
-      requireActor(state);
-      throw new ClientError("這個瀏覽器展示不能建立綠界檢查碼。網站改接 API 後，會導到綠界測試付款頁。", { status: 400, code: "VALIDATION_ERROR" });
+    async startCheckout(paymentId) {
+      const saved = markPaidPending(state.platform, requireActor(state), paymentId);
+      await save();
+      return { action: "https://payment.local/mock-paid-pending", fields: { paymentId: saved.id, status: saved.status } };
     },
     async importTemplate(type) {
       if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
@@ -1405,21 +1711,26 @@ export async function createMockServices(): Promise<Services> {
     },
     async contract(id) {
       const row = contractOf(state.platform, requireActor(state), id);
-      return { ...row, body: row.body, hasSignature: Boolean(row.signatureFileId), hasFace: Boolean(row.faceFileId) };
+      const body = ensureContractHtml(row.body);
+      if (body !== row.body) row.body = body;
+      return {
+        ...row,
+        body,
+        hasSignature: Boolean(row.signatureFileId),
+        hasFace: Boolean(row.faceFileId),
+        hasPdf: Boolean(row.pdfFileId),
+      };
     },
-    async signContract(id, input) {
-      const saved = await signContract(state.platform, requireActor(state), state.data, id, input);
+    async uploadSignedContract(id, input) {
+      assertMockServiceUnlocked(state.platform, requireActor(state));
+      const actor = requireActor(state);
+      const saved = await uploadSignedContractPdf(state.platform, actor, state.data, id, input);
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "CONTRACT_SIGN", entityType: "ContractRecord", entityId: id, requestId: crypto.randomUUID(), safeChanges: { contractNo: saved.contractNo, status: "SIGNED", method: "upload_pdf" }, createdAt: new Date().toISOString() });
       await save();
       return saved;
     },
     async contractDocument(id) {
       return contractDocument(state.platform, requireActor(state), state.data, id);
-    },
-    async contractSignature(id) {
-      return contractCapture(state.platform, requireActor(state), state.data, id, "signature");
-    },
-    async contractFace(id) {
-      return contractCapture(state.platform, requireActor(state), state.data, id, "face");
     },
     async recordRenewal(id, input) {
       const saved = recordRenewal(state.platform, requireActor(state), id, input);
@@ -1447,8 +1758,26 @@ export async function createMockServices(): Promise<Services> {
     async adminContracts() {
       return adminContracts(state.platform, requireActor(state));
     },
-    async issueContract(organizationId, templateId) {
-      const saved = issueContract(state.platform, requireActor(state), state.data, organizationId, templateId);
+    async issuableOrganizations() {
+      return listIssuableOrganizations(state.platform, requireActor(state), state.data);
+    },
+    async issueContract(input) {
+      const actor = requireActor(state);
+      const saved = issueContract(state.platform, actor, state.data, input);
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "CONTRACT_ISSUE", entityType: "ContractRecord", entityId: saved.id, requestId: crypto.randomUUID(), safeChanges: { contractNo: saved.contractNo }, createdAt: new Date().toISOString() });
+      await save();
+      return saved;
+    },
+    async contractSeals() {
+      return getContractSeals(state.platform, requireActor(state), state.data);
+    },
+    async uploadContractSeal(kind, file) {
+      const saved = await uploadContractSeal(state.platform, requireActor(state), state.data, kind, file);
+      await save();
+      return saved;
+    },
+    async updateSealPositions(input) {
+      const saved = updateSealPositions(state.platform, requireActor(state), state.data, input);
       await save();
       return saved;
     },
@@ -1464,19 +1793,23 @@ export async function createMockServices(): Promise<Services> {
       await save();
     },
     async basicTrainingStatus() {
+      assertMockServiceUnlocked(state.platform, requireActor(state));
       return desk().basicStatus();
     },
     async recordBasicModuleWatch(moduleId, input) {
+      assertMockServiceUnlocked(state.platform, requireActor(state));
       const result = await desk().recordBasicModuleWatch(moduleId, input);
       await save();
       return result;
     },
     async startBasicQuiz() {
+      assertMockServiceUnlocked(state.platform, requireActor(state));
       const result = await desk().startBasicQuiz();
       await save();
       return result;
     },
     async submitBasicQuiz(input) {
+      assertMockServiceUnlocked(state.platform, requireActor(state));
       const result = await desk().submitBasicQuiz(input);
       await save();
       return result;
@@ -1585,7 +1918,7 @@ export async function createMockServices(): Promise<Services> {
     if (existing) return toDetail(state, id, actor);
     const app = state.data.applications.find((item) => item.id === id);
     if (!app || !canViewApplication(actor, app)) throw new ClientError("找不到案件", { status: 404 });
-    if (action === ApplicationAction.SUBMIT) assertCanApply(state.data, actor);
+    if (action === ApplicationAction.SUBMIT) assertCanApply(state.data, actor, state.platform);
     const decision = resolveTransition({ action, status: app.status, resumeStatus: app.resumeStatus, role: actor.role, isAssignee: app.assignedToId === actor.id, isSiteReviewer: app.siteReviewerId === actor.id, hasAssignee: Boolean(app.assignedToId) });
     if (!decision.ok) throw new ClientError(decision.message, { code: "INVALID_TRANSITION" });
     if (app.version !== expectedVersion) throw new ClientError("資料已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
@@ -1601,6 +1934,7 @@ export async function createMockServices(): Promise<Services> {
     const submissionId = crypto.randomUUID();
     state.data.submissions.push({ id: submissionId, applicationId: id, revision: state.data.submissions.filter((item) => item.applicationId === id).length + 1, submittedById: actor.id, submittedAt: now, formVersionId: version.id, payloadSnapshot: snapshotPayload(content(app), version.id), attachmentIdsSnapshot: active.map((item) => item.id) });
     state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId, actorId: actor.id, action, fromStatus: app.status, toStatus: decision.toStatus, publicComment: null, internalNote: null, requestId, requestHash: requestId, createdAt: now });
+    state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action, entityType: "Application", entityId: id, requestId, safeChanges: { fromStatus: app.status, toStatus: decision.toStatus, revision: state.data.submissions.filter((item) => item.applicationId === id).length }, createdAt: now });
     app.status = decision.toStatus;
     app.resumeStatus = decision.nextResumeStatus;
     app.version += 1;

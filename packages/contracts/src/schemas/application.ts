@@ -36,6 +36,8 @@ export const applicationListItemSchema = z.object({
   assignedToName: z.string().nullable(),
   siteReviewerId: z.string().uuid().nullable(),
   siteReviewerName: z.string().nullable(),
+  /** 由 certifications 關聯帶出；尚未發證為 null。 */
+  certificateNo: z.string().nullable(),
   version: z.number().int(),
   submittedAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
@@ -174,6 +176,7 @@ export const applicationListQuerySchema = z.object({
   status: applicationStatusSchema.optional(),
   categoryId: z.string().uuid().optional(),
   assignedToId: z.string().uuid().optional(),
+  certification: z.enum(["pending", "issued"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(10),
 });
@@ -186,15 +189,20 @@ export const certificationSchema = z.object({
   certificateNo: z.string(),
   issuedOnDate: z.string(),
   validUntilDate: z.string(),
+  templateKey: z.string().nullable().optional(),
+  templateTitle: z.string().nullable().optional(),
+  bodyHtml: z.string().nullable().optional(),
   isCurrent: z.boolean(),
   validityLabel: z.string(),
   registeredAt: z.string().datetime(),
+  hasDocument: z.boolean().optional(),
 });
 
 export const certificationWriteSchema = z.object({
   certificateNo: z.string().trim().min(1).max(64),
   issuedOnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   validUntilDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  templateKey: z.string().trim().min(1).max(64).optional(),
 });
 
 export type ApplicationListItem = z.infer<typeof applicationListItemSchema>;

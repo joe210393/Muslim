@@ -30,6 +30,12 @@ export * from "./domain/certification";
 export * from "./domain/csv";
 export * from "./domain/hash";
 export * from "./domain/platform-defaults";
+export * from "./domain/contract-fields";
+export * from "./domain/contract-applications";
+export * from "./domain/seal-layout";
+export * from "./domain/certificate-templates";
+export * from "./domain/rich-text";
+export * from "./domain/official-contract";
 export * from "./domain/report-fields";
 export * from "./domain/image-info";
 export * from "./domain/signed-pdf";
@@ -49,6 +55,7 @@ export * from "./schemas/payments";
 
 export * from "./registry/field-metadata";
 export * from "./fixtures/categories";
+export * from "./fixtures/service-plans";
 export {
   DEMO_PASSWORD,
   DEMO_SOURCE_SYSTEM,

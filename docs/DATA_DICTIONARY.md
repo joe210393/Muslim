@@ -65,7 +65,13 @@
 | TrainingCertificate | 證書編號 | certificateNo | certificate_no | string；線上／線下課或專班人工登錄；與案件 Certification 分離 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | TrainingCertificate | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | TrainingCertificate | 到期日 | validUntilDate | valid_until_date | date；不可早於核發日 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
-| Certification | 證書編號 | certificateNo | certificate_no | string；unique；初版人工登錄 | 否 | 核定後登錄必填 | 必填 | 低 | 管理員可更正並留紀錄 |
+| Certification | 證書編號 | certificateNo | certificate_no | string；unique；核定後發證 | 否 | 核定後登錄必填 | 必填 | 低 | 管理員可更正並留紀錄 |
+| Certification | 範本鍵 | templateKey | template_key | string；對應 CertificateTemplateKey | 是 | 否 | 否 | 低 | 發證時寫入 |
+| Certification | 證書內文 | bodyHtml | body_html | text；填入欄位後的 HTML 快照（含套用後 Logo） | 是 | 否 | 否 | 低 | 發證時寫入；業者預覽／下載用 |
+| CertificateTemplate（平台／mock） | Logo 網址 | logoUrl | — | string；各範本對應類別 Logo，預設 `/cert-logos/*` | 是 | 否 | 否 | 低 | 後台上傳覆寫；正式 DB 尚未落地 |
+| CertificateTemplate（平台／mock） | Logo 檔案 | logoFileId | — | string；上傳檔案 id | 是 | 否 | 否 | 低 | 後台上傳寫入 |
+| CertificateTemplate（平台／mock） | 簽名檔網址 | signatureUrl | — | string；預設 `/cert-logos/auditor-signature.png` 或上傳後 data URL | 是 | 否 | 否 | 低 | 下載證書時套用目前值 |
+| CertificateTemplate（平台／mock） | 簽名檔檔案 | signatureFileId | — | string；上傳檔案 id | 是 | 否 | 否 | 低 | 後台上傳寫入 |
 | Certification | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD，不可晚於到期日 | 否 | 必填 | 必填 | 低 | 管理員可更正 |
 | Certification | 到期日 | validUntilDate | valid_until_date | date；date-only；是否有效依 Asia/Taipei 計算 | 否 | 必填 | 必填 | 低 | 管理員可更正 |
 | Course | 上課方式 | delivery | delivery | CourseDelivery；ONLINE 線上課程；OFFLINE 線下課程 | 否 | 必填 | 必填 | 低 | 線下才填地點；線上須上傳影片 |
@@ -110,6 +116,7 @@
 | ContractTemplate | 範本標題 | title | title | string；1–200 字 | 否 | 必填 | 必填 | 低 | 管理員可改 |
 | ContractTemplate | 範本內文 | body | body | string；可用 {{organizationName}} 等代換欄 | 否 | 必填 | 必填 | 低 | 管理員可改，已簽署合約不回寫 |
 | ContractRecord | 合約編號 | contractNo | contract_no | string；CT-西元年-序號 | 否 | server 產生 | 不可由 client 指定 | 低 | 不可改 |
+| ContractRecord | 對應申請 | applicationId | application_id | uuid；可空 | 是 | 否 | 發出時可選 | 中 | 發出後不改 |
 | ContractRecord | 合約標題 | title | title | string；1–200 字 | 否 | 發出時寫入 | 必填 | 低 | 待簽署可改 |
 | ContractRecord | 合約快照 | body | body_snapshot | string；API 欄位 body | 否 | 發出時寫入 | 必填 | 中 | 待簽署可改；簽署後凍結 |
 | ContractRecord | 合約狀態 | status | status | ContractStatus；ISSUED 待簽署 / SIGNED 已簽署 / RENEWED 已續約 / NOT_RENEWED 未續約 / VOID 已作廢 | 否 | 是 | 僅簽署或續約登記 | 低 | 發出後不能改內文。簽署與續約登記才改狀態 |
@@ -118,6 +125,10 @@
 | ContractRecord | 人像檔 | faceFileId | face_file_id | uuid；JPEG 或 PNG，最短邊 120 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
 | ContractRecord | 手寫簽名檔 | signatureFileId | signature_file_id | uuid；PNG，需有筆畫 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
 | ContractRecord | 合約 PDF | pdfFileId | pdf_file_id | uuid；內含簽名與人像 | 是 | 否 | 簽署後產生 | 高 | 簽署時產生 |
+| ContractSealSetting | 公司大章檔 | companySealFileId | company_seal_file_id | uuid；JPEG 或 PNG | 是 | 否 | 管理員上傳 | 中 | 合約管理／大小章上傳 |
+| ContractSealSetting | 負責人小章檔 | personSealFileId | person_seal_file_id | uuid；JPEG 或 PNG | 是 | 否 | 管理員上傳 | 中 | 合約管理／大小章上傳 |
+| ContractSealSetting | 公司大章 X/Y | companySealX/Y | company_seal_x/y | float；0–100 | 否 | 否 | 管理員拖曳 | 低 | 甲方欄位百分比 |
+| ContractSealSetting | 負責人小章 X/Y | personSealX/Y | person_seal_x/y | float；0–100 | 否 | 否 | 管理員拖曳 | 低 | 甲方欄位百分比 |
 | UserFeature | 功能鍵 | featureKey | feature_key | string；與使用者聯合唯一 | 否 | 必填 | 必填 | 中 | 建立帳號時一併勾選；之後可對該帳號開關 |
 | UserFeature | 是否啟用 | enabled | enabled | boolean；關閉後該帳號呼叫對應 API 會被拒絕 | 否 | 必填 | 必填 | 中 | 不可關閉最後一個帳號管理 |
 | RoleFeature | 功能鍵 | featureKey | feature_key | string；與角色聯合唯一 | 否 | 必填 | 必填 | 中 | 不再用來授權，保留既有資料 |
@@ -141,7 +152,12 @@
 | PaymentRecord | 方案 | planId | plan_id | uuid；必須是既有方案 | 否 | 登錄必填 | 必填 | 低 | 登錄後不改 |
 | PaymentRecord | 方案名稱快照 | planName | plan_name | string；最多 80 字 | 否 | 登錄時寫入 | 必填 | 低 | 登錄後不改 |
 | PaymentRecord | 付款金額 | amount | amount | int；新台幣整數元 | 否 | 登錄時寫入 | 必填 | 低 | 登錄後不改 |
-| PaymentRecord | 付款狀態 | status | status | PaymentStatus；PENDING 待付款 / PAID 已付款。模擬付款不改狀態 | 否 | 是 | 綠界通知或人工登錄 | 低 | 只由綠界通知或人工登錄改成已付款 |
+| PaymentRecord | 付款狀態 | status | status | PaymentStatus；QUOTED/PENDING 待付款 / PAID_PENDING 待核帳 / PAID 已核帳開通 | 否 | 是 | 選方案／付款／核帳 | 低 | 核帳完成後才開通教育與合約 |
+| PaymentRecord | 方案選定時間 | quoteConfirmedAt | quote_confirmed_at | timestamptz；無 | 是 | 否 | 業者選方案時寫入 | 低 | 選方案時寫入 |
+| PaymentRecord | 核帳時間 | accountingConfirmedAt | accounting_confirmed_at | timestamptz；無 | 是 | 否 | 核帳完成時寫入 | 低 | 核帳開通時寫入 |
+| ServicePlanImage | 方案 | planId | plan_id | uuid；所屬方案 | 否 | 上傳必填 | 必填 | 低 | 上傳後不改 |
+| ServicePlanImage | 檔案 | fileId | file_id | uuid；JPEG／PNG | 否 | 上傳必填 | 必填 | 低 | 上傳後不改 |
+| ServicePlanImage | 圖說 | caption | caption | string；最多 200 字 | 否 | 否 | 否 | 低 | 可改 |
 | PaymentRecord | 特店訂單編號 | merchantTradeNo | merchant_trade_no | string；最多 20 碼英數，唯一 | 是 | 綠界訂單必填 | 人工登錄可空 | 低 | 建立後不改 |
 | PaymentRecord | 綠界交易編號 | ecpayTradeNo | ecpay_trade_no | string；最多 20 字 | 是 | 否 | 付款通知寫入 | 低 | 通知時寫入 |
 | PaymentRecord | 付款方式 | paymentMethod | payment_method | string；綠界 PaymentType，最多 20 字 | 否 | 否 | 付款通知寫入 | 低 | 通知時寫入 |
