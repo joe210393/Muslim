@@ -18,6 +18,8 @@ import {
   companyTrainingReviewSchema,
   drawRandomQuestions,
   parseQuestionBankUpload,
+  repairUtf8Mojibake,
+  safeDisplayName,
   quizPassedByCount,
   requiredModulesComplete,
   scoreBasicQuiz,
@@ -103,7 +105,7 @@ function presentModule(
     isActive: row.isActive,
     hasMaterial: Boolean(row.materialFileId),
     materialFileId: row.materialFileId,
-    materialName: row.material?.originalName ?? null,
+    materialName: row.material ? repairUtf8Mojibake(row.material.originalName) : null,
     version: row.version,
     watchedSeconds,
     videoDurationSeconds,
@@ -394,14 +396,16 @@ export async function uploadModuleMaterial(
   const current = await prisma.basicTrainingModule.findUnique({ where: { id } });
   if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到基礎課");
   const fileId = randomUUID();
-  const storageKey = `basic-materials/${fileId}-${file.originalname}`;
+  const displayName = safeDisplayName(file.originalname);
+  const extension = displayName.match(/(\.[A-Za-z0-9]{1,8})$/)?.[1] ?? "";
+  const storageKey = `basic-materials/${fileId}${extension}`;
   await storage.save(storageKey, file.buffer);
   await prisma.fileObject.create({
     data: {
       id: fileId,
       uploadedById: actor.id,
       storageKey,
-      originalName: file.originalname,
+      originalName: displayName,
       mimeType: file.mimetype,
       sizeBytes: file.size,
       sha256: await sha256Hex(file.buffer),
@@ -423,7 +427,7 @@ export async function downloadModuleMaterial(actor: SessionActor, storage: Stora
   if (!module?.material) throw new ApiError(404, ErrorCodes.NOT_FOUND, "這門基礎課還沒有教材");
   if (actor.role === UserRole.APPLICANT || actor.role === UserRole.ADMIN || actor.role === UserRole.CASE_OFFICER) {
     const bytes = await storage.read(module.material.storageKey);
-    return { bytes, mimeType: module.material.mimeType, name: module.material.originalName };
+    return { bytes, mimeType: module.material.mimeType, name: repairUtf8Mojibake(module.material.originalName) };
   }
   throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有權限");
 }

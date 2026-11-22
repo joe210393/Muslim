@@ -60,6 +60,7 @@ const ACTIONS: Record<string, { category: AuditCategory; label: string }> = {
   CERTIFICATION_SAVE: { category: "DATA", label: "登錄證書" },
   PLAN_CREATE: { category: "PAYMENT", label: "建立方案" },
   PLAN_UPDATE: { category: "PAYMENT", label: "更新方案" },
+  PLAN_DELETE: { category: "PAYMENT", label: "刪除方案" },
   PAYMENT_RECORD: { category: "PAYMENT", label: "登錄付款" },
   PAYMENT_CHECKOUT: { category: "PAYMENT", label: "建立綠界訂單" },
   PAYMENT_ECPAY: { category: "PAYMENT", label: "綠界付款完成" },

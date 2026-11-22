@@ -10,7 +10,7 @@ import { ClientError } from "../../services/types";
 const paymentPartLabels = { plans: "方案內容", reconciliation: "核帳", month: "本月成交", record: "登錄付款" } as const;
 
 const paymentPartHints: Record<keyof typeof paymentPartLabels, string> = {
-  plans: "業者可選多個方案，已選過的不能再選。未指定可見使用者時全體可見。",
+  plans: "業者可選多個方案，已選過的不能再選。還沒有人選過的方案可以刪除。",
   reconciliation: "核帳完成才開通教育訓練與合約；業者通過基礎教育訓練後才能建立驗證申請。",
   month: "本月已核帳完成的付款。",
   record: "業者線下付款時在這裡登錄，登錄後到「核帳」完成。",
@@ -106,7 +106,19 @@ function PlansPart({
   onMessage: (message: Notice) => void;
   onSaved: () => Promise<void>;
 }) {
+  const services = useServices();
   const [editor, setEditor] = useState<"new" | ServicePlanItem | null>(null);
+  async function removePlan(plan: ServicePlanItem) {
+    if (!window.confirm(`確定刪除「${plan.name}」？已有業者選過或付過的方案不能刪，可以改成不開放。`)) return;
+    try {
+      await services.deletePlan(plan.id);
+      if (editor && editor !== "new" && editor.id === plan.id) setEditor(null);
+      onMessage("已刪除方案。");
+      await onSaved();
+    } catch (error) {
+      onMessage(failNotice(error instanceof ClientError ? error.message : "無法刪除方案"));
+    }
+  }
   const sorted = [...plans].sort((left, right) => left.name.localeCompare(right.name, "zh-Hant"));
   useEffect(() => {
     if (!editor || editor === "new") return;
@@ -143,8 +155,9 @@ function PlansPart({
                   <td className="p-3">{formatTwd(plan.amount)}</td>
                   <td className="p-3">{plan.isActive ? "開放" : "關閉"}</td>
                   <td className="p-3">{plan.visibilityLabel}</td>
-                  <td className="p-3">
+                  <td className="p-3 whitespace-nowrap">
                     <button type="button" className="text-[var(--link)] underline" onClick={() => setEditor(plan)}>編輯</button>
+                    <button type="button" className="ml-3 text-[var(--danger)] underline" onClick={() => void removePlan(plan)}>刪除</button>
                   </td>
                 </tr>
               ))}
@@ -312,6 +325,26 @@ function PlanEditorModal({
             {creating ? "新增" : "儲存"}
           </Button>
           <Button variant="ghost" disabled={busy} onClick={onClose}>取消</Button>
+          {!creating && plan ? (
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={async () => {
+                if (!window.confirm(`確定刪除「${plan.name}」？已有業者選過或付過的方案不能刪，可以改成不開放。`)) return;
+                setBusy(true);
+                try {
+                  await services.deletePlan(plan.id);
+                  onMessage("已刪除方案。");
+                  await onSaved();
+                } catch (error) {
+                  onMessage(failNotice(error instanceof ClientError ? error.message : "無法刪除方案"));
+                  setBusy(false);
+                }
+              }}
+            >
+              刪除方案
+            </Button>
+          ) : null}
         </div>
       </div>
     </Modal>

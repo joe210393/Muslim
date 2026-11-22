@@ -2,6 +2,7 @@ import {
   APP_NAME,
   COURSE_VIDEO_MAX_BYTES,
   DEMO_CONTACT_EMAIL,
+  decodeUploadedText,
   FILE_POLICY,
   ErrorCodes,
   UserRole,
@@ -236,7 +237,8 @@ export function createApp() {
   api.get("/training/basic/modules/:moduleId/material", route(async (req, res) => {
     const file = await basicTraining.downloadModuleMaterial(await requireActor(req), storage, String(req.params.moduleId));
     res.setHeader("Content-Type", file.mimeType);
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
+    const asciiName = file.name.replace(/[^\x20-\x7e]/g, "_") || "download";
+    res.setHeader("Content-Disposition", `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(file.name)}`);
     res.send(Buffer.from(file.bytes));
   }));
   api.post("/training/basic/quiz/start", route(async (req, res) => ok(res, req, await basicTraining.startQuiz(await requireActor(req)))));
@@ -453,7 +455,7 @@ export function createApp() {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請上傳題庫檔");
-    ok(res, req, await basicTraining.replaceQuestionBankFromText(actor, req.file.buffer.toString("utf8")));
+    ok(res, req, await basicTraining.replaceQuestionBankFromText(actor, decodeUploadedText(req.file.buffer)));
   }));
   api.get("/admin/training/company-requests", route(async (req, res) => {
     const actor = await requireActor(req);
@@ -718,6 +720,7 @@ export function createApp() {
   api.get("/admin/payments", route(async (req, res) => ok(res, req, await payments.paymentDesk(await requireActor(req)))));
   api.post("/admin/plans", route(async (req, res) => ok(res, req, await payments.createPlan(await requireActor(req), servicePlanWriteSchema.parse(req.body)))));
   api.patch("/admin/plans/:id", route(async (req, res) => ok(res, req, await payments.updatePlan(await requireActor(req), String(req.params.id), servicePlanUpdateSchema.parse(req.body)))));
+  api.delete("/admin/plans/:id", route(async (req, res) => ok(res, req, await payments.deletePlan(await requireActor(req), storage, String(req.params.id)))));
   api.post("/admin/plans/:id/images", upload.single("file"), route(async (req, res) => {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
     const caption = typeof (req.body as { caption?: unknown })?.caption === "string" ? String((req.body as { caption?: string }).caption) : "";

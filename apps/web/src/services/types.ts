@@ -260,6 +260,7 @@ export type Services = {
   paymentDesk: () => Promise<PaymentDesk>;
   createPlan: (input: ServicePlanWrite) => Promise<ServicePlanItem>;
   updatePlan: (id: string, input: ServicePlanUpdate) => Promise<ServicePlanItem>;
+  deletePlan: (id: string) => Promise<{ id: string }>;
   uploadPlanImage: (planId: string, file: File, caption?: string) => Promise<ServicePlanItem>;
   removePlanImage: (planId: string, imageId: string) => Promise<ServicePlanItem>;
   selectPlan: (input: { planId: string }) => Promise<PaymentItem>;

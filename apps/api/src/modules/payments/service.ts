@@ -291,6 +291,35 @@ export async function uploadPlanImage(
   return planItem(saved);
 }
 
+export async function deletePlan(actor: SessionActor, storage: StorageAdapter, id: string) {
+  await assertFeature(actor, "payments.manage");
+  const plan = await prisma.servicePlan.findUnique({
+    where: { id },
+    include: { images: { include: { file: true } }, _count: { select: { payments: true } } },
+  });
+  if (!plan) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到方案");
+  if (plan._count.payments > 0) {
+    throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "已有業者選過或付過這個方案，不能刪除。可以改成不開放。");
+  }
+  const files = plan.images.map((image) => image.file);
+  await prisma.servicePlan.delete({ where: { id } });
+  if (files.length > 0) {
+    await prisma.fileObject.deleteMany({ where: { id: { in: files.map((file) => file.id) } } }).catch(() => undefined);
+    for (const file of files) await storage.delete(file.storageKey).catch(() => undefined);
+  }
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.id,
+      action: "PLAN_DELETE",
+      entityType: "ServicePlan",
+      entityId: id,
+      requestId: crypto.randomUUID(),
+      safeChanges: { name: plan.name },
+    },
+  });
+  return { id };
+}
+
 export async function removePlanImage(actor: SessionActor, planId: string, imageId: string) {
   await assertFeature(actor, "payments.manage");
   const image = await prisma.servicePlanImage.findFirst({ where: { id: imageId, planId } });

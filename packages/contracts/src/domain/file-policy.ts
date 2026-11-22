@@ -53,8 +53,38 @@ export function extensionForMime(mimeType: AllowedMimeType | CourseVideoMime): s
   return "png";
 }
 
+function cjkCount(value: string) {
+  return (value.match(/[\u3400-\u9fff]/g) ?? []).length;
+}
+
+/** multer 會把 UTF-8 檔名讀成 Latin-1，中文就變成亂碼。已經是中文的檔名維持原樣。 */
+export function repairUtf8Mojibake(value: string): string {
+  if (cjkCount(value) > 0) return value;
+  const bytes = Uint8Array.from(value, (char) => char.charCodeAt(0) & 0xff);
+  const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  if (decoded.includes("\uFFFD") || cjkCount(decoded) === 0) return value;
+  return decoded;
+}
+
+/** 題庫與教材文字：UTF-8（含 BOM）優先；Excel 另存的 Big5 若才有中文，就改用 Big5。 */
+export function decodeUploadedText(bytes: Uint8Array): string {
+  const stripBom = (text: string) => text.replace(/^\uFEFF/, "");
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return stripBom(new TextDecoder("utf-8").decode(bytes.subarray(3)));
+  }
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  if (cjkCount(utf8) > 0 && !utf8.includes("\uFFFD")) return stripBom(utf8);
+  try {
+    const big5 = new TextDecoder("big5").decode(bytes);
+    if (cjkCount(big5) > cjkCount(utf8)) return stripBom(big5);
+  } catch {
+    // 這個環境沒有 Big5 解碼器時，沿用 UTF-8。
+  }
+  return stripBom(utf8);
+}
+
 export function safeDisplayName(originalName: string): string {
-  const base = originalName.split(/[/\\]/).pop() ?? "file";
+  const base = repairUtf8Mojibake(originalName).split(/[/\\]/).pop() ?? "file";
   const cleaned = base.replace(/[^\w.\-\u4e00-\u9fff ()]/g, "_").slice(0, 180);
   return cleaned || "file";
 }

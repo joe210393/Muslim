@@ -322,6 +322,9 @@ export function createHttpServices(): Services {
     async updatePlan(id, input) {
       return (await request("PATCH", `/admin/plans/${id}`, input)).data as Awaited<ReturnType<Services["updatePlan"]>>;
     },
+    async deletePlan(id) {
+      return (await request("DELETE", `/admin/plans/${id}`)).data as Awaited<ReturnType<Services["deletePlan"]>>;
+    },
     async uploadPlanImage(planId, file, caption = "") {
       const form = new FormData();
       form.append("file", file);

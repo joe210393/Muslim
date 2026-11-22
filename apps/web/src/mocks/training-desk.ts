@@ -10,6 +10,7 @@ import {
   validateCompanyTrainingRequest,
   validateTrainingPolicy,
   drawRandomQuestions,
+  decodeUploadedText,
   parseQuestionBankUpload,
   DEFAULT_TRAINING_POLICY,
   acceptWatchProgress,
@@ -509,7 +510,7 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
     },
     async uploadQuestionBank(file: File) {
       if (!canManage) throw new ClientError("沒有權限", { status: 403 });
-      const raw = await file.text();
+      const raw = decodeUploadedText(new Uint8Array(await file.arrayBuffer()));
       const parsed = parseQuestionBankUpload(raw);
       if (parsed.error) throw new ClientError(parsed.error);
       return this.replaceQuestionBank({ questions: parsed.rows });

@@ -1407,6 +1407,27 @@ export async function uploadPlanImage(platform: PlatformState, actor: Actor, dat
   return presentPlan(plan, data);
 }
 
+export function deletePlan(platform: PlatformState, actor: Actor, data: DemoDataset, id: string) {
+  assertFeature(platform, actor, "payments.manage");
+  const plan = platform.plans.find((item) => item.id === id);
+  if (!plan) throw new ClientError("找不到方案", { status: 404, code: "NOT_FOUND" });
+  if (platform.payments.some((item) => item.planId === plan.id)) {
+    throw new ClientError("已有業者選過或付過這個方案，不能刪除。可以改成不開放。", { status: 409, code: "INVALID_TRANSITION" });
+  }
+  platform.plans = platform.plans.filter((item) => item.id !== plan.id);
+  data.auditLogs.unshift({
+    id: crypto.randomUUID(),
+    actorId: actor.id,
+    action: "PLAN_DELETE",
+    entityType: "ServicePlan",
+    entityId: plan.id,
+    requestId: crypto.randomUUID(),
+    safeChanges: { name: plan.name },
+    createdAt: new Date().toISOString(),
+  });
+  return { id: plan.id };
+}
+
 export function removePlanImage(platform: PlatformState, actor: Actor, data: DemoDataset, planId: string, imageId: string) {
   assertFeature(platform, actor, "payments.manage");
   const plan = platform.plans.find((item) => item.id === planId);

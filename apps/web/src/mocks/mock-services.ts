@@ -80,6 +80,7 @@ import {
   assertMockServiceUnlocked,
   confirmReconciliation,
   createPlan,
+  deletePlan,
   markPaidPending,
   paymentDesk,
   recordPayment,
@@ -1384,6 +1385,11 @@ export async function createMockServices(): Promise<Services> {
     },
     async createPlan(input) {
       const saved = createPlan(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async deletePlan(id) {
+      const saved = deletePlan(state.platform, requireActor(state), state.data, id);
       await save();
       return saved;
     },
