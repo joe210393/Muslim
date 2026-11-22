@@ -15,7 +15,7 @@
 | `SESSION_SECRET` | 至少 32 字元的隨機字串 |
 | `APP_ENV` | 還沒有 SMTP 時用 `staging`。設成 `production` 時必須同時把 `MAIL_DRIVER` 設成 `smtp`，且 `DEMO_MODE=false` |
 | `DEMO_MODE` | 展示站設 `true`，才可以使用 `applicant01@example.test` 等帳號送出示範類別。正式上線設 `false` |
-| `PURGE_ALL_APPLICATIONS` | 選填。設 `true` 時啟動會再清一次全部申請案件；平常不要開。首次全清已內建於 `seed:boot` 的一次性標記 |
+| `PURGE_ALL_APPLICATIONS` | 選填。設 `true` 時啟動會再清一次全部申請案件；平常不要開。首次全清已內建於 `seed:boot` 的一次性標記。2026-11-23 另有一次線上全清：`staging`／`production` 下次啟動會刪掉既有帳號、案件、合約、付款與檔案，並改寫成各類目前的申請表。本機 `local` 不會執行。只跑一次 |
 | `PURGE_BASIC_TRAINING_PROGRESS` | 選填。設 `true` 時啟動會再清一次業者基礎課觀看／測驗／通過紀錄；平常不要開 |
 | `VITE_DATA_MODE` | `api` |
 | `UPLOAD_ROOT` | Volume 掛載路徑，例如 `/data/uploads` |

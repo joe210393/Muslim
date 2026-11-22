@@ -1,6 +1,6 @@
 import { getEnv, repoRoot } from "../config/env";
-import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, OFFICIAL_SERVICE_PLANS_2026, buildDefaultCertificateTemplates, buildDemoDataset, formatContractNo, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
-import { ContractStatus } from "@mf/db/enums";
+import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, OFFICIAL_SERVICE_PLANS_2026, buildDefaultCertificateTemplates, buildDemoDataset, categoryBlueprints, formatContractNo, officialCategoryDefinition, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
+import { ConfigurationStatus, ContractStatus } from "@mf/db/enums";
 import { prisma, type Prisma } from "@mf/db/server";
 import bcrypt from "bcryptjs";
 import { mkdir } from "node:fs/promises";
@@ -173,6 +173,121 @@ async function maybePurgeAccountPlansContractsApplications() {
 
 const purgedAccount = await maybePurgeAccountPlansContractsApplications();
 
+const ONLINE_DATA_PURGE_MARKER = "ONLINE_DATA_PURGE_20261123";
+
+async function maybePurgeOnlineData() {
+  if (!boot || env.APP_ENV === "local") return null;
+  const already = await prisma.auditLog.findFirst({ where: { action: ONLINE_DATA_PURGE_MARKER } });
+  if (already) return null;
+  const [userCount, organizationCount, applicationCount, contractCount, paymentCount, fileCount] = await Promise.all([
+    prisma.user.count(),
+    prisma.organization.count(),
+    prisma.application.count(),
+    prisma.contractRecord.count(),
+    prisma.paymentRecord.count(),
+    prisma.fileObject.count(),
+  ]);
+  const files = await prisma.fileObject.findMany({ select: { storageKey: true } });
+  await prisma.$transaction(async (tx) => {
+    await tx.applicationEvent.deleteMany();
+    await tx.notificationJob.deleteMany();
+    await tx.certification.deleteMany();
+    await tx.trainingCertificate.deleteMany();
+    await tx.enrollment.deleteMany();
+    await tx.companyTrainingRequest.deleteMany();
+    await tx.applicationAttachment.deleteMany();
+    await tx.applicationSubmission.deleteMany();
+    await tx.contractRecord.deleteMany();
+    await tx.contractSealSetting.deleteMany();
+    await tx.servicePlanImage.deleteMany();
+    await tx.servicePlanViewer.deleteMany();
+    await tx.paymentRecord.deleteMany();
+    await tx.servicePlan.deleteMany();
+    await tx.siteContent.deleteMany();
+    await tx.editorialEntry.deleteMany();
+    await tx.course.deleteMany();
+    await tx.basicTrainingProgress.deleteMany();
+    await tx.basicTrainingAttempt.deleteMany();
+    await tx.userBasicTraining.deleteMany();
+    await tx.basicTrainingQuestion.deleteMany();
+    await tx.basicTrainingModule.deleteMany();
+    await tx.trainingPolicy.deleteMany();
+    await tx.savedReport.deleteMany();
+    await tx.importBatch.deleteMany();
+    await tx.userFeature.deleteMany();
+    await tx.roleFeature.deleteMany();
+    await tx.session.deleteMany();
+    await tx.passwordResetToken.deleteMany();
+    await tx.application.deleteMany();
+    await tx.auditLog.deleteMany();
+    await tx.fileObject.deleteMany();
+    await tx.user.deleteMany();
+    await tx.organization.deleteMany();
+    await tx.categoryFormVersion.deleteMany();
+    await tx.applicationCategory.deleteMany();
+    await tx.integrationSetting.deleteMany();
+    await tx.contractTemplate.deleteMany();
+    await tx.certificateTemplate.deleteMany();
+    for (const blueprint of categoryBlueprints) {
+      const category = await tx.applicationCategory.create({
+        data: {
+          code: blueprint.code,
+          name: blueprint.name,
+          description: blueprint.description,
+          isActive: true,
+          displayOrder: blueprint.displayOrder,
+        },
+      });
+      await tx.categoryFormVersion.create({
+        data: {
+          categoryId: category.id,
+          version: 1,
+          configurationStatus: ConfigurationStatus.CONFIRMED,
+          definition: officialCategoryDefinition(blueprint.code) as Prisma.InputJsonValue,
+        },
+      });
+    }
+    for (const plan of OFFICIAL_SERVICE_PLANS_2026) {
+      await tx.servicePlan.create({
+        data: {
+          name: plan.name,
+          amount: plan.amount,
+          description: plan.description,
+          paymentUrl: "",
+          isActive: true,
+        },
+      });
+    }
+    await tx.$executeRawUnsafe(`SELECT setval('application_no_seq', 1, false)`);
+    await tx.$executeRawUnsafe(`SELECT setval('contract_no_seq', 1, false)`);
+    await tx.auditLog.create({
+      data: {
+        actorId: null,
+        action: ONLINE_DATA_PURGE_MARKER,
+        entityType: "System",
+        entityId: null,
+        requestId: ONLINE_DATA_PURGE_MARKER,
+        safeChanges: {
+          users: userCount,
+          organizations: organizationCount,
+          applications: applicationCount,
+          contracts: contractCount,
+          payments: paymentCount,
+          files: fileCount,
+          note: "一次性清空正式或預發環境既有資料，並改寫成各類目前的申請表。只執行一次。",
+        },
+      },
+    });
+  }, { timeout: 120_000 });
+  for (const file of files) await storage.delete(file.storageKey).catch(() => undefined);
+  console.info(
+    `已清空線上資料：帳號 ${userCount}、業者 ${organizationCount}、申請 ${applicationCount}、合約 ${contractCount}、付款 ${paymentCount}、檔案 ${fileCount}。七類申請表已改成目前版本。`,
+  );
+  return { userCount, organizationCount, applicationCount, contractCount, paymentCount, fileCount };
+}
+
+const purgedOnline = await maybePurgeOnlineData();
+
 async function seedCertificateTemplates() {
   const defaults = buildDefaultCertificateTemplates();
   let created = 0;
@@ -210,6 +325,7 @@ if (boot) await seedCertificateTemplates();
 if (env.APP_ENV === "production") {
   if (boot) {
     const notes = [
+      purgedOnline ? "線上既有資料已清空，申請表已改成各類目前版本" : null,
       purgedAll ? "案件已清空" : null,
       purgedBasicProgress ? "基礎課進度已清空" : null,
       purgedAccount ? `已刪 ${ACCOUNT_DATA_PURGE_EMAIL} 的方案、合約、申請` : null,
