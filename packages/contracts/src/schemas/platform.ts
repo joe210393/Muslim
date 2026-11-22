@@ -26,6 +26,13 @@ export const contractTemplateCreateSchema = z.object({
   body: z.string().trim().min(20).max(100000),
 });
 
+export const certificateTemplateWriteSchema = z.object({
+  body: z.string().trim().min(20).max(100000),
+  titleZh: z.string().trim().min(1).max(200).optional(),
+  titleEn: z.string().trim().min(1).max(200).optional(),
+  expectedVersion: z.number().int().positive(),
+});
+
 export const contractTemplateWriteSchema = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().trim().min(20).max(100000),

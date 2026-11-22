@@ -66,6 +66,10 @@
 | TrainingCertificate | 核發日 | issuedOnDate | issued_on_date | date；YYYY-MM-DD | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | TrainingCertificate | 到期日 | validUntilDate | valid_until_date | date；不可早於核發日 | 否 | 必填 | 否 | 低 | 有 training.manage 的員工可登錄 |
 | Certification | 證書編號 | certificateNo | certificate_no | string；unique；核定後發證 | 否 | 核定後登錄必填 | 必填 | 低 | 管理員可更正並留紀錄 |
+| CertificateTemplate | 範本鍵 | key | key | string；11 種官方證書 | 否 | 系統建立 | 不改鍵 | 低 | 首次讀取寫入 |
+| CertificateTemplate | 中文標題 | titleZh | title_zh | string；1–200 字 | 否 | 官方標題 | 可改 | 低 | 有核定權限可改 |
+| CertificateTemplate | 英文標題 | titleEn | title_en | string；1–200 字 | 否 | 官方標題 | 可改 | 低 | 有核定權限可改 |
+| CertificateTemplate | 內文 | body | body | text；黃底欄位與 Logo／簽名槽 | 否 | 與展示模式相同 | 可改 | 低 | 空的或舊版會補回官方內文 |
 | Certification | 範本鍵 | templateKey | template_key | string；對應 CertificateTemplateKey | 是 | 否 | 否 | 低 | 發證時寫入 |
 | Certification | 證書內文 | bodyHtml | body_html | text；填入欄位後的 HTML 快照（含套用後 Logo） | 是 | 否 | 否 | 低 | 發證時寫入；業者預覽／下載用 |
 | CertificateTemplate（平台／mock） | Logo 網址 | logoUrl | — | string；各範本對應類別 Logo，預設 `/cert-logos/*` | 是 | 否 | 否 | 低 | 後台上傳覆寫；正式 DB 尚未落地 |

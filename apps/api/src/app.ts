@@ -31,6 +31,7 @@ import {
   siteContentWriteSchema,
   contractTemplateCreateSchema,
   contractTemplateWriteSchema,
+  certificateTemplateWriteSchema,
   issueContractSchema,
   contractRenewalSchema,
   featureToggleSchema,
@@ -63,6 +64,7 @@ import * as access from "./modules/platform/access";
 import * as siteContent from "./modules/platform/content";
 import * as contracts from "./modules/platform/contracts";
 import * as contractSeals from "./modules/platform/contract-seals";
+import * as certificates from "./modules/platform/certificates";
 import * as reports from "./modules/reports/service";
 import * as payments from "./modules/payments/service";
 import { createStorage } from "./storage/storage";
@@ -346,6 +348,34 @@ export function createApp() {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇照片");
     const requirementKey = String(req.body.requirementKey ?? "");
     ok(res, req, await files.addSitePhoto(actor, storage, String(req.params.id), requirementKey, req.file));
+  }));
+  api.get("/applications/:id/certification/document", route(async (req, res) => {
+    const file = await certificates.certificationDocument(await requireActor(req), storage, repoRoot(), String(req.params.id));
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.get("/admin/certificate-templates", route(async (req, res) => ok(res, req, await certificates.listCertificateTemplates(await requireActor(req)))));
+  api.patch("/admin/certificate-templates/:key", route(async (req, res) => {
+    ok(res, req, await certificates.saveCertificateTemplate(await requireActor(req), String(req.params.key), certificateTemplateWriteSchema.parse(req.body)));
+  }));
+  api.post("/admin/certificate-templates/:key/logo", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    ok(res, req, await certificates.uploadCertificateLogo(await requireActor(req), storage, String(req.params.key), req.file));
+  }));
+  api.post("/admin/certificate-templates/:key/signature", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    ok(res, req, await certificates.uploadCertificateSignature(await requireActor(req), storage, String(req.params.key), req.file));
+  }));
+  api.get("/admin/certificate-templates/:key/logo", route(async (req, res) => {
+    const file = await certificates.readTemplateMedia(await requireActor(req), storage, String(req.params.key), "logo");
+    res.setHeader("Content-Type", file.mimeType);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.get("/admin/certificate-templates/:key/signature", route(async (req, res) => {
+    const file = await certificates.readTemplateMedia(await requireActor(req), storage, String(req.params.key), "signature");
+    res.setHeader("Content-Type", file.mimeType);
+    res.send(Buffer.from(file.bytes));
   }));
   api.post("/admin/applications/:id/certification", route(async (req, res) => {
     const actor = await requireActor(req);

@@ -1,5 +1,5 @@
 import { getEnv, repoRoot } from "../config/env";
-import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, OFFICIAL_SERVICE_PLANS_2026, buildDemoDataset, formatContractNo, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
+import { CONTRACT_TEMPLATE_CODE, DEMO_PASSWORD, DEMO_SOURCE_SYSTEM, OFFICIAL_SERVICE_PLANS_2026, buildDefaultCertificateTemplates, buildDemoDataset, formatContractNo, renderContractBody, sha256Hex, taipeiDateLabel, taipeiYear } from "@mf/contracts";
 import { ContractStatus } from "@mf/db/enums";
 import { prisma, type Prisma } from "@mf/db/server";
 import bcrypt from "bcryptjs";
@@ -100,6 +100,40 @@ async function maybePurgeBasicTrainingProgress() {
 }
 
 const purgedBasicProgress = await maybePurgeBasicTrainingProgress();
+
+async function seedCertificateTemplates() {
+  const defaults = buildDefaultCertificateTemplates();
+  let created = 0;
+  let repaired = 0;
+  for (const item of defaults) {
+    const row = await prisma.certificateTemplate.findUnique({ where: { key: item.key } });
+    if (!row) {
+      await prisma.certificateTemplate.create({
+        data: {
+          key: item.key,
+          titleZh: item.titleZh,
+          titleEn: item.titleEn,
+          categoryCode: item.categoryCode,
+          matchNote: item.matchNote,
+          body: item.body,
+          version: 1,
+        },
+      });
+      created += 1;
+      continue;
+    }
+    if (row.body.trim().length < 200 || !row.body.includes("data-certificate-logo")) {
+      await prisma.certificateTemplate.update({
+        where: { key: row.key },
+        data: { body: item.body, titleZh: item.titleZh, titleEn: item.titleEn, matchNote: item.matchNote },
+      });
+      repaired += 1;
+    }
+  }
+  console.info(`證書範本：新建 ${created}、補回官方內文 ${repaired}、共 ${defaults.length} 份。`);
+}
+
+if (boot) await seedCertificateTemplates();
 
 if (env.APP_ENV === "production") {
   if (boot) {

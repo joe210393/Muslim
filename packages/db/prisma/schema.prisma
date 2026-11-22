@@ -661,6 +661,21 @@ model Certification {
   @@map("certifications")
 }
 
+model CertificateTemplate {
+  key             String   @id @db.VarChar(64)
+  titleZh         String   @map("title_zh") @db.VarChar(200)
+  titleEn         String   @map("title_en") @db.VarChar(200)
+  categoryCode    String   @map("category_code") @db.VarChar(16)
+  matchNote       String   @map("match_note") @db.VarChar(300)
+  body            String   @db.Text
+  logoFileId      String?  @map("logo_file_id") @db.Uuid
+  signatureFileId String?  @map("signature_file_id") @db.Uuid
+  version         Int      @default(1)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("certificate_templates")
+}
+
 model NotificationJob {
   id              String                @id @default(uuid()) @db.Uuid
   dedupeKey       String                @unique @map("dedupe_key") @db.VarChar(200)

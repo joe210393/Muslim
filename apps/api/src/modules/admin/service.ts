@@ -6,6 +6,7 @@ import {
   ImportBatchType,
   UserRole,
   certificationValidity,
+  findCertificateTemplateDef,
   pageMeta,
   auditActionsIn,
   auditActionsOutsideSystem,
@@ -14,7 +15,6 @@ import {
   parseCsv,
   rowsToObjects,
   toCsv,
-  validateCertificationDates,
   validateDraft,
   parseCategoryDefinition,
   formatApplicationNo,
@@ -149,29 +149,46 @@ export async function listOrganizations(query: string | undefined, page: number,
   };
 }
 
-export async function upsertCertification(actor: SessionActor, applicationId: string, input: { certificateNo: string; issuedOnDate: string; validUntilDate: string }) {
-  const issues = validateCertificationDates(input.issuedOnDate, input.validUntilDate);
-  if (issues.length) fieldFailure(issues);
-  const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { organization: true } });
-  if (!app) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
-  if (app.status !== ApplicationStatus.APPROVED) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "只有已核定案件可以登錄證書");
+export async function upsertCertification(actor: SessionActor, applicationId: string, input: { certificateNo: string; issuedOnDate: string; validUntilDate: string; templateKey?: string }) {
+  const { assertCertificationDates, composeCertificateBody } = await import("../platform/certificates");
+  assertCertificationDates(input.issuedOnDate, input.validUntilDate);
+  const composed = await composeCertificateBody(applicationId, input);
   const saved = await prisma.certification.upsert({
     where: { applicationId },
-    create: { ...input, applicationId, registeredById: actor.id },
-    update: { ...input, registeredById: actor.id },
+    create: {
+      applicationId,
+      certificateNo: input.certificateNo,
+      issuedOnDate: input.issuedOnDate,
+      validUntilDate: input.validUntilDate,
+      templateKey: composed.templateKey,
+      bodyHtml: composed.bodyHtml,
+      registeredById: actor.id,
+    },
+    update: {
+      certificateNo: input.certificateNo,
+      issuedOnDate: input.issuedOnDate,
+      validUntilDate: input.validUntilDate,
+      templateKey: composed.templateKey,
+      bodyHtml: composed.bodyHtml,
+      registeredById: actor.id,
+    },
   });
   await prisma.auditLog.create({
-    data: { actorId: actor.id, action: "CERTIFICATION_SAVE", entityType: "Certification", entityId: saved.id, requestId: saved.id, safeChanges: { certificateNo: saved.certificateNo, validUntilDate: saved.validUntilDate } },
+    data: { actorId: actor.id, action: "CERTIFICATION_SAVE", entityType: "Certification", entityId: saved.id, requestId: saved.id, safeChanges: { certificateNo: saved.certificateNo, templateKey: composed.templateKey, validUntilDate: saved.validUntilDate } },
   });
   const validity = certificationValidity(saved);
   return {
     id: saved.id,
     applicationId,
-    applicationNo: app.applicationNo,
-    organizationName: app.organization.organizationName,
+    applicationNo: composed.app.applicationNo,
+    organizationName: composed.app.organization.organizationName,
     certificateNo: saved.certificateNo,
     issuedOnDate: saved.issuedOnDate,
     validUntilDate: saved.validUntilDate,
+    templateKey: saved.templateKey,
+    templateTitle: composed.templateTitle,
+    bodyHtml: saved.bodyHtml,
+    hasDocument: Boolean(saved.bodyHtml),
     isCurrent: validity.isCurrent,
     validityLabel: validity.label,
     registeredAt: saved.registeredAt.toISOString(),
@@ -194,6 +211,10 @@ export async function myCertifications(actor: SessionActor) {
       certificateNo: row.certificateNo,
       issuedOnDate: row.issuedOnDate,
       validUntilDate: row.validUntilDate,
+      templateKey: row.templateKey,
+      templateTitle: row.templateKey ? findCertificateTemplateDef(row.templateKey)?.titleZh ?? null : null,
+      bodyHtml: row.bodyHtml,
+      hasDocument: Boolean(row.bodyHtml),
       isCurrent: validity.isCurrent,
       validityLabel: validity.label,
       registeredAt: row.registeredAt.toISOString(),
