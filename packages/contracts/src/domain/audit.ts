@@ -33,6 +33,8 @@ const ACTIONS: Record<string, { category: AuditCategory; label: string }> = {
   ASSIGN: { category: "APPLICATION", label: "指派承辦" },
   DELETE_DRAFT: { category: "APPLICATION", label: "刪除草稿" },
   CONTRACT_ISSUE: { category: "CONTRACT", label: "發出合約" },
+  CONTRACT_REVISE: { category: "CONTRACT", label: "修改合約" },
+  CONTRACT_RECALL: { category: "CONTRACT", label: "收回合約" },
   CONTRACT_SIGN: { category: "CONTRACT", label: "簽署合約" },
   CONTRACT_RENEWAL: { category: "CONTRACT", label: "登記續約" },
   COURSE_CREATE: { category: "TRAINING", label: "新增課程" },

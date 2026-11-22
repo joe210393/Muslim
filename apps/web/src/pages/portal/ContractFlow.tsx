@@ -231,7 +231,7 @@ export function ContractSignPage() {
           ) : (
             <ContractBodyView body={item.body} seals={seals.data} />
           )}
-          {item.status === "VOID" ? <p>這份合約已作廢。</p> : null}
+          {item.status === "VOID" ? <p>這份合約已收回。</p> : null}
           {message ? <p className="text-sm">{message}</p> : null}
         </>
       ) : null}

@@ -101,6 +101,78 @@ async function maybePurgeBasicTrainingProgress() {
 
 const purgedBasicProgress = await maybePurgeBasicTrainingProgress();
 
+const ACCOUNT_DATA_PURGE_EMAIL = "joe210393@gmail.com";
+const ACCOUNT_DATA_PURGE_MARKER = "ACCOUNT_DATA_PURGE_JOE210393_20261122";
+
+async function maybePurgeAccountPlansContractsApplications() {
+  if (!boot) return null;
+  const already = await prisma.auditLog.findFirst({ where: { action: ACCOUNT_DATA_PURGE_MARKER } });
+  if (already) return null;
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: ACCOUNT_DATA_PURGE_EMAIL, mode: "insensitive" } },
+  });
+  if (!user) {
+    console.info(`找不到 ${ACCOUNT_DATA_PURGE_EMAIL}，這次不清除方案、合約、申請。`);
+    return null;
+  }
+  const orgId = user.organizationId;
+  const applications = await prisma.application.findMany({
+    where: orgId
+      ? { OR: [{ organizationId: orgId }, { createdById: user.id }] }
+      : { createdById: user.id },
+    select: { id: true },
+  });
+  const applicationIds = applications.map((item) => item.id);
+  const contractWhere = [
+    ...(orgId ? [{ organizationId: orgId }] : []),
+    ...(applicationIds.length > 0 ? [{ applicationId: { in: applicationIds } }] : []),
+  ];
+  const contracts = contractWhere.length === 0
+    ? []
+    : await prisma.contractRecord.findMany({
+      where: { OR: contractWhere },
+      select: { id: true, faceFileId: true, signatureFileId: true, pdfFileId: true },
+    });
+  const contractIds = contracts.map((item) => item.id);
+  const contractFileIds = [...new Set(contracts.flatMap((item) => [item.faceFileId, item.signatureFileId, item.pdfFileId].filter((id): id is string => Boolean(id))))];
+  if (contractIds.length > 0) {
+    await prisma.contractRecord.deleteMany({ where: { id: { in: contractIds } } });
+    if (contractFileIds.length > 0) {
+      const files = await prisma.fileObject.findMany({ where: { id: { in: contractFileIds } }, select: { id: true, storageKey: true } }).catch(() => []);
+      await prisma.fileObject.deleteMany({ where: { id: { in: contractFileIds } } }).catch(() => undefined);
+      for (const file of files) await storage.delete(file.storageKey).catch(() => undefined);
+    }
+  }
+  const payments = orgId
+    ? await prisma.paymentRecord.deleteMany({ where: { organizationId: orgId } })
+    : { count: 0 };
+  const viewers = await prisma.servicePlanViewer.deleteMany({ where: { userId: user.id } });
+  await purgeApplicationIds(applicationIds, `${ACCOUNT_DATA_PURGE_EMAIL} 的申請`);
+  await prisma.auditLog.create({
+    data: {
+      actorId: null,
+      action: ACCOUNT_DATA_PURGE_MARKER,
+      entityType: "User",
+      entityId: user.id,
+      requestId: ACCOUNT_DATA_PURGE_MARKER,
+      safeChanges: {
+        email: ACCOUNT_DATA_PURGE_EMAIL,
+        payments: payments.count,
+        planViewers: viewers.count,
+        contracts: contractIds.length,
+        applications: applicationIds.length,
+        note: "一次性清除此帳號的方案付款、合約與申請。帳號保留。共用方案目錄不刪。",
+      },
+    },
+  });
+  console.info(
+    `${ACCOUNT_DATA_PURGE_EMAIL}：已刪方案付款 ${payments.count}、方案可見名單 ${viewers.count}、合約 ${contractIds.length}、申請 ${applicationIds.length}。帳號保留。`,
+  );
+  return { payments: payments.count, contracts: contractIds.length, applications: applicationIds.length };
+}
+
+const purgedAccount = await maybePurgeAccountPlansContractsApplications();
+
 async function seedCertificateTemplates() {
   const defaults = buildDefaultCertificateTemplates();
   let created = 0;
@@ -140,6 +212,7 @@ if (env.APP_ENV === "production") {
     const notes = [
       purgedAll ? "案件已清空" : null,
       purgedBasicProgress ? "基礎課進度已清空" : null,
+      purgedAccount ? `已刪 ${ACCOUNT_DATA_PURGE_EMAIL} 的方案、合約、申請` : null,
       "略過展示帳號",
     ].filter(Boolean);
     console.info(`正式環境：${notes.join("；")}。`);

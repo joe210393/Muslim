@@ -93,7 +93,7 @@ export const contractStatusLabels = record<ContractStatus>({
   [ContractStatus.SIGNED]: { label: "已簽約", tone: "success" },
   [ContractStatus.RENEWED]: { label: "已續約", tone: "success" },
   [ContractStatus.NOT_RENEWED]: { label: "未續約", tone: "neutral" },
-  [ContractStatus.VOID]: { label: "已作廢", tone: "neutral" },
+  [ContractStatus.VOID]: { label: "已收回", tone: "neutral" },
 });
 
 /** 合約指揮台分頁（可續約為依效期計算，不是獨立狀態）。 */
@@ -102,6 +102,7 @@ export const contractAdminTabs = [
   { id: "signed", label: "已簽約", status: "SIGNED" as const },
   { id: "renewable", label: "可續約", status: null },
   { id: "not_renewed", label: "未續約", status: "NOT_RENEWED" as const },
+  { id: "recalled", label: "已收回", status: "VOID" as const },
 ] as const;
 
 /** 業者端合約指揮台（用詞較短）。 */

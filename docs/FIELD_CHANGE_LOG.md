@@ -4,6 +4,7 @@
 
 | 日期 | 變更 | 處理 |
 |---|---|---|
+| 2026-11-22 | 合約可修改與收回 | migration `20261122190000_contract_fill_snapshot`。`contracts.fill_snapshot` 留下黃底欄位。`VOID` 對廠商表示已收回 |
 | 2026-11-22 | 證書範本改存資料庫 | migration `20261122180000_certificate_templates`。首次讀取寫入與展示模式相同的 11 份官方內文 |
 | 2026-11-20 | 新增合約大小章電子檔設定 | migration `20261120230000_contract_seals`。`contract_seal_settings` 存公司大章／負責人小章 `file_objects` |
 | 2026-09-28 | 初版建立。畫面／API `taxId` 對資料庫 `tax_id`；申請快照為 `taxIdSnapshot`／`tax_id_snapshot` | 見 `schema.prisma` 與 `docs/DATA_DICTIONARY.md` |

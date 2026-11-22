@@ -101,6 +101,8 @@ import {
   createTemplateVersion,
   getContractSeals,
   issueContract,
+  recallContract,
+  reviseContract,
   listCertificateTemplates,
   listIssuableOrganizations,
   listTemplates,
@@ -1716,6 +1718,7 @@ export async function createMockServices(): Promise<Services> {
       return {
         ...row,
         body,
+        fill: row.fill ?? null,
         hasSignature: Boolean(row.signatureFileId),
         hasFace: Boolean(row.faceFileId),
         hasPdf: Boolean(row.pdfFileId),
@@ -1765,6 +1768,20 @@ export async function createMockServices(): Promise<Services> {
       const actor = requireActor(state);
       const saved = issueContract(state.platform, actor, state.data, input);
       state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "CONTRACT_ISSUE", entityType: "ContractRecord", entityId: saved.id, requestId: crypto.randomUUID(), safeChanges: { contractNo: saved.contractNo }, createdAt: new Date().toISOString() });
+      await save();
+      return saved;
+    },
+    async reviseContract(id, input) {
+      const actor = requireActor(state);
+      const saved = reviseContract(state.platform, actor, state.data, id, input);
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "CONTRACT_REVISE", entityType: "ContractRecord", entityId: id, requestId: crypto.randomUUID(), safeChanges: { contractNo: saved.contractNo }, createdAt: new Date().toISOString() });
+      await save();
+      return saved;
+    },
+    async recallContract(id, input) {
+      const actor = requireActor(state);
+      const saved = recallContract(state.platform, actor, id, input.expectedVersion);
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "CONTRACT_RECALL", entityType: "ContractRecord", entityId: id, requestId: crypto.randomUUID(), safeChanges: { contractNo: saved.contractNo }, createdAt: new Date().toISOString() });
       await save();
       return saved;
     },

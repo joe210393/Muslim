@@ -91,6 +91,18 @@ export const voidContractSchema = z.object({
   expectedVersion: z.number().int().positive(),
 });
 
+/** 收回已發給廠商的合約。 */
+export const recallContractSchema = voidContractSchema;
+
+/** 待上傳合約改範本或黃底欄位。不改業者、申請與合約編號。 */
+export const reviseContractSchema = issueContractSchema.omit({ organizationId: true, applicationId: true }).extend({
+  expectedVersion: z.number().int().positive(),
+});
+
+export const contractFillSnapshotSchema = issueContractSchema.omit({ organizationId: true, templateId: true, applicationId: true }).extend({
+  issuedOn: z.string().trim().min(8).max(10),
+});
+
 export const contractRenewalSchema = z.object({
   decision: z.enum(["RENEWED", "NOT_RENEWED"]),
   expectedVersion: z.number().int().positive(),
@@ -167,6 +179,8 @@ export type ContractTemplateWrite = z.infer<typeof contractTemplateWriteSchema>;
 export type ContractSealPositions = z.infer<typeof contractSealPositionsSchema>;
 export type ContractBodyWrite = z.infer<typeof contractBodyWriteSchema>;
 export type IssueContractInput = z.infer<typeof issueContractSchema>;
+export type ReviseContractInput = z.infer<typeof reviseContractSchema>;
+export type ContractFillSnapshot = z.infer<typeof contractFillSnapshotSchema>;
 export type ContractRenewal = z.infer<typeof contractRenewalSchema>;
 export type FeatureToggle = z.infer<typeof featureToggleSchema>;
 export type IntegrationWrite = z.infer<typeof integrationWriteSchema>;

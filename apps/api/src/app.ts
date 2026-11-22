@@ -33,6 +33,8 @@ import {
   contractTemplateWriteSchema,
   certificateTemplateWriteSchema,
   issueContractSchema,
+  reviseContractSchema,
+  voidContractSchema,
   contractRenewalSchema,
   featureToggleSchema,
   integrationWriteSchema,
@@ -654,6 +656,13 @@ export function createApp() {
     ok(res, req, await contracts.issueContract(await requireActor(req), issueContractSchema.parse(req.body)));
   }));
   api.get("/admin/contracts/:id", route(async (req, res) => ok(res, req, await contracts.getContract(await requireActor(req), String(req.params.id)))));
+  api.patch("/admin/contracts/:id", route(async (req, res) => {
+    ok(res, req, await contracts.reviseContract(await requireActor(req), String(req.params.id), reviseContractSchema.parse(req.body)));
+  }));
+  api.post("/admin/contracts/:id/recall", route(async (req, res) => {
+    const input = voidContractSchema.parse(req.body);
+    ok(res, req, await contracts.recallContract(await requireActor(req), String(req.params.id), input.expectedVersion));
+  }));
   api.get("/contract-seals", route(async (req, res) => ok(res, req, await contractSeals.getContractSeals(await requireActor(req)))));
   api.get("/contract-seals/media/:kind", route(async (req, res) => {
     await requireActor(req);

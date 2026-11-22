@@ -592,6 +592,7 @@ export function IssuedContractsPage() {
     signed: all.filter((item) => item.status === "SIGNED" || item.status === "RENEWED").length,
     renewable: all.filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt)).length,
     not_renewed: all.filter((item) => item.status === "NOT_RENEWED").length,
+    recalled: all.filter((item) => item.status === "VOID").length,
   };
   const rows = tab
     ? all.filter((item) => {
@@ -599,6 +600,7 @@ export function IssuedContractsPage() {
         if (tab === "signed") return item.status === "SIGNED" || item.status === "RENEWED";
         if (tab === "renewable") return item.status === "SIGNED" && isContractRenewalDue(item.signedAt);
         if (tab === "not_renewed") return item.status === "NOT_RENEWED";
+        if (tab === "recalled") return item.status === "VOID";
         return false;
       })
     : [];
@@ -611,10 +613,10 @@ export function IssuedContractsPage() {
     <div className="space-y-4">
       <AdminPageHeader
         title="合約管理"
-        description="發出的合約依狀態分開追蹤。業者下載 PDF 蓋章後上傳即完成簽約。"
+        description="發出的合約依狀態分開追蹤。用錯範本或欄位時，待上傳的可以修改；已經發給廠商的可以收回。"
         actions={<Link to="/admin/contracts/issue" className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline">＋ 發送合約</Link>}
       />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {contractAdminTabs.map((item) => (
           <StatCard key={item.id} label={item.label} value={counts[item.id]} active={tab === item.id} onClick={() => selectTab(item.id)} />
         ))}
@@ -624,10 +626,11 @@ export function IssuedContractsPage() {
           <SectionHeader
             title={`${tabLabel}列表`}
             hint={
-              tab === "pending" ? "等業者下載 PDF、蓋章後上傳。"
-                : tab === "signed" ? "已簽約以實際上傳 PDF 當日為簽約日期。"
+              tab === "pending" ? "等業者下載 PDF、蓋章後上傳。用錯可以修改，或收回後重發。"
+                : tab === "signed" ? "已簽約以實際上傳 PDF 當日為簽約日期。發錯請收回後重發。"
                   : tab === "renewable" ? "效期一年、剩餘兩個月內的已簽約。續約付款方式尚未定。"
-                    : "業者已登記為未續約的合約。"
+                    : tab === "recalled" ? "已從廠商端收回。可以再到發送合約，發一份正確的。"
+                      : "業者已登記為未續約的合約。"
             }
           />
           {contracts.isLoading ? <p>載入中…</p> : null}
@@ -646,7 +649,7 @@ export function IssuedContractsPage() {
                     <th className="p-3 font-medium">業者</th>
                     <th className="p-3 font-medium">標題</th>
                     <th className="p-3 font-medium">狀態</th>
-                    <th className="p-3 font-medium">{tab === "pending" ? "發出時間" : "簽約日期"}</th>
+                    <th className="p-3 font-medium">{tab === "pending" || tab === "recalled" ? "發出時間" : "簽約日期"}</th>
                     {tab === "renewable" ? <th className="p-3 font-medium">剩餘天數</th> : null}
                     <th className="p-3 font-medium">操作</th>
                   </tr>
@@ -661,7 +664,7 @@ export function IssuedContractsPage() {
                         <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
                       </td>
                       <td className="p-3">
-                        {tab === "pending"
+                        {tab === "pending" || tab === "recalled"
                           ? formatTaipei(item.createdAt)
                           : item.signedAt
                             ? formatSignedDate(item.signedAt)
@@ -728,8 +731,8 @@ function ContractPreviewModal({ contractId, onClose }: { contractId: string; onC
             >
               {item.status === "ISSUED" ? "下載待蓋章 PDF" : "下載合約 PDF"}
             </Button>
-            <Link to={`/admin/contracts/issued/${item.id}`} className="btn rounded-md px-3 py-2 text-sm no-underline" onClick={onClose}>
-              開啟完整頁
+            <Link to={`/admin/contracts/issued/${item.id}?edit=1`} className="btn rounded-md px-3 py-2 text-sm no-underline" onClick={onClose}>
+              {item.status === "ISSUED" ? "修改合約" : "開啟完整頁"}
             </Link>
           </div>
           <NoticeText notice={message} />
@@ -749,14 +752,22 @@ function ContractPreviewModal({ contractId, onClose }: { contractId: string; onC
 
 export function IssuedContractDetailPage() {
   const { contractId = "" } = useParams();
+  const [params, setParams] = useSearchParams();
   const services = useServices();
+  const client = useQueryClient();
   const detail = useQuery({ queryKey: ["admin-contract", contractId], queryFn: () => services.contract(contractId), enabled: Boolean(contractId) });
   const item = detail.data;
+  const [editing, setEditing] = useState(params.get("edit") === "1");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [recalling, setRecalling] = useState(false);
+  useEffect(() => {
+    if (item && item.status !== "ISSUED") setEditing(false);
+  }, [item]);
   return (
     <div className="space-y-4">
       <AdminPageHeader
         title={item?.contractNo ?? "合約"}
-        description="這一份維持發出當下的內容。業者下載 PDF 蓋章後上傳，管理員不能在這裡改內文。"
+        description="待上傳的合約可以改範本和黃底欄位。已經發給廠商的，可以收回；收回後廠商看不到，也不能再上傳。"
         actions={<Link className="text-sm text-[var(--link)] underline" to="/admin/contracts">回到合約管理</Link>}
       />
       {detail.isLoading ? <p>載入中…</p> : null}
@@ -774,6 +785,51 @@ export function IssuedContractDetailPage() {
           {item.status === "SIGNED" && item.signedAt && isContractRenewalDue(item.signedAt) ? (
             <p className="mt-2 text-sm text-amber-800">剩餘約 {daysUntilContractExpiry(item.signedAt)} 天到期，列在「可續約」。續約付款方式尚未定。</p>
           ) : null}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Button onClick={async () => downloadBlob(await services.contractDocument(item.id))}>
+              {item.hasPdf ? "下載業者上傳 PDF" : "下載待蓋章 PDF"}
+            </Button>
+            {item.status === "ISSUED" ? (
+              <Button type="button" onClick={() => { setEditing((open) => !open); setParams(editing ? {} : { edit: "1" }, { replace: true }); }}>
+                {editing ? "關閉修改" : "修改合約"}
+              </Button>
+            ) : null}
+            {item.status !== "VOID" ? (
+              <Button
+                type="button"
+                variant="danger"
+                disabled={recalling}
+                onClick={async () => {
+                  if (!window.confirm(`確定收回「${item.contractNo}」？廠商將看不到這份合約，也不能再上傳。之後可以重新發送正確的合約。`)) return;
+                  setRecalling(true);
+                  setNotice(null);
+                  try {
+                    await services.recallContract(item.id, { expectedVersion: item.version });
+                    await client.invalidateQueries({ queryKey: ["admin-contract", item.id] });
+                    await client.invalidateQueries({ queryKey: ["admin-contracts"] });
+                    await client.invalidateQueries({ queryKey: ["issuable-organizations"] });
+                    setEditing(false);
+                    setParams({}, { replace: true });
+                    setNotice("已收回。可以到發送合約再發一份。");
+                  } catch (error) {
+                    setNotice(failNotice(error instanceof ClientError ? error.message : "收回失敗"));
+                  } finally {
+                    setRecalling(false);
+                  }
+                }}
+              >
+                收回合約
+              </Button>
+            ) : null}
+          </div>
+          <NoticeText notice={notice} />
+          {editing && item.status === "ISSUED" ? (
+            <ContractReviseForm
+              item={item}
+              onClose={() => { setEditing(false); setParams({}, { replace: true }); }}
+              onSaved={(text) => { setEditing(false); setParams({}, { replace: true }); setNotice(text); }}
+            />
+          ) : null}
           {item.hasPdf ? (
             <>
               <p className="mt-3 text-sm text-[var(--muted)]">以下為業者上傳的蓋章 PDF 原檔（含雙方印章）。</p>
@@ -784,21 +840,134 @@ export function IssuedContractDetailPage() {
           ) : (
             <ContractBodyViewWithSeals body={item.body} />
           )}
-          <Button className="mt-4" onClick={async () => downloadBlob(await services.contractDocument(item.id))}>
-            {item.hasPdf ? "下載業者上傳 PDF" : "下載待蓋章 PDF"}
-          </Button>
         </Card>
       ) : null}
     </div>
   );
 }
 
+function ContractReviseForm({
+  item,
+  onClose,
+  onSaved,
+}: {
+  item: Awaited<ReturnType<Services["contract"]>>;
+  onClose: () => void;
+  onSaved: (text: string) => void;
+}) {
+  const services = useServices();
+  const client = useQueryClient();
+  const templates = useQuery({ queryKey: ["contract-templates"], queryFn: () => services.contractTemplates() });
+  const fill = item.fill;
+  const [templateId, setTemplateId] = useState(item.templateId ?? "");
+  const [siteName, setSiteName] = useState(fill?.siteName ?? "");
+  const [feeAmount, setFeeAmount] = useState(fill?.feeAmount ?? "");
+  const [partyBName, setPartyBName] = useState(fill?.partyBName ?? "");
+  const [partyBAddress, setPartyBAddress] = useState(fill?.partyBAddress ?? "");
+  const [partyBOwner, setPartyBOwner] = useState(fill?.partyBOwner ?? "");
+  const [partyBTaxId, setPartyBTaxId] = useState(fill?.partyBTaxId ?? "");
+  const [checks, setChecks] = useState<Record<string, boolean>>(() => {
+    const next: Record<string, boolean> = {};
+    for (const group of CONTRACT_CHECKBOX_GROUPS) {
+      for (const box of group.items) next[box.key] = Boolean(fill?.[box.key as keyof NonNullable<typeof fill>]);
+    }
+    return next;
+  });
+  const [message, setMessage] = useState<Notice>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!templateId && templates.data?.[0]) setTemplateId(templates.data[0].id);
+  }, [templateId, templates.data]);
+  const checkValue = (key: string) => Boolean(checks[key]);
+  return (
+    <form
+      className="mt-4 space-y-4 rounded-md border border-amber-200 bg-amber-50 p-3"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setMessage(null);
+        try {
+          await services.reviseContract(item.id, {
+            templateId,
+            expectedVersion: item.version,
+            siteName,
+            feeAmount,
+            partyBName,
+            partyBAddress,
+            partyBOwner,
+            partyBTaxId,
+            checkHalalKitchen: checkValue("checkHalalKitchen"),
+            checkHalalRestaurant: checkValue("checkHalalRestaurant"),
+            checkMuslimFriendlyRestaurant: checkValue("checkMuslimFriendlyRestaurant"),
+            checkMealService: checkValue("checkMealService"),
+            checkDrinksSnacks: checkValue("checkDrinksSnacks"),
+            checkFullHalalKitchen: checkValue("checkFullHalalKitchen"),
+            checkPartialKitchen: checkValue("checkPartialKitchen"),
+            checkRestaurantRestroom: checkValue("checkRestaurantRestroom"),
+            lodgingWithBreakfast: checkValue("lodgingWithBreakfast"),
+            lodgingWithoutBreakfast: checkValue("lodgingWithoutBreakfast"),
+            itemBreakfast: checkValue("itemBreakfast"),
+            itemGuestRoom: checkValue("itemGuestRoom"),
+            checkExperience: checkValue("checkExperience"),
+            checkExperienceWithFood: checkValue("checkExperienceWithFood"),
+            checkExperienceWithoutFood: checkValue("checkExperienceWithoutFood"),
+            checkEnvironment: checkValue("checkEnvironment"),
+            checkShop: checkValue("checkShop"),
+          });
+          await client.invalidateQueries({ queryKey: ["admin-contract", item.id] });
+          await client.invalidateQueries({ queryKey: ["admin-contracts"] });
+          onSaved("已更新這份合約。業者下次看到的是修改後的內容。");
+        } catch (error) {
+          setMessage(failNotice(error instanceof ClientError ? error.message : "修改失敗"));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="text-sm font-medium text-amber-950">修改這份合約</p>
+      {fill ? null : <p className="text-sm">這份是較早發出的合約，沒有留下當初填的欄位。請再填一次後儲存，合約編號不會變。</p>}
+      <Field label="範本版本">
+        <select className="rounded-md border border-[var(--line)] bg-white px-3 py-2" value={templateId} onChange={(event) => setTemplateId(event.target.value)} required>
+          <option value="">選擇版本</option>
+          {templates.data?.map((template) => <option key={template.id} value={template.id}>{template.title} · 第 {template.revision} 版</option>)}
+        </select>
+      </Field>
+      <Field label="驗證場域名稱"><TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} required /></Field>
+      <Field label="費用總金額（新臺幣元，稅外加）"><TextInput value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} required /></Field>
+      <div className="space-y-4 text-sm">
+        {CONTRACT_CHECKBOX_GROUPS.map((group) => (
+          <div key={group.id} className="space-y-2 rounded-md border border-amber-100 bg-white/70 p-3">
+            <p className="font-medium text-amber-950">{group.title}</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {group.items.map((box) => (
+                <label key={box.key} className="flex items-center gap-2">
+                  <input type="checkbox" checked={checkValue(box.key)} onChange={(event) => setChecks((current) => ({ ...current, [box.key]: event.target.checked }))} />
+                  {box.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <Field label="乙方名稱"><TextInput value={partyBName} onChange={(event) => setPartyBName(event.target.value)} /></Field>
+      <Field label="乙方地址"><TextInput value={partyBAddress} onChange={(event) => setPartyBAddress(event.target.value)} /></Field>
+      <Field label="乙方負責人"><TextInput value={partyBOwner} onChange={(event) => setPartyBOwner(event.target.value)} /></Field>
+      <Field label="乙方統一編號"><TextInput value={partyBTaxId} onChange={(event) => setPartyBTaxId(event.target.value)} /></Field>
+      <div className="flex flex-wrap gap-3">
+        <Button type="submit" disabled={busy || !templateId}>儲存修改</Button>
+        <Button type="button" onClick={onClose}>取消</Button>
+      </div>
+      <NoticeText notice={message} />
+    </form>
+  );
+}
+
 function statusNote(status: ContractStatus) {
-  if (status === "ISSUED") return "這份合約還在等業者下載 PDF、蓋章後上傳。";
-  if (status === "SIGNED") return "業者已上傳蓋章 PDF。簽約日期以實際上傳當日為準。";
-  if (status === "RENEWED") return "業者已把這份合約登記為已續約。續約費用與是否重新現場複審仍待確認。";
-  if (status === "NOT_RENEWED") return "業者已把這份合約登記為未續約。";
-  return "這份合約已作廢，內容不能再改。";
+  if (status === "ISSUED") return "這份合約已發給業者，還在等下載 PDF、蓋章後上傳。用錯範本或欄位可以直接修改；若要讓業者看不到，請收回。";
+  if (status === "SIGNED") return "業者已上傳蓋章 PDF。簽約日期以實際上傳當日為準。這份不能直接改內文；若發錯，請收回後重新發送。";
+  if (status === "RENEWED") return "業者已把這份合約登記為已續約。續約費用與是否重新現場複審仍待確認。發錯可以收回後重發。";
+  if (status === "NOT_RENEWED") return "業者已把這份合約登記為未續約。發錯可以收回後重發。";
+  return "這份合約已從廠商端收回。廠商看不到，也不能再上傳。可以重新發送正確的合約。";
 }
 
 type IssuableOrg = Awaited<ReturnType<Services["issuableOrganizations"]>>[number];
@@ -854,7 +1023,7 @@ export function IssueContractPage() {
   const setCheck = (key: string, checked: boolean) => setCategoryChecks((current) => ({ ...current, [key]: checked }));
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="發送合約" description="僅已核帳業者可發約。選業者後會帶出尚未完成合約的申請類別；有多筆時請先選要發哪一筆。發出後不可再改內文。" />
+      <AdminPageHeader title="發送合約" description="僅已核帳業者可發約。選業者後會帶出尚未完成合約的申請類別；有多筆時請先選要發哪一筆。發出後若用錯，可在合約頁修改；已經發給廠商的可以收回。" />
       {issuable.isLoading ? <p>載入中…</p> : null}
       {!issuable.isLoading && unlocked.length === 0 ? (
         <div className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-6 text-sm">

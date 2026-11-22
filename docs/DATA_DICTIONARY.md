@@ -122,8 +122,9 @@
 | ContractRecord | 合約編號 | contractNo | contract_no | string；CT-西元年-序號 | 否 | server 產生 | 不可由 client 指定 | 低 | 不可改 |
 | ContractRecord | 對應申請 | applicationId | application_id | uuid；可空 | 是 | 否 | 發出時可選 | 中 | 發出後不改 |
 | ContractRecord | 合約標題 | title | title | string；1–200 字 | 否 | 發出時寫入 | 必填 | 低 | 待簽署可改 |
-| ContractRecord | 合約快照 | body | body_snapshot | string；API 欄位 body | 否 | 發出時寫入 | 必填 | 中 | 待簽署可改；簽署後凍結 |
-| ContractRecord | 合約狀態 | status | status | ContractStatus；ISSUED 待簽署 / SIGNED 已簽署 / RENEWED 已續約 / NOT_RENEWED 未續約 / VOID 已作廢 | 否 | 是 | 僅簽署或續約登記 | 低 | 發出後不能改內文。簽署與續約登記才改狀態 |
+| ContractRecord | 合約快照 | body | body_snapshot | string；API 欄位 body | 否 | 發出時寫入 | 必填 | 中 | 待上傳可改；已簽約凍結，須先收回 |
+| ContractRecord | 填寫快照 | fillSnapshot | fill_snapshot | json；黃底欄位與勾選 | 是 | 否 | 否 | 中 | 發出與修改時寫入，舊合約可空 |
+| ContractRecord | 合約狀態 | status | status | ContractStatus；ISSUED 待上傳 / SIGNED 已簽約 / RENEWED 已續約 / NOT_RENEWED 未續約 / VOID 已收回 | 否 | 是 | 簽署、續約或收回 | 低 | 待上傳可改內文。已發給廠商可收回 |
 | ContractRecord | 簽署人 | signerName | signer_name | string；1–100 字 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |
 | ContractRecord | 簽署人職稱 | signerTitle | signer_title | string；1–100 字 | 是 | 否 | 簽署必填 | 中 | 簽署時寫入 |
 | ContractRecord | 人像檔 | faceFileId | face_file_id | uuid；JPEG 或 PNG，最短邊 120 | 是 | 否 | 簽署必填 | 高 | 簽署時寫入 |

@@ -42,7 +42,10 @@ import {
   issuableApplicationLabel,
   contractSealPositionsSchema,
   normalizeSealLayout,
+  contractFillSnapshotSchema,
   renderContractBody,
+  reviseContractSchema,
+  type ContractFillSnapshot,
   sha256Hex,
   taipeiDateLabel,
   taipeiYear,
@@ -59,7 +62,7 @@ export type PlatformState = {
   entries: Array<AdminEditorialEntry & { imageFileId: string | null }>;
   template: { id: string; code: string; title: string; body: string; revision?: number; version: number; updatedAt: string };
   templates?: Array<{ id: string; code: string; title: string; body: string; revision: number; version: number; updatedAt: string }>;
-  contracts: Array<Omit<ContractItem, "hasSignature" | "hasFace" | "hasPdf"> & { body: string; templateId: string; applicationId?: string | null; faceFileId: string | null; signatureFileId: string | null; pdfFileId: string | null }>;
+  contracts: Array<Omit<ContractItem, "hasSignature" | "hasFace" | "hasPdf"> & { body: string; templateId: string; applicationId?: string | null; fill?: ContractFillSnapshot | null; faceFileId: string | null; signatureFileId: string | null; pdfFileId: string | null }>;
   features: Array<{ userId: string; featureKey: string; label: string; enabled: boolean }>;
   integrations: AccessSettings["integrations"];
   contractSequence: number;
@@ -668,14 +671,16 @@ export async function uploadEntryImage(platform: PlatformState, actor: Actor, da
 
 export function myContracts(platform: PlatformState, actor: Actor) {
   assertFeature(platform, actor, "contracts.sign");
-  return platform.contracts.filter((item) => item.organizationId === actor.organizationId).map(strip);
+  return platform.contracts.filter((item) => item.organizationId === actor.organizationId && item.status !== ContractStatus.VOID).map(strip);
 }
 
 export function contractOf(platform: PlatformState, actor: Actor, id: string) {
   const row = platform.contracts.find((item) => item.id === id);
   if (!row) throw new ClientError("找不到合約", { status: 404, code: "NOT_FOUND" });
   if (actor.role === UserRole.APPLICANT) {
-    if (row.organizationId !== actor.organizationId) throw new ClientError("找不到合約", { status: 404, code: "NOT_FOUND" });
+    if (row.organizationId !== actor.organizationId || row.status === ContractStatus.VOID) {
+      throw new ClientError(row.status === ContractStatus.VOID ? "這份合約已收回" : "找不到合約", { status: 404, code: "NOT_FOUND" });
+    }
     assertFeature(platform, actor, "contracts.sign");
   } else {
     assertFeature(platform, actor, "contracts.issue");
@@ -788,6 +793,14 @@ export function issueContract(
   const contractNo = formatContractNo(taipeiYear(), platform.contractSequence);
   platform.contractSequence += 1;
   const issuedOn = taipeiDateLabel();
+  const fill = contractFillSnapshotSchema.parse({
+    ...input,
+    partyBName: input.partyBName || organization.organizationName,
+    partyBAddress: input.partyBAddress || organization.address || "",
+    partyBOwner: input.partyBOwner || organization.contactName || "",
+    partyBTaxId: input.partyBTaxId || organization.taxId || "",
+    issuedOn,
+  });
   const created: PlatformState["contracts"][number] = {
     id: crypto.randomUUID(),
     contractNo,
@@ -804,34 +817,9 @@ export function issueContract(
       organizationName: organization.organizationName,
       taxId: organization.taxId,
       contractNo,
-      issuedOn,
-      siteName: input.siteName,
-      feeAmount: input.feeAmount,
-      checkHalalKitchen: input.checkHalalKitchen,
-      checkHalalRestaurant: input.checkHalalRestaurant,
-      checkMuslimFriendlyRestaurant: input.checkMuslimFriendlyRestaurant,
-      checkMealService: input.checkMealService,
-      checkDrinksSnacks: input.checkDrinksSnacks,
-      checkFullHalalKitchen: input.checkFullHalalKitchen,
-      checkPartialKitchen: input.checkPartialKitchen,
-      checkRestaurantRestroom: input.checkRestaurantRestroom,
-      lodgingWithBreakfast: input.lodgingWithBreakfast,
-      lodgingWithoutBreakfast: input.lodgingWithoutBreakfast,
-      itemBreakfast: input.itemBreakfast,
-      itemGuestRoom: input.itemGuestRoom,
-      checkExperience: input.checkExperience,
-      checkExperienceWithFood: input.checkExperienceWithFood,
-      checkExperienceWithoutFood: input.checkExperienceWithoutFood,
-      checkEnvironment: input.checkEnvironment,
-      checkShop: input.checkShop,
-      partyBName: input.partyBName || organization.organizationName,
-      partyBAddress: input.partyBAddress || organization.address || "",
-      partyBOwner: input.partyBOwner || organization.contactName || "",
-      partyBTaxId: input.partyBTaxId || organization.taxId || "",
-      signYear: input.signYear,
-      signMonth: input.signMonth,
-      signDay: input.signDay,
+      ...fill,
     }),
+    fill,
     templateId: template.id,
     applicationId,
     faceFileId: null,
@@ -840,6 +828,48 @@ export function issueContract(
   };
   platform.contracts.unshift(created);
   return strip(created);
+}
+
+export function reviseContract(platform: PlatformState, actor: Actor, data: DemoDataset, id: string, input: unknown) {
+  const parsed = reviseContractSchema.parse(input);
+  assertFeature(platform, actor, "contracts.issue");
+  const row = contractOf(platform, actor, id);
+  if (row.status === ContractStatus.VOID) throw new ClientError("這份合約已收回，請重新發送", { status: 409, code: "INVALID_TRANSITION" });
+  if (row.status !== ContractStatus.ISSUED) throw new ClientError("業者已上傳或已簽約，不能直接改。請先收回，再重新發送", { status: 409, code: "INVALID_TRANSITION" });
+  if (row.version !== parsed.expectedVersion) throw new ClientError("合約已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+  const template = templateRows(platform).find((item) => item.id === parsed.templateId);
+  const organization = data.organizations.find((item) => item.id === row.organizationId);
+  if (!template || !organization) throw new ClientError("找不到合約範本", { status: 404 });
+  const previous = contractFillSnapshotSchema.safeParse(row.fill);
+  const fill = contractFillSnapshotSchema.parse({
+    ...parsed,
+    partyBName: parsed.partyBName || organization.organizationName,
+    partyBAddress: parsed.partyBAddress || organization.address || "",
+    partyBOwner: parsed.partyBOwner || organization.contactName || "",
+    partyBTaxId: parsed.partyBTaxId || organization.taxId || "",
+    issuedOn: previous.success ? previous.data.issuedOn : taipeiDateLabel(new Date(row.createdAt)),
+  });
+  row.title = template.title;
+  row.templateId = template.id;
+  row.fill = fill;
+  row.body = renderContractBody(template.body, {
+    organizationName: organization.organizationName,
+    taxId: organization.taxId,
+    contractNo: row.contractNo,
+    ...fill,
+  });
+  row.version += 1;
+  return { ...strip(row), body: row.body, templateId: row.templateId, fill };
+}
+
+export function recallContract(platform: PlatformState, actor: Actor, id: string, expectedVersion: number) {
+  assertFeature(platform, actor, "contracts.issue");
+  const row = contractOf(platform, actor, id);
+  if (row.status === ContractStatus.VOID) throw new ClientError("這份合約已經收回", { status: 409, code: "INVALID_TRANSITION" });
+  if (row.version !== expectedVersion) throw new ClientError("合約已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+  row.status = ContractStatus.VOID;
+  row.version += 1;
+  return { ...strip(row), body: row.body, templateId: row.templateId, fill: row.fill ?? null };
 }
 
 export function listIssuableOrganizations(platform: PlatformState, actor: Actor, data: DemoDataset) {

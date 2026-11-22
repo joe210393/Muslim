@@ -823,6 +823,7 @@ model ContractRecord {
   templateId      String         @map("template_id") @db.Uuid
   title           String         @db.VarChar(200)
   bodySnapshot    String         @map("body_snapshot")
+  fillSnapshot    Json?          @map("fill_snapshot")
   status          ContractStatus
   signerName      String?        @map("signer_name") @db.VarChar(100)
   signerTitle     String?        @map("signer_title") @db.VarChar(100)

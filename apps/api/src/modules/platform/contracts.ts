@@ -10,16 +10,19 @@ import {
   ensureContractHtml,
   isOpenApplicationForContract,
   issuableApplicationLabel,
+  contractFillSnapshotSchema,
   renderContractBody,
   sha256Hex,
   taipeiDateLabel,
   taipeiYear,
+  type ContractFillSnapshot,
   type ContractRenewal,
   type ContractTemplateCreate,
   type ContractTemplateWrite,
   type IssueContractInput,
+  type ReviseContractInput,
 } from "@mf/contracts";
-import { prisma } from "@mf/db/server";
+import { prisma, type Prisma } from "@mf/db/server";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../../lib/errors";
 import type { SessionActor } from "../../middleware/auth";
@@ -160,7 +163,7 @@ export async function listMyContracts(actor: SessionActor) {
   await assertFeature(actor, "contracts.sign");
   if (!actor.organizationId) return [];
   const rows = await prisma.contractRecord.findMany({
-    where: { organizationId: actor.organizationId },
+    where: { organizationId: actor.organizationId, status: { not: ContractStatus.VOID } },
     include: { organization: true },
     orderBy: { createdAt: "desc" },
   });
@@ -171,7 +174,9 @@ async function loadReadable(actor: SessionActor, id: string) {
   const row = await prisma.contractRecord.findUnique({ where: { id }, include: { organization: true } });
   if (!row) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約");
   if (actor.role === UserRole.APPLICANT) {
-    if (actor.organizationId !== row.organizationId) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約");
+    if (actor.organizationId !== row.organizationId || row.status === ContractStatus.VOID) {
+      throw new ApiError(404, ErrorCodes.NOT_FOUND, row.status === ContractStatus.VOID ? "這份合約已收回" : "找不到合約");
+    }
     await assertFeature(actor, "contracts.sign");
   } else {
     await assertFeature(actor, "contracts.issue");
@@ -185,7 +190,26 @@ export async function getContract(actor: SessionActor, id: string) {
   if (body !== row.bodySnapshot) {
     await prisma.contractRecord.update({ where: { id: row.id }, data: { bodySnapshot: body } }).catch(() => undefined);
   }
-  return { ...summary(row), body };
+  const fill = contractFillSnapshotSchema.safeParse(row.fillSnapshot);
+  return { ...summary(row), body, templateId: row.templateId, fill: fill.success ? fill.data : null };
+}
+
+function fillOf(input: IssueContractInput | ReviseContractInput, issuedOn: string): ContractFillSnapshot {
+  return contractFillSnapshotSchema.parse({ ...input, issuedOn });
+}
+
+function renderedBody(
+  templateBody: string,
+  organization: { organizationName: string; taxId: string | null },
+  contractNo: string,
+  fill: ContractFillSnapshot,
+) {
+  return renderContractBody(templateBody, {
+    organizationName: organization.organizationName,
+    taxId: organization.taxId ?? "",
+    contractNo,
+    ...fill,
+  });
 }
 
 export async function issueContract(actor: SessionActor, input: IssueContractInput) {
@@ -212,7 +236,13 @@ export async function issueContract(actor: SessionActor, input: IssueContractInp
   }
   const rows = await prisma.$queryRawUnsafe<Array<{ nextval: number }>>(`SELECT nextval('contract_no_seq')::int AS nextval`);
   const contractNo = formatContractNo(taipeiYear(), rows[0]?.nextval ?? 0);
-  const issuedOn = taipeiDateLabel();
+  const fill = fillOf({
+    ...input,
+    partyBName: input.partyBName || organization.organizationName,
+    partyBAddress: input.partyBAddress || organization.address || "",
+    partyBOwner: input.partyBOwner || organization.contactName || "",
+    partyBTaxId: input.partyBTaxId || organization.taxId || "",
+  }, taipeiDateLabel());
   const created = await prisma.contractRecord.create({
     data: {
       contractNo,
@@ -220,38 +250,8 @@ export async function issueContract(actor: SessionActor, input: IssueContractInp
       applicationId,
       templateId: template.id,
       title: template.title,
-      bodySnapshot: renderContractBody(template.body, {
-        organizationName: organization.organizationName,
-        taxId: organization.taxId ?? "",
-        contractNo,
-        issuedOn,
-        siteName: input.siteName,
-        feeAmount: input.feeAmount,
-        checkHalalKitchen: input.checkHalalKitchen,
-        checkHalalRestaurant: input.checkHalalRestaurant,
-        checkMuslimFriendlyRestaurant: input.checkMuslimFriendlyRestaurant,
-        checkMealService: input.checkMealService,
-        checkDrinksSnacks: input.checkDrinksSnacks,
-        checkFullHalalKitchen: input.checkFullHalalKitchen,
-        checkPartialKitchen: input.checkPartialKitchen,
-        checkRestaurantRestroom: input.checkRestaurantRestroom,
-        lodgingWithBreakfast: input.lodgingWithBreakfast,
-        lodgingWithoutBreakfast: input.lodgingWithoutBreakfast,
-        itemBreakfast: input.itemBreakfast,
-        itemGuestRoom: input.itemGuestRoom,
-        checkExperience: input.checkExperience,
-        checkExperienceWithFood: input.checkExperienceWithFood,
-        checkExperienceWithoutFood: input.checkExperienceWithoutFood,
-        checkEnvironment: input.checkEnvironment,
-        checkShop: input.checkShop,
-        partyBName: input.partyBName || organization.organizationName,
-        partyBAddress: input.partyBAddress || organization.address || "",
-        partyBOwner: input.partyBOwner || organization.contactName || "",
-        partyBTaxId: input.partyBTaxId || organization.taxId || "",
-        signYear: input.signYear,
-        signMonth: input.signMonth,
-        signDay: input.signDay,
-      }),
+      bodySnapshot: renderedBody(template.body, organization, contractNo, fill),
+      fillSnapshot: fill as Prisma.InputJsonValue,
       status: ContractStatus.ISSUED,
       issuedById: actor.id,
     },
@@ -268,6 +268,76 @@ export async function issueContract(actor: SessionActor, input: IssueContractInp
     },
   });
   return summary(created);
+}
+
+export async function reviseContract(actor: SessionActor, id: string, input: ReviseContractInput) {
+  await assertFeature(actor, "contracts.issue");
+  const contract = await prisma.contractRecord.findUnique({ where: { id }, include: { organization: true } });
+  if (!contract) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約");
+  if (contract.status === ContractStatus.VOID) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "這份合約已收回，請重新發送");
+  if (contract.status !== ContractStatus.ISSUED) {
+    throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "業者已上傳或已簽約，不能直接改。請先收回，再重新發送");
+  }
+  const template = await prisma.contractTemplate.findUnique({ where: { id: input.templateId } });
+  if (!template) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約範本");
+  const previous = contractFillSnapshotSchema.safeParse(contract.fillSnapshot);
+  const fill = fillOf({
+    ...input,
+    partyBName: input.partyBName || contract.organization.organizationName,
+    partyBAddress: input.partyBAddress || contract.organization.address || "",
+    partyBOwner: input.partyBOwner || contract.organization.contactName || "",
+    partyBTaxId: input.partyBTaxId || contract.organization.taxId || "",
+  }, previous.success ? previous.data.issuedOn : taipeiDateLabel(contract.createdAt));
+  const bodySnapshot = renderedBody(template.body, contract.organization, contract.contractNo, fill);
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.contractRecord.updateMany({
+      where: { id, status: ContractStatus.ISSUED, version: input.expectedVersion },
+      data: {
+        templateId: template.id,
+        title: template.title,
+        bodySnapshot,
+        fillSnapshot: fill as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+    if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "合約已被更新，請重新載入");
+    await tx.auditLog.create({
+      data: {
+        actorId: actor.id,
+        action: "CONTRACT_REVISE",
+        entityType: "ContractRecord",
+        entityId: id,
+        requestId: crypto.randomUUID(),
+        safeChanges: { contractNo: contract.contractNo, templateId: template.id },
+      },
+    });
+  });
+  return getContract(actor, id);
+}
+
+export async function recallContract(actor: SessionActor, id: string, expectedVersion: number) {
+  await assertFeature(actor, "contracts.issue");
+  const contract = await prisma.contractRecord.findUnique({ where: { id } });
+  if (!contract) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到合約");
+  if (contract.status === ContractStatus.VOID) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "這份合約已經收回");
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.contractRecord.updateMany({
+      where: { id, version: expectedVersion, status: { not: ContractStatus.VOID } },
+      data: { status: ContractStatus.VOID, version: { increment: 1 } },
+    });
+    if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "合約已被更新，請重新載入");
+    await tx.auditLog.create({
+      data: {
+        actorId: actor.id,
+        action: "CONTRACT_RECALL",
+        entityType: "ContractRecord",
+        entityId: id,
+        requestId: crypto.randomUUID(),
+        safeChanges: { contractNo: contract.contractNo, from: contract.status },
+      },
+    });
+  });
+  return getContract(actor, id);
 }
 
 export async function recordRenewal(actor: SessionActor, id: string, input: ContractRenewal) {
@@ -307,7 +377,7 @@ export async function readContractPdf(actor: SessionActor, storage: StorageAdapt
     const bytes = await storage.read(file.storageKey);
     return { bytes, name: file.originalName, mimeType: file.mimeType };
   }
-  if (contract.status !== ContractStatus.ISSUED) {
+  if (contract.status !== ContractStatus.ISSUED && contract.status !== ContractStatus.VOID) {
     throw new ApiError(404, ErrorCodes.NOT_FOUND, "這份合約還沒有 PDF");
   }
   const body = ensureContractHtml(contract.bodySnapshot);

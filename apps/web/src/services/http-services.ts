@@ -477,6 +477,12 @@ export function createHttpServices(): Services {
     async issueContract(input) {
       return (await request("POST", "/admin/contracts", input)).data as Awaited<ReturnType<Services["issueContract"]>>;
     },
+    async reviseContract(id, input) {
+      return (await request("PATCH", `/admin/contracts/${id}`, input)).data as Awaited<ReturnType<Services["reviseContract"]>>;
+    },
+    async recallContract(id, input) {
+      return (await request("POST", `/admin/contracts/${id}/recall`, input)).data as Awaited<ReturnType<Services["recallContract"]>>;
+    },
     async contractSeals() {
       return (await request("GET", "/contract-seals")).data as Awaited<ReturnType<Services["contractSeals"]>>;
     },

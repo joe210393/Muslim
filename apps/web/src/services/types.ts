@@ -6,6 +6,7 @@ import type {
   AuditLog,
   BasicTrainingStatus,
   CategorySummary,
+  ContractFillSnapshot,
   Certification,
   CompanyTrainingRequest,
   Course,
@@ -292,7 +293,7 @@ export type Services = {
   updateEntry: (id: string, input: EditorialUpdate) => Promise<AdminEditorialEntry>;
   deleteEntry: (id: string) => Promise<void>;
   myContracts: () => Promise<ContractItem[]>;
-  contract: (id: string) => Promise<ContractItem & { body: string }>;
+  contract: (id: string) => Promise<ContractItem & { body: string; templateId?: string; fill?: ContractFillSnapshot | null }>;
   uploadSignedContract: (id: string, input: { expectedVersion: number; pdf: Blob }) => Promise<ContractItem & { body: string }>;
   contractDocument: (id: string) => Promise<{ blob: Blob; name: string }>;
   recordRenewal: (id: string, input: { decision: "RENEWED" | "NOT_RENEWED"; expectedVersion: number }) => Promise<ContractItem & { body: string }>;
@@ -349,6 +350,34 @@ export type Services = {
     signMonth?: string;
     signDay?: string;
   }) => Promise<ContractItem>;
+  reviseContract: (id: string, input: {
+    templateId: string;
+    expectedVersion: number;
+    siteName: string;
+    feeAmount: string;
+    checkHalalKitchen?: boolean;
+    checkHalalRestaurant?: boolean;
+    checkMuslimFriendlyRestaurant?: boolean;
+    checkMealService?: boolean;
+    checkDrinksSnacks?: boolean;
+    checkFullHalalKitchen?: boolean;
+    checkPartialKitchen?: boolean;
+    checkRestaurantRestroom?: boolean;
+    lodgingWithBreakfast?: boolean;
+    lodgingWithoutBreakfast?: boolean;
+    itemBreakfast?: boolean;
+    itemGuestRoom?: boolean;
+    checkExperience?: boolean;
+    checkExperienceWithFood?: boolean;
+    checkExperienceWithoutFood?: boolean;
+    checkEnvironment?: boolean;
+    checkShop?: boolean;
+    partyBName?: string;
+    partyBAddress?: string;
+    partyBOwner?: string;
+    partyBTaxId?: string;
+  }) => Promise<ContractItem & { body: string; templateId?: string; fill?: ContractFillSnapshot | null }>;
+  recallContract: (id: string, input: { expectedVersion: number }) => Promise<ContractItem & { body: string; templateId?: string; fill?: ContractFillSnapshot | null }>;
   contractSeals: () => Promise<{
     companySealUrl: string | null;
     personSealUrl: string | null;
