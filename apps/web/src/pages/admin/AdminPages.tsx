@@ -1,44 +1,15 @@
-import { AUDIT_CATEGORIES, applicationStatusLabels, auditActionLabel, auditCategoryDetail, auditCategoryOf, auditEntityLabel, companyTrainingRequestStatusLabels, contractStatusLabels, courseDeliveryLabels, courseStatusLabels, daysUntilContractExpiry, formatTwd, isContractRenewalDue, layoutCertificateRowsHtml, matchCertificateTemplates, type ApplicationDetail, type CourseStatus, type StatusTone } from "@mf/contracts";
+import { AUDIT_CATEGORIES, applicationStatusLabels, auditActionLabel, auditCategoryDetail, auditCategoryOf, auditEntityLabel, certificateDefaultUntil, courseDeliveryLabels, courseStatusLabels, layoutCertificateRowsHtml, matchCertificateTemplates, taipeiDateString, userRoleLabels, type ApplicationDetail, type CourseStatus } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices, useSession } from "../../app/session";
 import { ApplicationReview } from "./ApplicationReview";
-import { AdminPageHeader, Badge, Button, Card, DataTable, Empty, ErrorText, Field, Pager, SectionHeader, SelectInput, StatCard, TextArea, TextInput, tableRowClass, NoticeText, failNotice, type Notice } from "../../components/ui";
+import { OrgLink } from "../../components/OrgLink";
+import { AdminPageHeader, Badge, Button, Card, DataTable, Empty, ErrorText, Field, Pager, SectionHeader, SelectInput, TextArea, TextInput, WorkTile, tableRowClass, NoticeText, failNotice, type Notice } from "../../components/ui";
 import { PermissionsPage, SiteReviewBody } from "./InfoAdminPages";
 import { formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
 import type { NavFromState } from "../../components/shell/Shell";
-
-type TodoItem = { key: string; kind: string; tone: StatusTone; subject: string; detail: string; since: string | null; href: string; navFrom?: string };
-
-const DAY_MS = 86_400_000;
-
-function waitingLabel(since: string | null) {
-  if (!since) return "—";
-  const days = Math.floor((Date.now() - new Date(since).getTime()) / DAY_MS);
-  return days <= 0 ? "今天" : `${days} 天`;
-}
-
-function ModulePanel({ title, href, rows, footer }: { title: string; href: string; rows: Array<{ label: string; value: ReactNode; href?: string; tone?: "warning" }>; footer?: ReactNode }) {
-  return (
-    <Card className="space-y-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-medium">{title}</h3>
-        <Link className="text-sm text-[var(--link)] underline" to={href}>管理</Link>
-      </div>
-      <dl className="divide-y divide-[var(--line)] text-sm">
-        {rows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between gap-3 py-2">
-            <dt className="text-[var(--muted)]">{row.href ? <Link className="text-[var(--muted)] no-underline hover:underline" to={row.href}>{row.label}</Link> : row.label}</dt>
-            <dd className={`font-semibold ${row.tone === "warning" ? "text-[var(--warn)]" : ""}`}>{row.value}</dd>
-          </div>
-        ))}
-      </dl>
-      {footer}
-    </Card>
-  );
-}
 
 export function AdminHome() {
   const services = useServices();
@@ -49,234 +20,72 @@ export function AdminHome() {
   const canPay = features.has("payments.manage");
   const canContract = features.has("contracts.issue");
   const canTraining = features.has("training.manage");
+  const canUsers = features.has("users.manage");
+  const canCms = features.has("cms.edit");
+  const canReports = features.has("reports.export");
   const canAudit = features.has("audit.view");
   const summary = useQuery({ queryKey: ["admin-summary"], queryFn: () => services.summary() });
-  const queue = useQuery({ queryKey: ["admin-applications", "", "ALL"], queryFn: () => services.applications({ page: 1 }), enabled: canReview });
   const toCertify = useQuery({ queryKey: ["admin-applications", "", "APPROVED", "pending", 1], queryFn: () => services.applications({ status: "APPROVED", certification: "pending", page: 1 }), enabled: canDecide });
   const payments = useQuery({ queryKey: ["payment-desk"], queryFn: () => services.paymentDesk(), enabled: canPay });
   const contracts = useQuery({ queryKey: ["admin-contracts"], queryFn: () => services.adminContracts(), enabled: canContract });
   const requests = useQuery({ queryKey: ["admin-company-training"], queryFn: () => services.adminCompanyTrainingRequests(), enabled: canTraining });
-  const audit = useQuery({ queryKey: ["audit", "ALL", 1], queryFn: () => services.audit({ page: 1, category: "ALL" }), enabled: canAudit });
   if (summary.isLoading) return <p>載入中…</p>;
   if (!summary.data) return <ErrorText message="無法載入工作總覽" />;
   const data = summary.data;
-  const inReview = data.submitted + data.initialReview + data.secondReview + data.finalReview;
-  const allContracts = contracts.data ?? [];
-  const pendingContracts = allContracts.filter((item) => item.status === "ISSUED");
-  const renewableContracts = allContracts.filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt));
-  const signedCount = allContracts.filter((item) => item.status === "SIGNED" || item.status === "RENEWED").length;
-  const notRenewedCount = allContracts.filter((item) => item.status === "NOT_RENEWED").length;
-  const awaiting = payments.data?.awaitingReconciliation ?? [];
-  const pendingRequests = (requests.data ?? []).filter((item) => item.status === "SUBMITTED");
-
-  const todos: TodoItem[] = [
-    ...(queue.data?.items ?? [])
-      .filter((item) => item.status === "SUBMITTED" || item.status === "FINAL_REVIEW")
-      .map((item) => ({
-        key: `app-${item.id}`,
-        kind: item.status === "SUBMITTED" ? "待派案" : "待核定",
-        tone: applicationStatusLabels[item.status].tone,
-        subject: item.organizationName,
-        detail: `${item.applicationNo} · ${item.categoryName}`,
-        since: item.status === "SUBMITTED" ? item.submittedAt : item.updatedAt,
-        href: `/admin/applications/${item.id}`,
-      })),
-    ...(toCertify.data?.items ?? []).map((item) => ({
-      key: `cert-${item.id}`,
-      kind: "待發證",
-      tone: "warning" as const,
-      subject: item.organizationName,
-      detail: `${item.applicationNo} · ${item.categoryName}`,
-      since: item.updatedAt,
-      href: `/admin/applications/${item.id}`,
-      navFrom: "/admin/certificates",
-    })),
-    ...awaiting.map((row) => ({
-      key: `pay-${row.id}`,
-      kind: "待核帳",
-      tone: "warning" as const,
-      subject: row.organizationName,
-      detail: `${row.planName} · ${formatTwd(row.amount)}`,
-      since: row.paidAt,
-      href: "/admin/payments/reconciliation",
-    })),
-    ...pendingRequests.map((row) => ({
-      key: `req-${row.id}`,
-      kind: "專班申請",
-      tone: companyTrainingRequestStatusLabels.SUBMITTED.tone,
-      subject: row.organizationName,
-      detail: `${row.headcount} 人 · ${courseDeliveryLabels[row.delivery].label} · ${row.preferredStartsOn}`,
-      since: row.submittedAt,
-      href: "/admin/training/company-requests",
-    })),
-    ...pendingContracts.map((row) => ({
-      key: `con-${row.id}`,
-      kind: "待業者回傳合約",
-      tone: contractStatusLabels.ISSUED.tone,
-      subject: row.organizationName,
-      detail: `${row.contractNo} · ${row.title}`,
-      since: row.createdAt,
-      href: "/admin/contracts?tab=pending",
-    })),
-    ...renewableContracts.map((row) => ({
-      key: `renew-${row.id}`,
-      kind: "合約即將到期",
-      tone: "warning" as const,
-      subject: row.organizationName,
-      detail: `${row.contractNo} · 約 ${row.signedAt ? daysUntilContractExpiry(row.signedAt) : "—"} 天到期`,
-      since: row.signedAt,
-      href: "/admin/contracts?tab=renewable",
-    })),
-  ].sort((left, right) => (left.since ?? "").localeCompare(right.since ?? ""));
-  const shownTodos = todos.slice(0, 10);
-
-  const kpis = [
-    canReview ? { label: "審查中案件", value: inReview, hint: `待核定 ${data.finalReview} · 待補件 ${data.needSupplement}`, to: "/admin/applications" } : null,
-    canDecide ? { label: "待發證", value: toCertify.data?.meta.total ?? 0, hint: `已核定 ${data.approved}`, to: "/admin/certificates" } : null,
-    canPay ? { label: "待核帳", value: awaiting.length, hint: payments.data ? `${payments.data.monthLabel}已核帳 ${formatTwd(payments.data.paidAmount)}` : undefined, to: "/admin/payments/reconciliation" } : null,
-    canContract ? { label: "待業者回傳合約", value: pendingContracts.length, hint: `即將到期 ${renewableContracts.length}`, to: "/admin/contracts?tab=pending" } : null,
-    canTraining ? { label: "專班待審", value: pendingRequests.length, hint: `近期梯次 ${data.upcomingCourses}`, to: "/admin/training/company-requests" } : null,
+  const pendingContracts = (contracts.data ?? []).filter((item) => item.status === "ISSUED").length;
+  const awaiting = payments.data?.awaitingReconciliation.length ?? 0;
+  const pendingRequests = (requests.data ?? []).filter((item) => item.status === "SUBMITTED").length;
+  const person = session.user;
+  const roleLabel = person ? userRoleLabels[person.role as keyof typeof userRoleLabels]?.label ?? person.role : "";
+  const cases = [
+    canPay ? { label: "未核案件", hint: "業者選了方案、等確認後產生匯款單", to: "/admin/payments/reconciliation", count: payments.data?.awaitingQuote.length ?? 0 } : null,
+    canPay ? { label: "未核付款", hint: "業者已上傳繳費單據、等核帳", to: "/admin/payments/reconciliation", count: awaiting } : null,
+    canReview ? { label: "審查中申請", hint: "數字是已送出、還沒核定或退件。清單從已送件開始。", to: "/admin/applications", count: data.submitted + data.initialReview + data.secondReview + data.finalReview } : null,
+    canReview ? { label: "未核申請", hint: "已送件、尚未開始審", to: "/admin/applications", count: data.submitted } : null,
+    canReview ? { label: "未核補件", hint: "退回後等業者補資料", to: "/admin/applications/need-supplement", count: data.needSupplement } : null,
+    canReview ? { label: "未核複審", hint: "停在複審中的案件", to: "/admin/applications/second-review", count: data.secondReview } : null,
+    canReview ? { label: "案件總覽", hint: "從已送件進入各審查階段", to: "/admin/applications" } : null,
+    canContract ? { label: "合約總覽", hint: "待回傳、已簽約與續約", to: "/admin/contracts", count: pendingContracts } : null,
+    canDecide ? { label: "證書總覽", hint: "待發證與已發證", to: "/admin/certificates", count: toCertify.data?.meta.total } : null,
+    canUsers ? { label: "會員總覽", hint: "業者資料與聯絡方式", to: "/admin/organizations" } : null,
+    canUsers ? { label: "寄信", hint: "指定一位、全部業者，以及自動通知內容", to: "/admin/notifications" } : null,
+    canContract ? { label: "範本管理", hint: "合約範本。證書範本在電子證書。", to: "/admin/contracts/templates" } : canDecide ? { label: "範本管理", hint: "證書範本", to: "/admin/certificates/templates" } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null);
-
-  const pipeline = caseReviewStatuses.map(([id, label, , href]) => ({
-    id,
-    label,
-    href,
-    count: {
-      SUBMITTED: data.submitted,
-      INITIAL_REVIEW: data.initialReview,
-      NEED_SUPPLEMENT: data.needSupplement,
-      SECOND_REVIEW: data.secondReview,
-      FINAL_REVIEW: data.finalReview,
-      APPROVED: data.approved,
-      REJECTED: data.rejected,
-    }[id],
-  }));
-
+  const learning = canTraining ? [
+    { label: "媒材管理", hint: "基礎課影片、教材與題庫", to: "/admin/training/basic" },
+    { label: "專案報名", hint: "業者提出的專班申請", to: "/admin/training/company-requests", count: pendingRequests },
+    { label: "專案會員", hint: "課程梯次與出席名單", to: "/admin/courses" },
+    { label: "證書管理", hint: "一般課結訓證書", to: "/admin/training/certificates" },
+  ] : [];
+  const manage = [
+    canReports ? { label: "營運報表", hint: "固定報表與自訂匯出", to: "/admin/reports" } : null,
+    canUsers ? { label: "權限", hint: "員工帳號與功能勾選", to: "/admin/permissions" } : null,
+    canCms ? { label: "內容管理", hint: "前台頁面、消息、常見問題與課程介紹", to: "/admin/studio" } : null,
+    canAudit ? { label: "歷程紀錄", hint: "不可修改的操作紀錄", to: "/admin/audit-logs" } : null,
+    canUsers ? { label: "設定", hint: "附件大小、客服按鈕、郵件與金鑰", to: "/admin/settings" } : null,
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
   return (
     <div className="space-y-6">
-      <AdminPageHeader
-        title="工作總覽"
-        description="今天要處理的事都在這裡。點數字或「前往」可直接進到該清單。"
-        actions={
-          <>
-            {canContract ? <Link to="/admin/contracts/issue" className="btn rounded-md px-3 py-2 text-sm no-underline">發送合約</Link> : null}
-            {canPay ? <Link to="/admin/payments/record" className="btn rounded-md px-3 py-2 text-sm no-underline">登錄付款</Link> : null}
-            {canTraining ? <Link to="/admin/courses/new" className="btn rounded-md px-3 py-2 text-sm no-underline">＋ 新增課程</Link> : null}
-          </>
-        }
-      />
-
-      {kpis.length ? (
-        <div className={`grid grid-cols-2 gap-3 ${kpis.length >= 5 ? "lg:grid-cols-5" : kpis.length === 4 ? "lg:grid-cols-4" : kpis.length === 3 ? "lg:grid-cols-3" : ""}`}>
-          {kpis.map((item) => <StatCard key={item.label} label={item.label} value={item.value} hint={item.hint} to={item.to} tone={item.value > 0 ? "warning" : undefined} />)}
-        </div>
-      ) : null}
-
-      <section className="space-y-3">
-        <SectionHeader title="待辦事項" hint={todos.length ? `共 ${todos.length} 項，等候最久的排在前面。` : "目前沒有待辦。"} />
-        {todos.length === 0 ? (
-          <Empty title="都處理完了" body="新的送件、付款、專班申請或合約回傳會出現在這裡。" />
-        ) : (
-          <DataTable columns={["類型", "對象", "內容", "已等候", "操作"]}>
-            {shownTodos.map((item) => (
-              <tr key={item.key} className={tableRowClass}>
-                <td className="p-3"><Badge tone={item.tone}>{item.kind}</Badge></td>
-                <td className="p-3 font-medium">{item.subject}</td>
-                <td className="p-3">{item.detail}</td>
-                <td className="p-3 whitespace-nowrap">{waitingLabel(item.since)}</td>
-                <td className="p-3"><Link className="text-[var(--link)] underline" to={item.href} state={item.navFrom ? ({ navFrom: item.navFrom } satisfies NavFromState) : undefined}>前往</Link></td>
-              </tr>
-            ))}
-          </DataTable>
-        )}
-        {todos.length > shownTodos.length ? <p className="text-sm text-[var(--muted)]">只列出前 {shownTodos.length} 項，其餘請到各模組清單查看。</p> : null}
-      </section>
-
-      {canReview ? (
-        <section className="space-y-3">
-          <SectionHeader title="案件流程" hint="各審查階段的案件數。" actions={<Button variant="secondary" onClick={async () => downloadText("applications.csv", await services.exportApplications())}>匯出 CSV</Button>} />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-            {pipeline.map((item) => <StatCard key={item.id} label={item.label} value={item.count} to={item.href} />)}
-          </div>
-        </section>
-      ) : null}
-
-      {canContract || canPay || canTraining ? (
-        <section className="space-y-3">
-          <SectionHeader title="模組狀態" />
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {canContract ? (
-              <ModulePanel
-                title="合約"
-                href="/admin/contracts"
-                rows={[
-                  { label: "待業者回傳", value: pendingContracts.length, href: "/admin/contracts?tab=pending", tone: pendingContracts.length ? "warning" : undefined },
-                  { label: "已簽約", value: signedCount, href: "/admin/contracts?tab=signed" },
-                  { label: "即將到期可續約", value: renewableContracts.length, href: "/admin/contracts?tab=renewable", tone: renewableContracts.length ? "warning" : undefined },
-                  { label: "未續約", value: notRenewedCount, href: "/admin/contracts?tab=not_renewed" },
-                ]}
-              />
-            ) : null}
-            {canPay && payments.data ? (
-              <ModulePanel
-                title="方案與付款"
-                href="/admin/payments/plans"
-                rows={[
-                  { label: "待核帳", value: awaiting.length, href: "/admin/payments/reconciliation", tone: awaiting.length ? "warning" : undefined },
-                  { label: `${payments.data.monthLabel}成交`, value: `${payments.data.dealCount} 筆`, href: "/admin/payments" },
-                  { label: `${payments.data.monthLabel}已核帳`, value: formatTwd(payments.data.paidAmount), href: "/admin/payments" },
-                  { label: "開放中方案", value: payments.data.plans.filter((plan) => plan.isActive).length, href: "/admin/payments/plans" },
-                ]}
-              />
-            ) : null}
-            {canTraining ? (
-              <ModulePanel
-                title="教育訓練"
-                href="/admin/courses"
-                rows={[
-                  { label: "專班待審", value: pendingRequests.length, href: "/admin/training/company-requests", tone: pendingRequests.length ? "warning" : undefined },
-                  { label: "近期梯次", value: data.upcomingCourses, href: "/admin/courses" },
-                ]}
-              />
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="space-y-3">
-        <SectionHeader title="近期課程" actions={canTraining ? <Link className="text-sm text-[var(--link)] underline" to="/admin/courses">全部課程</Link> : null} />
-        {data.upcoming.length === 0 ? <Empty title="沒有近期課程" body="公開新的梯次後會出現在這裡。" /> : (
-          <DataTable columns={["課程", "開始時間", "地點"]}>
-            {data.upcoming.map((course) => (
-              <tr key={course.id} className={tableRowClass}>
-                <td className="p-3 font-medium">{canTraining ? <Link className="text-[var(--link)]" to={`/admin/courses/${course.id}/edit`}>{course.title}</Link> : course.title}</td>
-                <td className="p-3">{formatTaipei(course.startsAt)}</td>
-                <td className="p-3">{course.location || "線上"}</td>
-              </tr>
-            ))}
-          </DataTable>
-        )}
-      </section>
-
-      {canAudit ? (
-        <section className="space-y-3">
-          <SectionHeader title="最近操作" actions={<Link className="text-sm text-[var(--link)] underline" to="/admin/audit-logs">全部紀錄</Link>} />
-          {(audit.data?.items.length ?? 0) === 0 ? <Empty title="尚無紀錄" body="最近 30 天沒有操作。" /> : (
-            <DataTable columns={["時間", "人員", "動作", "對象"]}>
-              {audit.data?.items.slice(0, 8).map((row) => (
-                <tr key={row.id} className={tableRowClass}>
-                  <td className="p-3 whitespace-nowrap">{formatTaipei(row.createdAt)}</td>
-                  <td className="p-3">{row.actorName ?? "系統"}</td>
-                  <td className="p-3">{auditActionLabel(row.action)}</td>
-                  <td className="p-3">{auditEntityLabel(row.entityType)}</td>
-                </tr>
-              ))}
-            </DataTable>
-          )}
-        </section>
-      ) : null}
+      <Card className="p-4">
+        <p className="text-xl font-semibold">{person?.displayName ?? "內部人員"}</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">{roleLabel} · {person?.email ?? "尚未登入"}。系統目前沒有另外的人員編號。</p>
+      </Card>
+      {cases.length ? <TileSection title="案件" hint="有數字的是待處理件數。沒有的是總覽入口。" items={cases} /> : null}
+      {learning.length ? <TileSection title="教育訓練" hint="媒材、專班報名、上課名單與訓練證書。" items={learning} /> : null}
+      {manage.length ? <TileSection title="管理" hint="報表、權限、前台、紀錄與串接。" items={manage} /> : null}
+      {cases.length + learning.length + manage.length === 0 ? <Empty title="這個帳號沒有工作總覽項目" body="請管理員在權限裡勾選要使用的功能。" /> : null}
     </div>
+  );
+}
+
+function TileSection({ title, hint, items }: { title: string; hint: string; items: Array<{ label: string; hint: string; to: string; count?: number }> }) {
+  return (
+    <section className="space-y-3">
+      <SectionHeader title={title} hint={hint} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {items.map((item) => <WorkTile key={item.label} {...item} />)}
+      </div>
+    </section>
   );
 }
 
@@ -335,7 +144,7 @@ export function AdminApplicationList() {
           {items.map((item) => (
             <tr key={item.id} className={tableRowClass}>
               <td className="p-3 font-medium">{item.applicationNo}</td>
-              <td className="p-3">{item.organizationName}</td>
+              <td className="p-3"><OrgLink name={item.organizationName} organizationId={item.organizationId} /></td>
               <td className="p-3">{item.categoryName}</td>
               <td className="p-3">{item.assignedToName ?? "未派案"}</td>
               {status === "SECOND_REVIEW" ? <td className="p-3">{item.siteReviewerName ?? "未指定"}</td> : null}
@@ -380,14 +189,16 @@ export function AdminCertificatesPage() {
         />
       ) : null}
       {items.length > 0 ? (
-        <DataTable columns={["編號", "業者", "類別", "承辦", ...(part === "issued" ? ["證書編號"] : []), "案件最後更新", "操作"]}>
+        <DataTable columns={["編號", "業者", "類別", "承辦", ...(part === "issued" ? ["證書編號", "核發日", "到期日"] : []), "案件最後更新", "操作"]}>
           {items.map((item) => (
             <tr key={item.id} className={tableRowClass}>
               <td className="p-3 font-medium whitespace-nowrap">{item.applicationNo}</td>
-              <td className="p-3">{item.organizationName}</td>
+              <td className="p-3"><OrgLink name={item.organizationName} organizationId={item.organizationId} /></td>
               <td className="p-3">{item.categoryName}</td>
               <td className="p-3">{item.assignedToName ?? "—"}</td>
-              {part === "issued" ? <td className="p-3 break-all">{item.certificateNo}</td> : null}
+              {part === "issued" ? <td className="p-3 break-all">{item.certificateNo || "—"}</td> : null}
+              {part === "issued" ? <td className="p-3 whitespace-nowrap">{item.issuedOnDate || "—"}</td> : null}
+              {part === "issued" ? <td className="p-3 whitespace-nowrap">{item.validUntilDate || "—"}</td> : null}
               <td className="p-3 whitespace-nowrap">{formatTaipei(item.updatedAt)}</td>
               <td className="p-3 whitespace-nowrap"><Link className="text-[var(--link)] underline" to={`/admin/applications/${item.id}`} state={{ navFrom: location.pathname } satisfies NavFromState}>{part === "pending" ? "發證" : "查看／下載"}</Link></td>
             </tr>
@@ -420,7 +231,7 @@ export function AdminApplicationDetail() {
     <div className="space-y-4">
       <AdminPageHeader
         title={item.applicationNo}
-        description={`${item.organizationName} · ${item.categoryName}`}
+        description={<><OrgLink name={item.organizationName} organizationId={item.organizationId} /> · {item.categoryName}</>}
         actions={
           <>
             <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
@@ -472,13 +283,25 @@ function CertificationForm({ application }: { application: ApplicationDetail }) 
     mealDrink: Boolean(application.formData.mealDrink),
     mealSnack: Boolean(application.formData.mealSnack),
   });
+  const setting = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
+  const [months, setMonths] = useState("12");
+  const [untilTouched, setUntilTouched] = useState(false);
   const [form, setForm] = useState({
-    certificateNo: "",
-    issuedOnDate: "",
-    validUntilDate: "",
-    templateKey: matched[0]?.key ?? "",
+    certificateNo: application.certificateNo ?? "",
+    issuedOnDate: application.issuedOnDate ?? "",
+    validUntilDate: application.validUntilDate ?? "",
+    templateKey: application.templateKey ?? matched[0]?.key ?? "",
   });
   const [message, setMessage] = useState<Notice>(null);
+  useEffect(() => {
+    if (!setting.data || application.certificateNo) return;
+    setMonths(String(setting.data.certificateTermMonths));
+    setForm((current) => {
+      if (current.issuedOnDate) return current;
+      const issued = taipeiDateString();
+      return { ...current, issuedOnDate: issued, validUntilDate: certificateDefaultUntil(issued, setting.data.certificateTermMonths) };
+    });
+  }, [setting.data, application.certificateNo]);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
@@ -494,9 +317,49 @@ function CertificationForm({ application }: { application: ApplicationDetail }) 
           ))}
         </SelectInput>
       </Field>
+      <Field label="預設效期（月）" hint="只在還沒發過的證書帶出到期日。到期日是核發日往後這個月數的前一天，仍可改。已核發的證書不會被改。">
+        <div className="flex flex-wrap items-center gap-2">
+          <TextInput className="w-28" inputMode="numeric" value={months} onChange={(event) => {
+            const next = event.target.value;
+            setMonths(next);
+            const count = Number(next);
+            if (!untilTouched && form.issuedOnDate && Number.isInteger(count) && count >= 1 && count <= 36) {
+              setForm({ ...form, validUntilDate: certificateDefaultUntil(form.issuedOnDate, count) });
+            }
+          }} />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={async () => {
+              const count = Number(months);
+              if (!setting.data || !Number.isInteger(count) || count < 1 || count > 36) {
+                setMessage(failNotice("證書效期請填 1 到 36 個月"));
+                return;
+              }
+              try {
+                await services.saveOperationSetting({ certificateTermMonths: count, expectedVersion: setting.data.version });
+                setMessage("已儲存預設效期。已核發的證書沒有改。");
+                await client.invalidateQueries({ queryKey: ["operation-setting"] });
+              } catch (error) {
+                setMessage(failNotice(error instanceof ClientError ? error.message : "無法儲存預設效期"));
+              }
+            }}
+          >
+            儲存預設
+          </Button>
+        </div>
+      </Field>
       <Field label="證書編號"><TextInput value={form.certificateNo} onChange={(event) => setForm({ ...form, certificateNo: event.target.value })} /></Field>
-      <Field label="核發日"><TextInput type="date" value={form.issuedOnDate} onChange={(event) => setForm({ ...form, issuedOnDate: event.target.value })} /></Field>
-      <Field label="到期日"><TextInput type="date" value={form.validUntilDate} onChange={(event) => setForm({ ...form, validUntilDate: event.target.value })} /></Field>
+      <Field label="核發日"><TextInput type="date" value={form.issuedOnDate} onChange={(event) => {
+        const issuedOnDate = event.target.value;
+        const count = Number(months);
+        setForm({
+          ...form,
+          issuedOnDate,
+          validUntilDate: !untilTouched && Number.isInteger(count) && count >= 1 ? certificateDefaultUntil(issuedOnDate, count) : form.validUntilDate,
+        });
+      }} /></Field>
+      <Field label="到期日"><TextInput type="date" value={form.validUntilDate} onChange={(event) => { setUntilTouched(true); setForm({ ...form, validUntilDate: event.target.value }); }} /></Field>
       <div className="flex flex-wrap gap-2">
         <Button
           disabled={busy || !form.templateKey}
@@ -662,6 +525,26 @@ export function CourseFormPage() {
           {course?.hasVideo ? <p className="mt-2 text-sm">已上傳影片，長度 {course.videoDurationSeconds} 秒。通過門檻是三分之二。</p> : null}
         </div>
       ) : null}
+      <div className="rounded-lg border border-dashed border-[var(--line)] bg-white p-4">
+        <p className="text-sm">上課資料。這門課自己的教材，業者報名後可在資源下載取得。請用 PDF、JPEG 或 PNG。</p>
+        {courseId ? (
+          <label className="btn mt-3 inline-block cursor-pointer rounded-md px-3 py-2 text-sm">選擇上課資料
+            <input className="sr-only" type="file" accept="application/pdf,image/jpeg,image/png" onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              try {
+                await services.uploadCourseMaterial(courseId, file);
+                await existing.refetch();
+                setError(null);
+              } catch (reason) {
+                setError(reason instanceof ClientError ? reason.message : "上傳失敗");
+              }
+            }} />
+          </label>
+        ) : <p className="mt-2 text-sm">先儲存課程，再上傳上課資料。</p>}
+        {course?.materialName ? <p className="mt-2 text-sm">目前：{course.materialName}</p> : null}
+      </div>
       <div className="grid gap-3 md:grid-cols-2">
       <Field label="名稱"><TextInput value={form.title || value.title} onChange={(event) => setForm({ ...value, title: event.target.value })} /></Field>
       {delivery === "OFFLINE" ? <Field label="地點"><TextInput value={form.location || value.location} onChange={(event) => setForm({ ...value, location: event.target.value })} /></Field> : null}
@@ -742,7 +625,7 @@ export function EnrollmentAdminPage() {
         </>}
       />
       {(rows.data?.length ?? 0) === 0 ? <Empty title="還沒有報名" body="公開課程後，業者可以自行報名。" /> : (
-        <DataTable columns={["報名人", "Email", "完課狀態", "出席登錄", ""]}>
+        <DataTable columns={["報名人", "Email", "完課狀態", "認可時數", "出席登錄", ""]}>
           {(rows.data ?? []).map((row) => <AttendanceRow key={row.id} row={row} onSaved={() => client.invalidateQueries({ queryKey: ["enrollments", courseId] })} />)}
         </DataTable>
       )}
@@ -757,9 +640,10 @@ function AttendanceRow({ row, onSaved }: { row: Awaited<ReturnType<ReturnType<ty
   const [message, setMessage] = useState<Notice>(null);
   return (
     <tr className={`${tableRowClass} align-top`}>
-      <td className="p-3 font-medium">{row.userName}</td>
+      <td className="p-3 font-medium"><OrgLink name={row.userName} userId={row.userId} /></td>
       <td className="p-3">{row.userEmail}</td>
       <td className="p-3"><Badge tone={labels.completion[row.completion].tone}>{labels.completion[row.completion].label}</Badge></td>
+      <td className="p-3 whitespace-nowrap">{row.quizPassed ? `${row.recognizedMinutes} 分鐘` : "尚未計入"}</td>
       <td className="p-3">
         {row.delivery === "ONLINE" ? <span>已看 {row.watchedSeconds} 秒／需 {row.passSeconds} 秒</span> : (
           <div className="flex flex-wrap items-center gap-2">
@@ -791,7 +675,7 @@ export function OrganizationsPage() {
     <div className="space-y-4">
       <AdminPageHeader
         title="會員管理"
-        description="前台註冊的業者資料。業者自行在會員區維護；需要批次建立時用資料匯入。"
+        description="前台註冊的業者資料。點查看信件，可以看到寄給這一家的手動信和系統信。"
         actions={<Link to="/admin/imports" className="btn rounded-md px-3 py-2 text-sm no-underline">資料匯入</Link>}
       />
       <SectionHeader
@@ -800,8 +684,16 @@ export function OrganizationsPage() {
         actions={<TextInput className="w-56" placeholder="搜尋名稱或統編" value={q} onChange={(event) => setQ(event.target.value)} aria-label="搜尋業者" />}
       />
       {(rows.data?.length ?? 0) === 0 && !rows.isLoading ? <Empty title="沒有符合的業者" body="換個關鍵字，或確認業者已在前台註冊。" /> : (
-        <DataTable columns={["業者", "統編", "聯絡人", "電話"]}>
-          {rows.data?.map((org) => <tr key={org.id} className={tableRowClass}><td className="p-3 font-medium">{org.organizationName}</td><td className="p-3">{org.taxId}</td><td className="p-3">{org.contactName}</td><td className="p-3">{org.contactPhone}</td></tr>)}
+        <DataTable columns={["業者", "統編", "聯絡人", "電話", "信件"]}>
+          {rows.data?.map((org) => (
+            <tr key={org.id} className={tableRowClass}>
+              <td className="p-3 font-medium"><OrgLink name={org.organizationName} organizationId={org.id} /></td>
+              <td className="p-3">{org.taxId}</td>
+              <td className="p-3">{org.contactName}</td>
+              <td className="p-3">{org.contactPhone}</td>
+              <td className="p-3"><Link className="text-[var(--link)]" to={`/admin/organizations/${org.id}`}>查看信件</Link></td>
+            </tr>
+          ))}
         </DataTable>
       )}
     </div>

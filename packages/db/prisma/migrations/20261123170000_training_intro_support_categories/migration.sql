@@ -1,0 +1,3 @@
+ALTER TYPE "content_slot" ADD VALUE 'TRAINING';
+ALTER TYPE "content_slot" ADD VALUE 'SUPPORT';
+ALTER TYPE "editorial_kind" ADD VALUE 'CATEGORY_INTRO';

@@ -1,12 +1,11 @@
-import { applicationStatusLabels, attachmentIsRequired, attachmentIsVisible, fieldIsRequired, fieldIsVisible, layoutCertificateRowsHtml, reviewTargets, splitCertificateFields, validateSubmit, VERIFICATION_EXCLUSIVE, VERIFICATION_PICK_KEYS, type ApplicationDetail, type CategoryField } from "@mf/contracts";
+import { CONTRACT_RENEWAL_WINDOW_DAYS, applicationStatusLabels, attachmentIsRequired, attachmentIsVisible, fieldIsRequired, fieldIsVisible, isContractRenewalDue, layoutCertificateRowsHtml, minutesToHourLabel, reviewTargets, splitCertificateFields, validateSubmit, VERIFICATION_EXCLUSIVE, VERIFICATION_PICK_KEYS, type ApplicationDetail, type CategoryField } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useServices } from "../../app/session";
 import { AttachmentImages } from "../../components/AttachmentImages";
 import { ImageAdjustDialog } from "../../components/ImageAdjustDialog";
-import { TrainingPage } from "./TrainingPage";
-import { Badge, Button, Card, Empty, ErrorText, Field, Modal, scrollToPageTop, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Empty, ErrorText, Field, Modal, scrollToPageTop, SectionHeader, SelectInput, TextArea, TextInput, WorkTile } from "../../components/ui";
 import { describeSubmitIssue, issueAnchorId, stepForIssuePath, validateApplicationStep } from "../../lib/application-steps";
 import { formatBytes, formatTaipei, labels } from "../../lib/format";
 import { ClientError } from "../../services/types";
@@ -14,38 +13,71 @@ import { ClientError } from "../../services/types";
 export function PortalHome() {
   const services = useServices();
   const summary = useQuery({ queryKey: ["summary"], queryFn: () => services.summary() });
-  const apps = useQuery({ queryKey: ["applications"], queryFn: () => services.applications({ page: 1 }) });
+  const organization = useQuery({ queryKey: ["organization"], queryFn: () => services.organization() });
+  const payments = useQuery({ queryKey: ["my-payments"], queryFn: () => services.myPayments() });
+  const contracts = useQuery({ queryKey: ["contracts", "mine"], queryFn: () => services.myContracts() });
+  const operation = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
   const basic = useQuery({ queryKey: ["basic-training"], queryFn: () => services.basicTrainingStatus() });
+  const courses = useQuery({ queryKey: ["courses", "public"], queryFn: () => services.courses("public") });
+  const learning = useQuery({ queryKey: ["learning"], queryFn: () => services.learning() });
+  const certificates = useQuery({ queryKey: ["certifications"], queryFn: () => services.certifications() });
   if (summary.isLoading) return <p>載入中…</p>;
-  if (summary.error) return <ErrorText message="無法載入總覽" />;
-  const data = summary.data!;
-  const cards = [
-    ["草稿", data.draft],
-    ["審核中", data.submitted + data.initialReview + data.secondReview + data.finalReview],
-    ["待補件", data.needSupplement],
-    ["已核定", data.approved],
+  if (summary.error || !summary.data) return <ErrorText message="無法載入總覽" />;
+  const data = summary.data;
+  const paymentRows = payments.data?.payments ?? [];
+  const quoted = paymentRows.filter((row) => row.status === "QUOTED").length;
+  const unpaid = paymentRows.filter((row) => row.status === "PENDING").length;
+  const voidPayments = paymentRows.filter((row) => row.status === "VOID").length;
+  const awaitingContract = (contracts.data ?? []).filter((item) => item.status === "ISSUED").length;
+  const reminderDays = operation.data?.renewalReminderDays ?? CONTRACT_RENEWAL_WINDOW_DAYS;
+  const expiring = (contracts.data ?? []).filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt, new Date(), reminderDays)).length;
+  const tiles = [
+    { label: "未核案件", hint: "已申請方案、等管理員確認", to: "/portal/payments", count: quoted },
+    { label: "未付款", hint: "匯款單已產生，請繳費並上傳單據", to: "/portal/payments", count: unpaid },
+    { label: "未送件", hint: "還在草稿，尚未送出", to: "/portal/applications?status=DRAFT", count: data.draft },
+    { label: "未補資料", hint: "審查退回，等你補件", to: "/portal/supplements", count: data.needSupplement },
+    { label: "複審未過", hint: "目前停在複審中的案件", to: "/portal/applications?status=SECOND_REVIEW", count: data.secondReview },
+    { label: "已核定", hint: "審查通過、狀態為已核定的案件", to: "/portal/applications?status=APPROVED", count: data.approved },
+    { label: "核發證書", hint: "已經發出去的電子證書", to: "/portal/certifications", count: certificates.data?.length ?? 0 },
+    { label: "案件查詢（一年內）", hint: "查看自己的驗證申請", to: "/portal/applications", count: undefined },
+    { label: "合約", hint: "尚未上傳蓋章的合約", to: "/portal/contracts", count: awaitingContract },
+    { label: "即將到期", hint: "效期剩餘約兩個月內", to: "/portal/renewals", count: expiring },
+    { label: "歷史記錄", hint: "數字是已核定加已退件。點進去看全部申請", to: "/portal/applications", count: data.approved + data.rejected },
+    { label: "未成立", hint: voidPayments > 0 ? "方案不核准或逾期未繳費，要重新申請" : "已退件、沒有進入後續流程", to: voidPayments > 0 ? "/portal/payments" : "/portal/applications?status=REJECTED", count: data.rejected + voidPayments },
+  ];
+  const published = (courses.data ?? []).filter((course) => course.status === "PUBLISHED");
+  const training = [
+    { label: "線上學習", hint: "只列出線上課程", to: "/portal/training/online", count: published.filter((course) => course.delivery === "ONLINE").length },
+    { label: "實體課程報名", hint: "只列出線下課程", to: "/portal/training/offline", count: published.filter((course) => course.delivery === "OFFLINE").length },
+    { label: "線上測驗", hint: "看完課程後才能開始", to: "/portal/training/quiz", count: (learning.data ?? []).filter((row) => row.quizReady).length },
+    { label: "時數證明", hint: "通過測驗的課程與總時數", to: "/portal/training/hours", count: (learning.data ?? []).filter((row) => row.quizPassed).length },
+    { label: "資源下載", hint: "每一門課自己的上課資料", to: "/portal/training/materials" },
   ];
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">總覽</h1>
+    <div className="space-y-6">
+      <Card className="p-4">
+        <p className="text-xl font-semibold">{organization.data?.organizationName ?? "業者"}</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">統編 {organization.data?.taxId ?? "尚未填寫"}。系統目前沒有另外的會員編號。</p>
+      </Card>
       {basic.data && basic.data.policy.requireBasicBeforeApply && !basic.data.passed ? (
         <Card className="space-y-2">
           <p className="font-medium">請先完成基礎教育訓練</p>
           <p className="text-sm text-[var(--muted)]">通過內容與測驗後，才能建立驗證申請。</p>
-          <Link className="btn btn-primary inline-flex rounded-md px-3 py-2 text-sm no-underline" to="/portal/enrollments">前往基礎教育訓練</Link>
+          <Link className="btn btn-primary inline-flex rounded-md px-3 py-2 text-sm no-underline" to="/portal/training/online">前往基礎教育訓練</Link>
         </Card>
       ) : null}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{cards.map(([label, count]) => <Card key={String(label)}><p className="text-sm text-[var(--muted)]">{label}</p><p className="text-2xl font-semibold">{count}</p></Card>)}</div>
-      <Card>
-        <h2 className="font-medium">待辦案件</h2>
-        {(apps.data?.items ?? []).filter((item) => item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT").slice(0, 5).map((item) => (
-          <Link key={item.id} className="mt-2 block text-sm text-[var(--link)]" to={item.status === "DRAFT" || item.status === "NEED_SUPPLEMENT" ? `/portal/applications/${item.id}/edit` : `/portal/applications/${item.id}`}>{item.applicationNo} · {applicationStatusLabels[item.status].label}</Link>
-        ))}
-      </Card>
-      <Card>
-        <h2 className="font-medium">近期課程</h2>
-        {data.upcoming.length === 0 ? <p className="text-sm text-[var(--muted)]">目前沒有即將開始的公開課程。</p> : data.upcoming.map((course) => <p key={course.id} className="text-sm">{course.title} · {formatTaipei(course.startsAt)} · {course.location}</p>)}
-      </Card>
+      <section className="space-y-3">
+        <SectionHeader title="案件" hint="數字是目前狀態的件數。點進去進到對應清單。" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {tiles.map((item) => <WorkTile key={item.label} {...item} />)}
+        </div>
+      </section>
+      <section className="space-y-3">
+        <SectionHeader title="教育訓練" hint="數字是目前看得到的課程或可測驗的件數。" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {training.map((item) => <WorkTile key={item.label} {...item} />)}
+        </div>
+      </section>
     </div>
   );
 }
@@ -103,8 +135,13 @@ export function AccountPage() {
 export function ApplicationListPage() {
   const services = useServices();
   const client = useQueryClient();
+  const [params] = useSearchParams();
+  const requested = params.get("status") ?? "";
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(Object.hasOwn(applicationStatusLabels, requested) ? requested : "");
+  useEffect(() => {
+    setStatus(Object.hasOwn(applicationStatusLabels, requested) ? requested : "");
+  }, [requested]);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; applicationNo: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["applications", q, status], queryFn: () => services.applications({ q, status, page: 1 }) });
@@ -218,6 +255,8 @@ export function ApplicationEditPage() {
   const [adjust, setAdjust] = useState<{ key: string; files: File[] } | null>(null);
   const [focusPath, setFocusPath] = useState<string | null>(null);
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => services.categories() });
+  const uploadLimit = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
+  const maxFileLabel = `${uploadLimit.data?.attachmentMaxMb ?? 10} MB`;
   useEffect(() => { if (query.data) setDraft(query.data); }, [query.data]);
   useEffect(() => {
     if (!focusPath) return;
@@ -348,7 +387,7 @@ export function ApplicationEditPage() {
               <Card key={requirement.key} id={issueAnchorId(`attachments.${requirement.key}`)}>
                 <p className="font-medium">{needed ? <span className="text-[var(--danger)]">* </span> : null}{requirement.label}</p>
                 {supplementFor(`attachment:${requirement.key}`) ? <p className="text-sm">審查請補件：{supplementFor(`attachment:${requirement.key}`)?.publicComment}</p> : null}
-                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。選好後可旋轉、裁切，或直接使用原檔。" : "PDF、JPEG、PNG。照片可先旋轉、裁切。"}單檔 10 MiB。可一次選擇多個檔案。{requirement.helpText}</p>
+                <p className="text-xs text-[var(--muted)]">{image ? "只接受 JPEG、PNG。選好後可旋轉、裁切，或直接使用原檔。" : "PDF、JPEG、PNG、MP4、WebM。照片可先旋轉、裁切。"}單檔 {maxFileLabel}。可一次選擇多個檔案。{requirement.helpText}</p>
                 {files.length === 0 ? <p className="text-sm text-[var(--muted)]">尚未上傳</p> : files.map((file) => (
                   <div key={file.id} className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                     {file.mimeType === "application/pdf" ? <OpenPdfButton fileId={file.fileId} name={file.originalName} /> : <span>{file.originalName}</span>}
@@ -359,7 +398,7 @@ export function ApplicationEditPage() {
                 <AttachmentImages files={files} />
                 <FileChooser
                   label={image ? "選擇照片" : "選擇檔案"}
-                  accept={image ? "image/jpeg,image/png" : "application/pdf,image/jpeg,image/png"}
+                  accept={image ? "image/jpeg,image/png" : "application/pdf,image/jpeg,image/png,video/mp4,video/webm"}
                   multiple
                   ariaLabel={requirement.label}
                   onFiles={async (selected) => {
@@ -754,22 +793,20 @@ export function ApplicationDetailPage() {
   );
 }
 
-export function EnrollmentPage() {
-  return <TrainingPage />;
-}
-
 export function LearningPage() {
   const services = useServices();
   const rows = useQuery({ queryKey: ["learning"], queryFn: () => services.learning() });
-  const total = (rows.data ?? []).filter((row) => row.countsTowardTotal).reduce((sum, row) => sum + row.attendedMinutes, 0);
+  const passed = (rows.data ?? []).filter((row) => row.quizPassed && row.recognizedMinutes > 0);
+  const total = passed.reduce((sum, row) => sum + row.recognizedMinutes, 0);
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">我的學習紀錄</h1>
-      <p className="text-sm">已完成時數合計 {Math.round((total / 60) * 10) / 10} 小時。未登錄顯示待登錄，取消的報名不計入。</p>
+      <p className="text-sm">通過測驗的認可時數合計 {minutesToHourLabel(total)}。這份時數用課程的認證分鐘，不把線上影片的觀看秒數換算進來。取消的報名不計入。</p>
       {(rows.data ?? []).map((row) => (
         <Card key={row.id}>
           <p className="font-medium">{row.courseTitle}</p>
-          <p className="text-sm">出席：{labels.attendance[row.attendanceStatus].label} · {row.attendedHoursLabel} · <Badge tone={labels.completion[row.completion].tone}>{labels.completion[row.completion].label}</Badge></p>
+          <p className="text-sm">{row.delivery === "ONLINE" ? `已看 ${row.watchedSeconds} 秒` : `出席 ${labels.attendance[row.attendanceStatus].label} · ${row.attendedHoursLabel}`} · 認可：{row.quizPassed ? minutesToHourLabel(row.recognizedMinutes) : "尚未計入"} · <Badge tone={labels.completion[row.completion].tone}>{labels.completion[row.completion].label}</Badge></p>
+          {row.trainingCertificateNo ? <p className="text-sm">訓練證書 {row.trainingCertificateNo} · {row.trainingCertificateIssuedOn} 至 {row.trainingCertificateValidUntil}</p> : null}
         </Card>
       ))}
     </div>
@@ -785,9 +822,10 @@ export function CertificationPage() {
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-semibold">電子證書</h1>
-      <p className="text-sm text-[var(--muted)]">管理員核定並發證後，可在此預覽與下載 PDF。</p>
+      <p className="text-sm text-[var(--muted)]">只列出已經核發的證書。已核定、尚未發證的案件在工作總覽的「已核定」。</p>
       {message ? <p className="text-sm">{message}</p> : null}
-      {(rows.data ?? []).length === 0 ? <Empty title="尚無證書資料" body="案件核定並發證後才會出現。" /> : null}
+      {rows.isLoading ? <p>載入中…</p> : null}
+      {!rows.isLoading && (rows.data ?? []).length === 0 ? <Empty title="尚無證書資料" body="管理員發證後才會出現，可以預覽與下載 PDF。" /> : null}
       {rows.data?.map((item) => (
         <Card key={item.id} className="space-y-2">
           <p className="font-medium">{item.certificateNo}</p>

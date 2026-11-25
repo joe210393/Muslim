@@ -47,6 +47,20 @@ export const attendanceStatusSchema = enumSchema(AttendanceStatus);
 export const companyTrainingRequestStatusSchema = enumSchema(CompanyTrainingRequestStatus);
 export const notificationJobStatusSchema = enumSchema(NotificationJobStatus);
 export const notificationTypeSchema = enumSchema(NotificationType);
+export const customerNoticeSchema = z.object({
+  id: z.string().uuid(),
+  type: notificationTypeSchema,
+  subject: z.string(),
+  body: z.string(),
+  status: notificationJobStatusSchema,
+  applicationId: z.string().uuid().nullable(),
+  applicationNo: z.string().nullable(),
+  recipientEmail: z.string(),
+  createdAt: z.string(),
+  sentAt: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+});
+export type CustomerNoticeItem = z.infer<typeof customerNoticeSchema>;
 export const importBatchTypeSchema = enumSchema(ImportBatchType);
 export const importBatchStatusSchema = enumSchema(ImportBatchStatus);
 

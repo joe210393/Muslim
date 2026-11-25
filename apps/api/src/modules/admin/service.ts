@@ -21,6 +21,8 @@ import {
   sha256Hex,
   taipeiYear,
   type DashboardCounts,
+  type OrganizationLookup,
+  type OrganizationProfile,
   roleForAccountFeatures,
   PLATFORM_FEATURES,
 } from "@mf/contracts";
@@ -146,6 +148,60 @@ export async function listOrganizations(query: string | undefined, page: number,
   return {
     items: rows.map((org) => ({ ...org, createdAt: org.createdAt.toISOString(), updatedAt: org.updatedAt.toISOString() })),
     meta: pageMeta(page, pageSize, total),
+  };
+}
+
+const PROFILE_WIDE_FEATURES = ["users.manage", "payments.manage", "contracts.issue", "training.manage"] as const;
+
+/** 後台點業者名稱看的資料。承辦若只有審查權限，只能看有自己可見案件的業者，案件也只列可見的。 */
+export async function organizationProfile(actor: SessionActor, lookup: OrganizationLookup): Promise<OrganizationProfile> {
+  if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.CASE_OFFICER) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
+  const { enabledFeatureKeys } = await import("../platform/access");
+  const { officerCaseWhere } = await import("../applications/service");
+  const keys = await enabledFeatureKeys(actor.id, actor.role);
+  const wide = PROFILE_WIDE_FEATURES.some((key) => keys.includes(key));
+  const reviews = keys.includes("applications.review") || keys.includes("applications.decide");
+  if (!wide && !reviews) throw new ApiError(403, ErrorCodes.FORBIDDEN, "這個帳號目前沒有此功能");
+
+  let organizationId = lookup.organizationId ?? null;
+  if (lookup.userId) {
+    const user = await prisma.user.findUnique({ where: { id: lookup.userId }, select: { organizationId: true, role: true } });
+    organizationId = user?.role === UserRole.APPLICANT ? user.organizationId : null;
+  }
+  if (lookup.applicationId) {
+    const app = await prisma.application.findUnique({ where: { id: lookup.applicationId }, select: { organizationId: true } });
+    organizationId = app?.organizationId ?? null;
+  }
+  if (!organizationId) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者");
+
+  const limited = !wide && actor.role === UserRole.CASE_OFFICER;
+  const appWhere: Prisma.ApplicationWhereInput = limited ? { AND: [{ organizationId }, officerCaseWhere(actor.id)] } : { organizationId };
+  const [org, accounts, applications, payments, contracts] = await Promise.all([
+    prisma.organization.findUnique({ where: { id: organizationId } }),
+    prisma.user.findMany({ where: { organizationId, role: UserRole.APPLICANT }, orderBy: { createdAt: "asc" }, select: { id: true, email: true, displayName: true, isActive: true, createdAt: true } }),
+    prisma.application.findMany({ where: appWhere, orderBy: { updatedAt: "desc" }, take: 20, select: { id: true, applicationNo: true, status: true, updatedAt: true, category: { select: { name: true } } } }),
+    prisma.paymentRecord.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, planName: true, amount: true, status: true, createdAt: true } }),
+    prisma.contractRecord.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, contractNo: true, title: true, status: true } }),
+  ]);
+  if (!org) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者");
+  if (limited && applications.length === 0) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者");
+  return {
+    organization: {
+      id: org.id,
+      organizationName: org.organizationName,
+      taxId: org.taxId,
+      contactName: org.contactName,
+      contactPhone: org.contactPhone,
+      contactEmail: org.contactEmail,
+      address: org.address,
+      createdAt: org.createdAt.toISOString(),
+      updatedAt: org.updatedAt.toISOString(),
+    },
+    accounts: accounts.map((user) => ({ ...user, createdAt: user.createdAt.toISOString() })),
+    applications: applications.map((app) => ({ id: app.id, applicationNo: app.applicationNo, categoryName: app.category.name, status: app.status, updatedAt: app.updatedAt.toISOString() })),
+    payments: payments.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+    contracts,
+    applicationsLimited: limited,
   };
 }
 

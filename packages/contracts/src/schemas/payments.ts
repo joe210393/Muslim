@@ -6,7 +6,7 @@ const paymentUrl = z
   .max(500)
   .refine((value) => value === "" || /^https?:\/\//.test(value), "付款連結須為 http 或 https 網址");
 
-export const paymentStatusSchema = z.enum(["QUOTED", "PENDING", "PAID_PENDING", "PAID"]);
+export const paymentStatusSchema = z.enum(["QUOTED", "PENDING", "PAID_PENDING", "PAID", "VOID"]);
 
 export const servicePlanImageSchema = z.object({
   id: z.string().uuid(),
@@ -52,6 +52,23 @@ export const paymentActionSchema = z.object({
   expectedStatus: paymentStatusSchema.optional(),
 });
 
+/** 管理員對報價與單據的處理。APPROVE_QUOTE 產生匯款單；REJECT_QUOTE／VOID 改未成立；RETURN_RECEIPT 退回重傳。 */
+export const paymentDecisionSchema = z.enum(["APPROVE_QUOTE", "REJECT_QUOTE", "RETURN_RECEIPT", "VOID"]);
+
+export const paymentReviewSchema = z.object({
+  paymentId: z.string().uuid(),
+  expectedStatus: paymentStatusSchema,
+  decision: paymentDecisionSchema,
+  note: z.string().trim().max(200, "備註最多 200 字").default(""),
+}).refine((value) => value.decision === "APPROVE_QUOTE" || value.note.length > 0, { message: "請填寫原因，業者會看到", path: ["note"] });
+
+export const remittanceInfoSchema = z.object({
+  bankName: z.string(),
+  accountNo: z.string(),
+  accountName: z.string(),
+  dueDays: z.number().int(),
+});
+
 export const servicePlanSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -80,6 +97,13 @@ export const paymentItemSchema = z.object({
   quoteConfirmedAt: z.string().datetime().nullable(),
   accountingConfirmedAt: z.string().datetime().nullable(),
   note: z.string(),
+  /** 匯款單號；管理員核准方案後產生。 */
+  slipNo: z.string().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  receiptUploaded: z.boolean(),
+  receiptName: z.string().nullable(),
+  voidedAt: z.string().datetime().nullable(),
+  voidReason: z.string(),
   createdAt: z.string().datetime(),
 });
 
@@ -93,7 +117,10 @@ export const paymentDeskSchema = z.object({
   dealCount: z.number().int(),
   paidAmount: z.number().int(),
   payments: z.array(paymentItemSchema),
+  awaitingQuote: z.array(paymentItemSchema),
+  awaitingPayment: z.array(paymentItemSchema),
   awaitingReconciliation: z.array(paymentItemSchema),
+  recentVoid: z.array(paymentItemSchema),
   plans: z.array(servicePlanSchema),
   organizations: z.array(z.object({ id: z.string().uuid(), organizationName: z.string() })),
   /** 已核帳開通、可發出合約的業者 */
@@ -117,6 +144,7 @@ export const myPaymentsSchema = z.object({
   plans: z.array(servicePlanSchema),
   serviceUnlocked: z.boolean(),
   activeOrder: paymentItemSchema.nullable(),
+  remittance: remittanceInfoSchema,
 });
 
 export type ServicePlanWrite = z.infer<typeof servicePlanWriteSchema>;
@@ -129,3 +157,6 @@ export type PaymentStatusValue = z.infer<typeof paymentStatusSchema>;
 export type EcpayCheckout = z.infer<typeof ecpayCheckoutSchema>;
 export type PaymentDesk = z.infer<typeof paymentDeskSchema>;
 export type MyPayments = z.infer<typeof myPaymentsSchema>;
+export type PaymentReview = z.input<typeof paymentReviewSchema>;
+export type PaymentDecision = z.infer<typeof paymentDecisionSchema>;
+export type RemittanceInfo = z.infer<typeof remittanceInfoSchema>;

@@ -630,7 +630,7 @@ export function normalizeContractBody(body: string): string {
   return ensureContractHtml(body);
 }
 
-/** 合約效期一年；剩餘兩個月內視為可續約提醒。 */
+/** 合約效期一年。可續約提醒天數預設 60，後台可改，不改已簽署合約。 */
 export const CONTRACT_TERM_DAYS = 365;
 export const CONTRACT_RENEWAL_WINDOW_DAYS = 60;
 
@@ -646,9 +646,9 @@ export function daysUntilContractExpiry(signedAtIso: string, now = new Date()): 
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
 }
 
-/** 已簽約且距離到期日在 60 天內（含到期當日）、尚未過期。 */
-export function isContractRenewalDue(signedAtIso: string | null | undefined, now = new Date()): boolean {
+/** 已簽約、尚未過期，且距離到期日在提醒天數內（含到期當日）。 */
+export function isContractRenewalDue(signedAtIso: string | null | undefined, now = new Date(), windowDays = CONTRACT_RENEWAL_WINDOW_DAYS): boolean {
   if (!signedAtIso) return false;
   const days = daysUntilContractExpiry(signedAtIso, now);
-  return days >= 0 && days <= CONTRACT_RENEWAL_WINDOW_DAYS;
+  return days >= 0 && days <= windowDays;
 }

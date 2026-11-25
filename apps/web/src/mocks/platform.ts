@@ -20,7 +20,12 @@ import {
   isServiceUnlocked,
   OFFICIAL_SERVICE_PLANS_2026,
   paymentActionSchema,
+  paymentDueAt,
   paymentRecordWriteSchema,
+  paymentReviewSchema,
+  isPaymentOverdue,
+  remittanceSlipNo,
+  type PaymentItem,
   planIsVisibleToUser,
   roleForAccountFeatures,
   selectPlanSchema,
@@ -41,6 +46,8 @@ import {
   isOpenApplicationForContract,
   issuableApplicationLabel,
   contractSealPositionsSchema,
+  operationSettingWriteSchema,
+  systemConnectionWriteSchema,
   normalizeSealLayout,
   contractFillSnapshotSchema,
   renderContractBody,
@@ -60,6 +67,7 @@ import { ClientError, type AccessSettings, type AdminEditorialEntry, type AdminS
 export type PlatformState = {
   contents: Array<AdminSiteSlot & { imageFileId: string | null }>;
   entries: Array<AdminEditorialEntry & { imageFileId: string | null }>;
+  sitePages?: import("./site-pages").MockSitePage[];
   template: { id: string; code: string; title: string; body: string; revision?: number; version: number; updatedAt: string };
   templates?: Array<{ id: string; code: string; title: string; body: string; revision: number; version: number; updatedAt: string }>;
   contracts: Array<Omit<ContractItem, "hasSignature" | "hasFace" | "hasPdf"> & { body: string; templateId: string; applicationId?: string | null; fill?: ContractFillSnapshot | null; faceFileId: string | null; signatureFileId: string | null; pdfFileId: string | null }>;
@@ -91,8 +99,14 @@ export type PlatformState = {
     accountingConfirmedAt?: string | null;
     createdAt?: string;
     note: string;
-    status?: "QUOTED" | "PENDING" | "PAID_PENDING" | "PAID";
+    status?: "QUOTED" | "PENDING" | "PAID_PENDING" | "PAID" | "VOID";
     paymentMethod?: string;
+    slipNo?: string | null;
+    dueAt?: string | null;
+    receiptFileId?: string | null;
+    receiptName?: string | null;
+    voidedAt?: string | null;
+    voidReason?: string;
   }>;
   seals: {
     companySealFileId: string | null;
@@ -104,6 +118,33 @@ export type PlatformState = {
     updatedAt: string;
   };
   certificateTemplates?: CertificateTemplateRow[];
+  operationSetting?: {
+    renewalReminderDays: number;
+    certificateTermMonths: number;
+    attachmentMaxBytes?: number;
+    paymentDueDays?: number;
+    remitBankName?: string;
+    remitAccountNo?: string;
+    remitAccountName?: string;
+    version: number;
+    updatedAt: string;
+  };
+  systemConnection?: {
+    supportEnabled: boolean;
+    supportLabel: string;
+    supportUrl: string;
+    smtpHost: string;
+    smtpPort: number | null;
+    smtpUser: string;
+    smtpFrom: string;
+    smtpPassword: string;
+    ecpayEnv: "" | "stage" | "production";
+    ecpayMerchantId: string;
+    ecpayHashKey: string;
+    ecpayHashIv: string;
+    version: number;
+  };
+  mailTemplates?: Array<{ key: string; subject: string; body: string; version: number; updatedAt: string }>;
 };
 
 type Actor = DemoDataset["users"][number];
@@ -166,7 +207,7 @@ export function createInitialPlatform(data: DemoDataset): PlatformState {
       ...DEFAULT_SITE_CONTENT[slot],
       imageUrl: null,
       imageFileId: null,
-      isPublished: true,
+      isPublished: slot !== ContentSlot.SUPPORT,
       version: 1,
       updatedAt: now,
     })),
@@ -505,6 +546,135 @@ export function fixHalalSpelling(platform: PlatformState) {
   }
 }
 
+export function ensureOperationSetting(platform: PlatformState) {
+  platform.operationSetting ??= {
+    renewalReminderDays: 60,
+    certificateTermMonths: 12,
+    attachmentMaxBytes: 10 * 1024 * 1024,
+    version: 1,
+    updatedAt: new Date().toISOString(),
+  };
+  platform.operationSetting.attachmentMaxBytes ??= 10 * 1024 * 1024;
+  platform.operationSetting.paymentDueDays ??= 14;
+  platform.operationSetting.remitBankName ??= "";
+  platform.operationSetting.remitAccountNo ??= "";
+  platform.operationSetting.remitAccountName ??= "";
+  return platform.operationSetting;
+}
+
+export function readOperationSetting(platform: PlatformState) {
+  const row = ensureOperationSetting(platform);
+  const attachmentMaxBytes = row.attachmentMaxBytes ?? 10 * 1024 * 1024;
+  return {
+    renewalReminderDays: row.renewalReminderDays,
+    certificateTermMonths: row.certificateTermMonths,
+    attachmentMaxBytes,
+    attachmentMaxMb: Math.round(attachmentMaxBytes / (1024 * 1024)),
+    paymentDueDays: row.paymentDueDays ?? 14,
+    remitBankName: row.remitBankName ?? "",
+    remitAccountNo: row.remitAccountNo ?? "",
+    remitAccountName: row.remitAccountName ?? "",
+    version: row.version,
+  };
+}
+
+export function saveOperationSetting(platform: PlatformState, actor: Actor, raw: unknown) {
+  const current = ensureOperationSetting(platform);
+  let input;
+  try {
+    input = operationSettingWriteSchema.parse(raw);
+  } catch (error) {
+    if (error instanceof ZodError) throw new ClientError(error.issues[0]?.message ?? "設定不正確", { status: 400, code: "VALIDATION_ERROR" });
+    throw error;
+  }
+  if (input.renewalReminderDays !== undefined) assertFeature(platform, actor, "contracts.issue");
+  if (input.certificateTermMonths !== undefined) assertFeature(platform, actor, "applications.decide");
+  if (input.attachmentMaxMb !== undefined) assertFeature(platform, actor, "users.manage");
+  if ([input.paymentDueDays, input.remitBankName, input.remitAccountNo, input.remitAccountName].some((item) => item !== undefined)) {
+    assertFeature(platform, actor, "payments.manage");
+  }
+  if (current.version !== input.expectedVersion) throw new ClientError("設定已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+  if (input.renewalReminderDays !== undefined) current.renewalReminderDays = input.renewalReminderDays;
+  if (input.certificateTermMonths !== undefined) current.certificateTermMonths = input.certificateTermMonths;
+  if (input.attachmentMaxMb !== undefined) current.attachmentMaxBytes = input.attachmentMaxMb * 1024 * 1024;
+  if (input.paymentDueDays !== undefined) current.paymentDueDays = input.paymentDueDays;
+  if (input.remitBankName !== undefined) current.remitBankName = input.remitBankName;
+  if (input.remitAccountNo !== undefined) current.remitAccountNo = input.remitAccountNo;
+  if (input.remitAccountName !== undefined) current.remitAccountName = input.remitAccountName;
+  current.version += 1;
+  current.updatedAt = new Date().toISOString();
+  return readOperationSetting(platform);
+}
+
+function ensureSystemConnection(platform: PlatformState) {
+  platform.systemConnection ??= {
+    supportEnabled: false,
+    supportLabel: "客服",
+    supportUrl: "",
+    smtpHost: "",
+    smtpPort: null,
+    smtpUser: "",
+    smtpFrom: "",
+    smtpPassword: "",
+    ecpayEnv: "",
+    ecpayMerchantId: "",
+    ecpayHashKey: "",
+    ecpayHashIv: "",
+    version: 1,
+  };
+  return platform.systemConnection;
+}
+
+export function readSystemConnection(platform: PlatformState) {
+  const row = ensureSystemConnection(platform);
+  const ecpayEnv = row.ecpayEnv === "production" || row.ecpayEnv === "stage" ? row.ecpayEnv : "stage";
+  return {
+    supportEnabled: row.supportEnabled,
+    supportLabel: row.supportLabel,
+    supportUrl: row.supportUrl,
+    smtpHost: row.smtpHost,
+    smtpPort: row.smtpPort ?? 587,
+    smtpUser: row.smtpUser,
+    smtpFrom: row.smtpFrom,
+    smtpPasswordSet: Boolean(row.smtpPassword),
+    ecpayEnv,
+    ecpayMerchantId: row.ecpayMerchantId,
+    ecpayHashKeySet: Boolean(row.ecpayHashKey),
+    ecpayHashIvSet: Boolean(row.ecpayHashIv),
+    version: row.version,
+  };
+}
+
+export function saveSystemConnection(platform: PlatformState, actor: Actor, raw: unknown) {
+  assertFeature(platform, actor, "users.manage");
+  const current = ensureSystemConnection(platform);
+  let input;
+  try {
+    input = systemConnectionWriteSchema.parse(raw);
+  } catch (error) {
+    if (error instanceof ZodError) throw new ClientError(error.issues[0]?.message ?? "設定不正確", { status: 400, code: "VALIDATION_ERROR" });
+    throw error;
+  }
+  if (current.version !== input.expectedVersion) throw new ClientError("設定已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+  if (input.supportEnabled !== undefined) current.supportEnabled = input.supportEnabled;
+  if (input.supportLabel !== undefined) current.supportLabel = input.supportLabel;
+  if (input.supportUrl !== undefined) current.supportUrl = input.supportUrl;
+  if (input.smtpHost !== undefined) current.smtpHost = input.smtpHost;
+  if (input.smtpPort !== undefined) current.smtpPort = input.smtpPort;
+  if (input.smtpUser !== undefined) current.smtpUser = input.smtpUser;
+  if (input.smtpFrom !== undefined) current.smtpFrom = input.smtpFrom;
+  const password = input.smtpPassword?.replace(/\s+/g, "") ?? "";
+  if (password) current.smtpPassword = password;
+  if (input.ecpayEnv !== undefined) current.ecpayEnv = input.ecpayEnv;
+  if (input.ecpayMerchantId !== undefined) current.ecpayMerchantId = input.ecpayMerchantId;
+  const hashKey = input.ecpayHashKey?.replace(/\s+/g, "") ?? "";
+  const hashIv = input.ecpayHashIv?.replace(/\s+/g, "") ?? "";
+  if (hashKey) current.ecpayHashKey = hashKey;
+  if (hashIv) current.ecpayHashIv = hashIv;
+  current.version += 1;
+  return readSystemConnection(platform);
+}
+
 export function ensureEditorial(platform: PlatformState) {
   const now = new Date().toISOString();
   platform.entries ??= [];
@@ -523,15 +693,32 @@ export function ensureEditorial(platform: PlatformState) {
       ...DEFAULT_SITE_CONTENT[slot],
       imageUrl: null,
       imageFileId: null,
-      isPublished: true,
+      isPublished: slot !== ContentSlot.SUPPORT,
       version: 1,
       updatedAt: now,
     });
   }
   for (const kind of Object.values(EditorialKind)) {
+    const seeds = DEFAULT_EDITORIAL.filter((item) => item.kind === kind);
+    if (kind === EditorialKind.CATEGORY_INTRO) {
+      for (const item of seeds) {
+        if (platform.entries.some((entry) => entry.kind === kind && entry.slug === item.slug)) continue;
+        platform.entries.push({
+          id: crypto.randomUUID(),
+          ...item,
+          youtubeUrl: "",
+          imageFileId: null,
+          imageUrl: null,
+          isPublished: true,
+          version: 1,
+          updatedAt: now,
+        });
+      }
+      continue;
+    }
     if (platform.entries.some((item) => item.kind === kind)) continue;
     platform.entries.push(
-      ...DEFAULT_EDITORIAL.filter((item) => item.kind === kind).map((item) => ({
+      ...seeds.map((item) => ({
         id: crypto.randomUUID(),
         ...item,
         youtubeUrl: "",
@@ -553,6 +740,24 @@ export function publicSite(platform: PlatformState, files: DemoDataset["files"])
     newsIntro: publishedSlot(platform, files, ContentSlot.NEWS_INTRO),
     verification: publishedSlot(platform, files, ContentSlot.VERIFICATION),
     faq: publishedSlot(platform, files, ContentSlot.FAQ),
+    training: publishedSlot(platform, files, ContentSlot.TRAINING),
+    support: (() => {
+      const connection = ensureSystemConnection(platform);
+      if (!connection.supportEnabled || !connection.supportUrl) return null;
+      return {
+        slot: ContentSlot.SUPPORT,
+        eyebrow: "客服",
+        title: connection.supportLabel,
+        subtitle: "前台右下角的按鈕。",
+        body: "",
+        ctaLabel: connection.supportLabel,
+        ctaHref: connection.supportUrl,
+        secondaryCtaLabel: "",
+        secondaryCtaHref: "",
+        youtubeUrl: "",
+        imageUrl: null,
+      };
+    })(),
     entries: platform.entries.filter((item) => item.isPublished).map((item) => publicEntry(item, files)),
   };
 }
@@ -580,6 +785,7 @@ export function createEntry(platform: PlatformState, actor: Actor, raw: unknown)
   } catch (error) {
     parseEditorial(error);
   }
+  if (input.kind === EditorialKind.CATEGORY_INTRO) throw new ClientError("類別介紹不能新增，請修改現有的七段", { status: 400, code: "VALIDATION_ERROR" });
   if (platform.entries.some((item) => item.kind === input.kind && item.slug === input.slug)) throw new ClientError("這個代碼已經用過", { status: 400, code: "VALIDATION_ERROR" });
   const created: PlatformState["entries"][number] = { id: crypto.randomUUID(), ...input, imageFileId: null, imageUrl: null, version: 1, updatedAt: new Date().toISOString() };
   platform.entries.push(created);
@@ -615,6 +821,7 @@ export function deleteEntry(platform: PlatformState, actor: Actor, id: string) {
   assertFeature(platform, actor, "cms.edit");
   const index = platform.entries.findIndex((item) => item.id === id);
   if (index < 0) throw new ClientError("找不到這則內容", { status: 404, code: "NOT_FOUND" });
+  if (platform.entries[index]?.kind === EditorialKind.CATEGORY_INTRO) throw new ClientError("類別介紹不能刪除，可以改成不發布", { status: 400, code: "VALIDATION_ERROR" });
   platform.entries.splice(index, 1);
 }
 
@@ -1248,16 +1455,45 @@ async function renderIssuedBrowserPdf(
   return pngPagesToPdf(pages);
 }
 
-function presentPayment(row: PlatformState["payments"][number]) {
+function presentPayment(row: PlatformState["payments"][number]): PaymentItem {
   return {
-    ...row,
-    status: row.status ?? ("PENDING" as const),
+    id: row.id,
+    organizationId: row.organizationId,
+    organizationName: row.organizationName,
+    planId: row.planId,
+    planName: row.planName,
+    amount: row.amount,
+    note: row.note,
+    status: row.status ?? "PENDING",
     paymentMethod: row.paymentMethod ?? "",
     paidAt: row.paidAt ?? null,
     quoteConfirmedAt: row.quoteConfirmedAt ?? null,
     accountingConfirmedAt: row.accountingConfirmedAt ?? null,
+    slipNo: row.slipNo ?? null,
+    dueAt: row.dueAt ?? null,
+    receiptUploaded: Boolean(row.receiptFileId),
+    receiptName: row.receiptName ?? null,
+    voidedAt: row.voidedAt ?? null,
+    voidReason: row.voidReason ?? "",
     createdAt: row.createdAt ?? row.paidAt ?? new Date().toISOString(),
   };
+}
+
+const OPEN_PAYMENT_STATUSES = ["QUOTED", "PENDING", "PAID_PENDING", "PAID"];
+
+function expireOverduePayments(platform: PlatformState, data: DemoDataset, now = new Date()) {
+  for (const row of platform.payments) {
+    if (!isPaymentOverdue(row.status ?? "PENDING", row.dueAt, now)) continue;
+    row.status = "VOID";
+    row.voidedAt = now.toISOString();
+    row.voidReason = "逾期未上傳繳費單據";
+    data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: null, action: "PAYMENT_EXPIRE", entityType: "PaymentRecord", entityId: row.id, requestId: crypto.randomUUID(), safeChanges: { planName: row.planName, amount: row.amount, dueAt: row.dueAt ?? null }, createdAt: now.toISOString() });
+  }
+}
+
+function remittanceInfo(platform: PlatformState) {
+  const setting = readOperationSetting(platform);
+  return { bankName: setting.remitBankName, accountNo: setting.remitAccountNo, accountName: setting.remitAccountName, dueDays: setting.paymentDueDays };
 }
 
 function presentPlan(row: PlatformState["plans"][number], data?: DemoDataset) {
@@ -1292,6 +1528,7 @@ function rejectInput(error: unknown): never {
 
 export function paymentDesk(platform: PlatformState, actor: Actor, data: DemoDataset) {
   assertFeature(platform, actor, "payments.manage");
+  expireOverduePayments(platform, data);
   for (const plan of platform.plans) plan.visibleUserIds ??= [];
   const plans = [...(platform.plans ?? [])].map((item) => presentPlan(item, data)).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   const payments = [...(platform.payments ?? [])].map(presentPayment).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -1301,7 +1538,10 @@ export function paymentDesk(platform: PlatformState, actor: Actor, data: DemoDat
     dealCount: month.length,
     paidAmount: month.reduce((sum, row) => sum + row.amount, 0),
     payments: month.slice(0, 100),
+    awaitingQuote: payments.filter((row) => row.status === "QUOTED"),
+    awaitingPayment: payments.filter((row) => row.status === "PENDING"),
     awaitingReconciliation: payments.filter((row) => row.status === "PAID_PENDING"),
+    recentVoid: payments.filter((row) => row.status === "VOID").slice(0, 50),
     plans,
     organizations: [...data.organizations].sort((left, right) => left.organizationName.localeCompare(right.organizationName, "zh-Hant")).map((org) => ({ id: org.id, organizationName: org.organizationName })),
     unlockedOrganizations: data.organizations
@@ -1456,14 +1696,13 @@ export function selectPlan(platform: PlatformState, actor: Actor, data: DemoData
   if (!organization) throw new ClientError("找不到業者", { status: 404, code: "NOT_FOUND" });
   const alreadySelected = platform.payments.find((item) => {
     if (item.organizationId !== actor.organizationId || item.planId !== plan.id) return false;
-    const status = item.status ?? "PENDING";
-    return status === "QUOTED" || status === "PENDING" || status === "PAID_PENDING" || status === "PAID";
+    return OPEN_PAYMENT_STATUSES.includes(item.status ?? "PENDING");
   });
   if (alreadySelected) {
-    throw new ClientError("這個方案已經選過，不能再選；請改選尚未使用過的方案", { status: 400, code: "VALIDATION_ERROR" });
+    throw new ClientError("這個方案已經申請過，請等候處理；未成立的才可以重新申請", { status: 400, code: "VALIDATION_ERROR" });
   }
   const now = new Date().toISOString();
-  const saved = {
+  const saved: PlatformState["payments"][number] = {
     id: crypto.randomUUID(),
     organizationId: organization.id,
     organizationName: organization.organizationName,
@@ -1471,15 +1710,115 @@ export function selectPlan(platform: PlatformState, actor: Actor, data: DemoData
     planName: plan.name,
     amount: plan.amount,
     paidAt: null,
-    quoteConfirmedAt: now,
+    quoteConfirmedAt: null,
     accountingConfirmedAt: null,
     createdAt: now,
-    note: "已選擇方案，待付款",
-    status: "PENDING" as const,
+    note: "已選擇方案，待管理員確認",
+    status: "QUOTED",
     paymentMethod: "",
   };
   platform.payments.unshift(saved);
+  data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "PLAN_SELECT", entityType: "PaymentRecord", entityId: saved.id, requestId: crypto.randomUUID(), safeChanges: { planName: plan.name, amount: plan.amount }, createdAt: now });
   return presentPayment(saved);
+}
+
+export function reviewPayment(platform: PlatformState, actor: Actor, data: DemoDataset, input: unknown) {
+  assertFeature(platform, actor, "payments.manage");
+  const parsed = (() => {
+    try {
+      return paymentReviewSchema.parse(input);
+    } catch (error) {
+      return rejectInput(error);
+    }
+  })();
+  const allowed: Record<typeof parsed.decision, string[]> = {
+    APPROVE_QUOTE: ["QUOTED"],
+    REJECT_QUOTE: ["QUOTED"],
+    RETURN_RECEIPT: ["PAID_PENDING"],
+    VOID: ["PENDING", "PAID_PENDING"],
+  };
+  if (!allowed[parsed.decision].includes(parsed.expectedStatus)) throw new ClientError("這個狀態不能做這個處理", { status: 400, code: "INVALID_TRANSITION" });
+  const row = platform.payments.find((item) => item.id === parsed.paymentId);
+  if (!row) throw new ClientError("找不到付款紀錄", { status: 404, code: "NOT_FOUND" });
+  const from = row.status ?? "PENDING";
+  if (from !== parsed.expectedStatus) throw new ClientError("這筆已被處理，請重新整理", { status: 409, code: "VERSION_CONFLICT" });
+  const now = new Date();
+  if (parsed.decision === "APPROVE_QUOTE") {
+    row.quoteConfirmedAt = now.toISOString();
+    if (row.amount === 0) {
+      row.status = "PAID";
+      row.accountingConfirmedAt = now.toISOString();
+      row.paidAt = now.toISOString();
+      row.paymentMethod = "FREE";
+      row.note = "免費方案，核准即開通";
+    } else {
+      row.status = "PENDING";
+      row.dueAt = paymentDueAt(remittanceInfo(platform).dueDays, now).toISOString();
+      row.slipNo ??= remittanceSlipNo(now, crypto.randomUUID().replaceAll("-", ""));
+      row.note = parsed.note || "已核准，已產生匯款單";
+    }
+  } else if (parsed.decision === "RETURN_RECEIPT") {
+    row.status = "PENDING";
+    row.receiptFileId = null;
+    row.receiptName = null;
+    row.paidAt = null;
+    row.paymentMethod = "";
+    row.note = `單據退回：${parsed.note}`.slice(0, 200);
+  } else {
+    row.status = "VOID";
+    row.voidedAt = now.toISOString();
+    row.voidReason = parsed.note;
+  }
+  data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: `PAYMENT_${parsed.decision}`, entityType: "PaymentRecord", entityId: row.id, requestId: crypto.randomUUID(), safeChanges: { planName: row.planName, amount: row.amount, from, to: row.status }, createdAt: now.toISOString() });
+  return presentPayment(row);
+}
+
+export async function uploadPaymentReceipt(platform: PlatformState, actor: Actor, data: DemoDataset, paymentId: string, file: File) {
+  if (actor.role !== UserRole.APPLICANT || !actor.organizationId) throw new ClientError("只有業者可以上傳繳費單據", { status: 403, code: "FORBIDDEN" });
+  expireOverduePayments(platform, data);
+  const row = platform.payments.find((item) => item.id === paymentId && item.organizationId === actor.organizationId);
+  if (!row) throw new ClientError("找不到匯款單", { status: 404, code: "NOT_FOUND" });
+  if (row.status === "VOID") throw new ClientError("此繳費已未成立，上傳已鎖定；請重新選擇方案申請", { status: 409, code: "INVALID_TRANSITION" });
+  if (row.status !== "PENDING") throw new ClientError(row.status === "QUOTED" ? "管理員尚未核准方案，還沒有匯款單" : "這筆已上傳單據或已核帳", { status: 409, code: "INVALID_TRANSITION" });
+  const maxBytes = readOperationSetting(platform).attachmentMaxBytes;
+  if (file.size > maxBytes) throw new ClientError(`單據檔案不可超過 ${Math.round(maxBytes / (1024 * 1024))} MB`, { status: 400, code: "VALIDATION_ERROR" });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const mime = detectFileSignature(bytes);
+  if (mime !== "application/pdf" && mime !== "image/jpeg" && mime !== "image/png") throw new ClientError("繳費單據只接受 PDF、JPEG 或 PNG", { status: 400, code: "UNSUPPORTED_FILE_TYPE" });
+  const fileId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  data.files.push({
+    id: fileId,
+    uploadedById: actor.id,
+    storageKey: `mock/payment-receipts/${row.id}/${fileId}`,
+    originalName: file.name.slice(0, 180) || "receipt",
+    mimeType: mime,
+    sizeBytes: bytes.byteLength,
+    sha256: await sha256Hex(bytes),
+    contentBase64: btoa(Array.from(bytes, (value) => String.fromCharCode(value)).join("")),
+    createdAt: now,
+  });
+  row.status = "PAID_PENDING";
+  row.receiptFileId = fileId;
+  row.receiptName = file.name.slice(0, 180) || "receipt";
+  row.paidAt = now;
+  row.paymentMethod = "TRANSFER";
+  data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "PAYMENT_RECEIPT_UPLOAD", entityType: "PaymentRecord", entityId: row.id, requestId: crypto.randomUUID(), safeChanges: { planName: row.planName, amount: row.amount, mimeType: mime, sizeBytes: bytes.byteLength }, createdAt: now });
+  return presentPayment(row);
+}
+
+export function paymentReceipt(platform: PlatformState, actor: Actor, data: DemoDataset, paymentId: string) {
+  const row = platform.payments.find((item) => item.id === paymentId);
+  const file = row?.receiptFileId ? data.files.find((item) => item.id === row.receiptFileId) : undefined;
+  if (!row || !file) throw new ClientError("找不到繳費單據", { status: 404, code: "NOT_FOUND" });
+  if (actor.role === UserRole.APPLICANT) {
+    if (row.organizationId !== actor.organizationId) throw new ClientError("找不到繳費單據", { status: 404, code: "NOT_FOUND" });
+  } else {
+    assertFeature(platform, actor, "payments.manage");
+  }
+  const binary = atob(file.contentBase64 ?? "");
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return { blob: new Blob([bytes], { type: file.mimeType }), name: file.originalName };
 }
 
 export function confirmReconciliation(platform: PlatformState, actor: Actor, data: DemoDataset, input: unknown) {
@@ -1517,8 +1856,7 @@ export function recordPayment(platform: PlatformState, actor: Actor, data: DemoD
   if (!organization) throw new ClientError("找不到業者", { status: 404, code: "NOT_FOUND" });
   const alreadySelected = platform.payments.some((item) => {
     if (item.organizationId !== organization.id || item.planId !== plan.id) return false;
-    const status = item.status ?? "PENDING";
-    return status === "QUOTED" || status === "PENDING" || status === "PAID_PENDING" || status === "PAID";
+    return OPEN_PAYMENT_STATUSES.includes(item.status ?? "PENDING");
   });
   if (alreadySelected) throw new ClientError("此業者已選過這個方案，不能重複登錄", { status: 400, code: "VALIDATION_ERROR" });
   const now = new Date().toISOString();
@@ -1544,6 +1882,7 @@ export function recordPayment(platform: PlatformState, actor: Actor, data: DemoD
 
 export function myPayments(platform: PlatformState, actor: Actor, data: DemoDataset) {
   if (!actor.organizationId) throw new ClientError("這個帳號沒有所屬業者", { status: 403, code: "FORBIDDEN" });
+  expireOverduePayments(platform, data);
   for (const plan of platform.plans) plan.visibleUserIds ??= [];
   const payments = platform.payments.filter((item) => item.organizationId === actor.organizationId).map(presentPayment).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return {
@@ -1554,18 +1893,11 @@ export function myPayments(platform: PlatformState, actor: Actor, data: DemoData
       .sort((left, right) => left.name.localeCompare(right.name, "zh-Hant")),
     serviceUnlocked: isServiceUnlocked(payments.map((item) => item.status)),
     activeOrder: payments.find((item) => item.status === "PENDING" || item.status === "PAID_PENDING" || item.status === "QUOTED") ?? null,
+    remittance: remittanceInfo(platform),
   };
 }
 
-export function markPaidPending(platform: PlatformState, actor: Actor, paymentId: string) {
+export function markPaidPending(_platform: PlatformState, actor: Actor, _paymentId: string): PaymentItem {
   if (actor.role !== UserRole.APPLICANT || !actor.organizationId) throw new ClientError("只有業者可以付款", { status: 403, code: "FORBIDDEN" });
-  const row = platform.payments.find((item) => item.id === paymentId && item.organizationId === actor.organizationId);
-  if (!row) throw new ClientError("找不到訂單", { status: 404, code: "NOT_FOUND" });
-  if (row.status !== "PENDING" && row.status !== "QUOTED") throw new ClientError("這筆目前不能付款", { status: 400, code: "VALIDATION_ERROR" });
-  const now = new Date().toISOString();
-  row.status = "PAID_PENDING";
-  row.paidAt = now;
-  row.paymentMethod = "MANUAL";
-  row.note = row.note ? `${row.note}；業者已送出付款（待核帳）` : "業者已送出付款（待核帳）";
-  return presentPayment(row);
+  throw new ClientError("請依匯款單繳費後上傳繳費單據", { status: 400, code: "VALIDATION_ERROR" });
 }

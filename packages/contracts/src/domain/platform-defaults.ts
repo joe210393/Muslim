@@ -151,6 +151,28 @@ export const DEFAULT_SITE_CONTENT: Record<
     secondaryCtaHref: "",
     youtubeUrl: "",
   },
+  [ContentSlot.TRAINING]: {
+    eyebrow: "教育訓練",
+    title: "課程",
+    subtitle: "每一梯次有介紹、圖片與影片。可切換列表或月曆。",
+    body: "這段出現在課程列表上方。正式的教育訓練介紹可在這裡整段替換。",
+    ctaLabel: "",
+    ctaHref: "",
+    secondaryCtaLabel: "",
+    secondaryCtaHref: "",
+    youtubeUrl: "",
+  },
+  [ContentSlot.SUPPORT]: {
+    eyebrow: "客服",
+    title: "客服",
+    subtitle: "前台右下角的按鈕。",
+    body: "打開後，前台公開頁的右下角會出現這個按鈕。連結只能填站內路徑。",
+    ctaLabel: "客服",
+    ctaHref: "/contact",
+    secondaryCtaLabel: "",
+    secondaryCtaHref: "",
+    youtubeUrl: "",
+  },
 };
 
 export type EditorialSeed = {
@@ -202,12 +224,30 @@ export const DEFAULT_EDITORIAL: EditorialSeed[] = [
   editorial({ kind: EditorialKind.EMAIL_DRAFT, slug: "supplement", groupLabel: "", title: "請補充驗證申請資料", summary: "要求補件", body: "只列出需補充的項目，不含內部審查意見。", note: "", publishedOn: null, sortOrder: 2 }),
   editorial({ kind: EditorialKind.EMAIL_DRAFT, slug: "approved", groupLabel: "", title: "驗證申請已核定", summary: "核定", body: "證書尚未自動核發時，信中不寫成已可下載正式證書。", note: "", publishedOn: null, sortOrder: 3 }),
   editorial({ kind: EditorialKind.EMAIL_DRAFT, slug: "renewal", groupLabel: "", title: "驗證效期即將屆滿", summary: "即將到期", body: "提醒日與是否需重新審查，待確認後才寄。", note: "", publishedOn: null, sortOrder: 4 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-01", groupLabel: "", title: "穆斯林友善餐廳", summary: "", body: "依餐廳申請表：Halal 廚房／Halal 餐廳／穆斯林友善餐廳，以及餐點種類與對應附件。", note: "", publishedOn: null, sortOrder: 1 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-02", groupLabel: "", title: "穆斯林友善產品", summary: "", body: "依食用品申請表：產品清單、產線與清真小組等固定附件。", note: "", publishedOn: null, sortOrder: 2 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-03", groupLabel: "", title: "穆斯林友善旅宿", summary: "", body: "依旅宿申請表：含早餐或不含早餐；含早餐才要交廚房與菜單相關附件。", note: "", publishedOn: null, sortOrder: 3 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-04", groupLabel: "", title: "穆斯林友善商店", summary: "", body: "依商店申請表：Halal 商品一覽與陳列照片。", note: "", publishedOn: null, sortOrder: 4 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-05", groupLabel: "", title: "穆斯林友善旅行社", summary: "", body: "依旅行社申請表：中英文行程與從業人員在職證明。", note: "", publishedOn: null, sortOrder: 5 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-06", groupLabel: "", title: "穆斯林友善環境", summary: "", body: "依環境申請表：祈禱室、洗手間與指引指標照片。", note: "", publishedOn: null, sortOrder: 6 }),
+  editorial({ kind: EditorialKind.CATEGORY_INTRO, slug: "cat-07", groupLabel: "", title: "穆斯林友善體驗活動", summary: "", body: "依體驗活動申請表：價格表、器具食材與活動照片。", note: "", publishedOn: null, sortOrder: 7 }),
 ];
 
 const SAFE_HREF = /^\/[A-Za-z0-9\-/_]*$/;
 
 export function isSafeHref(value: string): boolean {
   return value === "" || SAFE_HREF.test(value);
+}
+
+/** 客服按鈕可以連站內頁，或連到 https 的客服、LINE 等外部網址。 */
+export function isSupportUrl(value: string): boolean {
+  if (isSafeHref(value)) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 export function youtubeVideoId(value: string): string | null {

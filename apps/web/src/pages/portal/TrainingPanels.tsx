@@ -1,61 +1,17 @@
-import { companyTrainingRequestStatusLabels, courseDeliveryLabels, studyStatusLabel, type LearningRecord } from "@mf/contracts";
+import { companyTrainingRequestStatusLabels, courseDeliveryLabels } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useServices } from "../../app/session";
 import { YoutubeWatchPlayer } from "../../components/YoutubeWatchPlayer";
-import { Button, Card, Empty, ErrorText, Field, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Button, Card, Empty, ErrorText, Field, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { ClientError } from "../../services/types";
-
-const filters = [
-  ["ALL", "不限"],
-  ["ENROLLED", "已報名"],
-  ["COMPLETED", "已完成"],
-  ["CANCELLED", "已取消"],
-] as const;
-
-type FilterId = (typeof filters)[number][0];
-type Tab = "basic" | "general" | "company";
-
-function matches(row: LearningRecord, filter: FilterId) {
-  if (filter === "ENROLLED") return row.status === "CONFIRMED" && row.completion !== "COMPLETED";
-  if (filter === "COMPLETED") return row.completion === "COMPLETED";
-  if (filter === "CANCELLED") return row.status === "CANCELLED" || row.completion === "CANCELLED";
-  return true;
-}
-
-function taipeiDate(iso: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
-}
-
-function creditHours(minutes: number) {
-  const hours = Math.round((minutes / 60) * 10) / 10;
-  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
-}
-
 function clock(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function TrainingPage() {
-  const [tab, setTab] = useState<Tab>("basic");
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">教育訓練</h1>
-      <div className="flex flex-wrap gap-2">
-        {([["basic", "基礎教育訓練"], ["general", "線上／線下課程"], ["company", "申請專班"]] as const).map(([id, label]) => (
-          <button key={id} type="button" className={`btn rounded-full px-3 py-1 text-sm ${tab === id ? "is-selected" : ""}`} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>
-        ))}
-      </div>
-      {tab === "basic" ? <BasicTrainingPanel /> : null}
-      {tab === "general" ? <GeneralTrainingPanel /> : null}
-      {tab === "company" ? <CompanyTrainingPanel /> : null}
-    </div>
-  );
-}
-
-function BasicTrainingPanel() {
+export function BasicTrainingPanel() {
   const services = useServices();
   const client = useQueryClient();
   const payments = useQuery({ queryKey: ["my-payments"], queryFn: () => services.myPayments() });
@@ -205,75 +161,7 @@ function BasicTrainingPanel() {
   );
 }
 
-function GeneralTrainingPanel() {
-  const services = useServices();
-  const client = useQueryClient();
-  const rows = useQuery({ queryKey: ["learning"], queryFn: () => services.learning() });
-  const [filter, setFilter] = useState<FilterId>("ALL");
-  const [cancelId, setCancelId] = useState<string | null>(null);
-  const [reading, setReading] = useState<LearningRecord | null>(null);
-  const visible = (rows.data ?? []).filter((row) => matches(row, filter));
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-[var(--muted)]">公開線上／線下課程報名與學習紀錄。</p>
-        <SelectInput className="w-36" value={filter} aria-label="篩選報名狀態" onChange={(event) => setFilter(event.target.value as FilterId)}>
-          {filters.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-        </SelectInput>
-      </div>
-      {rows.isLoading ? <p>載入中…</p> : null}
-      {!rows.isLoading && visible.length === 0 ? <Empty title="沒有符合的課程" body="可從公開課程頁報名。已報名、已取消、已完成可以在右上角篩選。" /> : null}
-      {visible.length > 0 ? (
-        <div className="overflow-x-auto rounded-xl bg-white">
-          <table className="min-w-[960px] w-full text-sm">
-            <thead className="bg-[var(--accent-deep)] text-left text-white">
-              <tr>
-                {["課程類別", "課程名稱", "認證時數", "開課期間", "學習狀態", "申請退選", "課程回饋", "學習證明", "訓練證書", "閱讀時數"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row) => {
-                const study = studyStatusLabel(row.completion);
-                return (
-                  <tr key={row.id} className="border-t align-middle">
-                    <td className="px-3 py-3">{courseDeliveryLabels[row.delivery].label}</td>
-                    <td className="max-w-56 px-3 py-3">{row.courseTitle}</td>
-                    <td className="px-3 py-3">{creditHours(row.durationMinutes)}</td>
-                    <td className="px-3 py-3">從 {taipeiDate(row.startsAt)}<br />到 {taipeiDate(row.endsAt)}</td>
-                    <td className="px-3 py-3"><span className={`inline-flex rounded-md px-3 py-1 text-white ${study.tone === "success" ? "bg-[#3d9a62]" : study.tone === "danger" ? "bg-[#d4657a]" : "bg-[#8aa0b3]"}`}>{study.label}</span></td>
-                    <td className="px-3 py-3">
-                      {row.canCancel ? <button type="button" className="rounded-md bg-[#d4657a] px-3 py-1 text-white" onClick={() => setCancelId(row.id)}>退選</button> : <span className={`inline-flex rounded-md px-3 py-1 ${row.completion === "COMPLETED" ? "bg-[#d9f2e3] text-[#1d7a45]" : "text-[var(--muted)]"}`}>{row.withdrawLabel}</span>}
-                    </td>
-                    <td className="px-3 py-3"><button type="button" className="text-[#d4657a]" disabled title="課程回饋尚未開放" aria-label="課程回饋尚未開放">✕</button></td>
-                    <td className="px-3 py-3">{row.completion === "COMPLETED" ? <button type="button" className="text-[var(--link)]" aria-label="下載學習紀錄" onClick={() => downloadRecord(row)}>↓</button> : null}</td>
-                    <td className="px-3 py-3">{row.trainingCertificateNo ? <span className="text-sm">{row.trainingCertificateNo}</span> : <span className="text-[var(--muted)]">—</span>}</td>
-                    <td className="px-3 py-3"><button type="button" className="text-[var(--link)]" aria-label="查看閱讀時數" onClick={() => setReading(row)}>◎</button></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-      {cancelId ? (
-        <Modal title="確認退選" onClose={() => setCancelId(null)}>
-          <p className="text-sm">退選後名額會釋出。若已通過則不能退選。</p>
-          <div className="mt-3 flex gap-2">
-            <Button variant="danger" onClick={async () => {
-              await services.cancelEnrollment(cancelId);
-              setCancelId(null);
-              await client.invalidateQueries({ queryKey: ["learning"] });
-            }}>確認退選</Button>
-            <Button variant="secondary" onClick={() => setCancelId(null)}>取消</Button>
-          </div>
-        </Modal>
-      ) : null}
-      {reading ? <ReadingModal row={reading} onClose={() => setReading(null)} onChanged={async () => { await client.invalidateQueries({ queryKey: ["learning"] }); }} /> : null}
-    </div>
-  );
-}
-
-function CompanyTrainingPanel() {
+export function CompanyTrainingPanel() {
   const services = useServices();
   const client = useQueryClient();
   const policy = useQuery({ queryKey: ["training-policy"], queryFn: () => services.trainingPolicy() });
@@ -332,58 +220,5 @@ function CompanyTrainingPanel() {
         ))}
       </div>
     </div>
-  );
-}
-
-function downloadRecord(row: LearningRecord) {
-  const content = [`課程,${row.courseTitle}`, `狀態,${studyStatusLabel(row.completion).label}`, `時數,${row.attendedHoursLabel}`].join("\n");
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${row.courseTitle}-learning.csv`;
-  link.click();
-}
-
-function ReadingModal({ row, onClose, onChanged }: { row: LearningRecord; onClose: () => void; onChanged: () => Promise<void> }) {
-  const services = useServices();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-    if (row.delivery === "ONLINE") {
-      void services.courseVideo(row.courseId).then((file) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(file.blob);
-        setUrl(objectUrl);
-      }).catch((reason) => setError(reason instanceof ClientError ? reason.message : "無法載入影片"));
-    }
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [row.courseId, row.delivery, services]);
-  return (
-    <Modal title={row.courseTitle} onClose={onClose}>
-      <div className="space-y-3 text-sm">
-        <p>已累計 {row.attendedHoursLabel}{row.delivery === "ONLINE" ? `（通過門檻 ${clock(row.passSeconds)}）` : ""}</p>
-        {row.delivery === "ONLINE" && url ? (
-          <video
-            ref={videoRef}
-            className="w-full rounded-md bg-black"
-            controls
-            src={url}
-            onTimeUpdate={() => {
-              const video = videoRef.current;
-              if (!video) return;
-              void services.recordWatch(row.id, { expectedVersion: row.version, watchedSeconds: Math.floor(video.currentTime) }).then(onChanged).catch((reason) => setError(reason instanceof ClientError ? reason.message : "進度沒有寫入"));
-            }}
-          />
-        ) : null}
-        {error ? <ErrorText message={error} /> : null}
-      </div>
-    </Modal>
   );
 }

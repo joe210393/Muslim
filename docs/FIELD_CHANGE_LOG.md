@@ -4,6 +4,7 @@
 
 | 日期 | 變更 | 處理 |
 |---|---|---|
+| 2026-11-26 | 每一頁可設自己的背景圖 | migration `20261126001500_site_page_background`。`site_pages.draft_background`／`published_background`；前台讀 `backgroundImage`；空＝全站預設底色 |
 | 2026-11-22 | 合約可修改與收回 | migration `20261122190000_contract_fill_snapshot`。`contracts.fill_snapshot` 留下黃底欄位。`VOID` 對廠商表示已收回 |
 | 2026-11-22 | 證書範本改存資料庫 | migration `20261122180000_certificate_templates`。首次讀取寫入與展示模式相同的 11 份官方內文 |
 | 2026-11-20 | 新增合約大小章電子檔設定 | migration `20261120230000_contract_seals`。`contract_seal_settings` 存公司大章／負責人小章 `file_objects` |

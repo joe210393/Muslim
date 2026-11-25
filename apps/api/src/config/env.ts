@@ -20,7 +20,7 @@ const schema = z
     SMTP_HOST: z.string().optional().default(""),
     SMTP_PORT: z.coerce.number().int().positive().default(587),
     SMTP_USER: z.string().optional().default(""),
-    SMTP_PASSWORD: z.string().optional().default(""),
+    SMTP_PASSWORD: z.string().optional().default("").transform((value) => value.replace(/\s+/g, "")),
     MAIL_FROM: z.string().min(3).default("noreply@example.test"),
     DEMO_MODE: z
       .enum(["true", "false"])

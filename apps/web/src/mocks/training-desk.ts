@@ -661,6 +661,26 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
       current.updatedAt = now;
       return presentCompanyRequest(data, current);
     },
+    async listTrainingCertificates() {
+      if (!canManage) throw new ClientError("沒有權限", { status: 403 });
+      return data.trainingCertificates.map((item) => {
+        const enrollment = data.enrollments.find((row) => row.id === item.enrollmentId);
+        const course = data.courses.find((row) => row.id === enrollment?.courseId);
+        const user = data.users.find((row) => row.id === enrollment?.userId);
+        return {
+          id: item.id,
+          enrollmentId: item.enrollmentId,
+          courseId: enrollment?.courseId ?? "",
+          courseTitle: course?.title ?? "",
+          userId: enrollment?.userId ?? "",
+          userName: user?.displayName ?? "",
+          certificateNo: item.certificateNo,
+          issuedOnDate: item.issuedOnDate,
+          validUntilDate: item.validUntilDate,
+          registeredAt: item.registeredAt,
+        };
+      });
+    },
     async registerTrainingCertificate(input: unknown) {
       if (!canManage) throw new ClientError("沒有權限", { status: 403 });
       const parsed = trainingCertificateWriteSchema.parse(input);
@@ -679,11 +699,29 @@ export function trainingDesk(data: Data, actor: Actor, canManageTraining: boolea
         videoDurationSeconds: course.videoDurationSeconds,
       });
       if (learning.completion !== "COMPLETED") throw new ClientError("僅完課報名可登錄訓練證書");
-      if (data.trainingCertificates.some((item) => item.enrollmentId === parsed.enrollmentId)) {
-        throw new ClientError("這筆報名已有訓練證書");
-      }
-      if (data.trainingCertificates.some((item) => item.certificateNo === parsed.certificateNo)) {
+      if (data.trainingCertificates.some((item) => item.certificateNo === parsed.certificateNo && item.enrollmentId !== parsed.enrollmentId)) {
         throw new ClientError("證書編號已存在");
+      }
+      const existing = data.trainingCertificates.find((item) => item.enrollmentId === parsed.enrollmentId);
+      if (existing) {
+        existing.certificateNo = parsed.certificateNo;
+        existing.issuedOnDate = parsed.issuedOnDate;
+        existing.validUntilDate = parsed.validUntilDate;
+        existing.registeredById = actor.id;
+        existing.updatedAt = new Date().toISOString();
+        const user = data.users.find((item) => item.id === enrollment.userId);
+        return {
+          id: existing.id,
+          enrollmentId: existing.enrollmentId,
+          courseId: enrollment.courseId,
+          courseTitle: course.title,
+          userId: enrollment.userId,
+          userName: user?.displayName ?? "",
+          certificateNo: existing.certificateNo,
+          issuedOnDate: existing.issuedOnDate,
+          validUntilDate: existing.validUntilDate,
+          registeredAt: existing.registeredAt,
+        };
       }
       const now = new Date().toISOString();
       const created = {

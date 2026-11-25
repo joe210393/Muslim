@@ -25,6 +25,7 @@ import {
 import { prisma, type Prisma } from "@mf/db/server";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../../lib/errors";
+import { ensureRenewalNotices } from "../notifications/desk";
 import type { SessionActor } from "../../middleware/auth";
 import type { StorageAdapter } from "../../storage/storage";
 import { assertFeature } from "./access";
@@ -109,6 +110,7 @@ export async function saveTemplate(actor: SessionActor, id: string, input: Contr
 
 export async function listAdminContracts(actor: SessionActor) {
   await assertFeature(actor, "contracts.issue");
+  await ensureRenewalNotices().catch(() => undefined);
   const rows = await prisma.contractRecord.findMany({ include: { organization: true }, orderBy: { createdAt: "desc" } });
   return rows.map(summary);
 }
@@ -162,6 +164,7 @@ export async function listIssuableOrganizations(actor: SessionActor) {
 export async function listMyContracts(actor: SessionActor) {
   await assertFeature(actor, "contracts.sign");
   if (!actor.organizationId) return [];
+  await ensureRenewalNotices().catch(() => undefined);
   const rows = await prisma.contractRecord.findMany({
     where: { organizationId: actor.organizationId, status: { not: ContractStatus.VOID } },
     include: { organization: true },
@@ -355,6 +358,36 @@ export async function recordRenewal(actor: SessionActor, id: string, input: Cont
     data: { status, version: { increment: 1 } },
   });
   if (result.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "合約已被更新，請重新載入");
+  let renewalApplicationNo: string | null = null;
+  let renewalApplicationId: string | null = null;
+  let renewalNote: string | null = null;
+  if (input.decision === "RENEWED" && actor.organizationId) {
+    let categoryId: string | null = null;
+    if (contract.applicationId) {
+      const linked = await prisma.application.findUnique({ where: { id: contract.applicationId }, select: { categoryId: true } });
+      categoryId = linked?.categoryId ?? null;
+    }
+    if (!categoryId) {
+      const approved = await prisma.application.findFirst({
+        where: { organizationId: actor.organizationId, status: "APPROVED" },
+        orderBy: { decidedAt: "desc" },
+        select: { categoryId: true },
+      });
+      categoryId = approved?.categoryId ?? null;
+    }
+    if (!categoryId) {
+      renewalNote = "這份合約沒有對應的申請類別，沒有建立新申請。";
+    } else {
+      try {
+        const { openRenewalDraft } = await import("../applications/service");
+        const draft = await openRenewalDraft(actor, id, categoryId, contract.applicationId);
+        renewalApplicationNo = draft.applicationNo;
+        renewalApplicationId = draft.id;
+      } catch (error) {
+        renewalNote = error instanceof ApiError ? error.message : "續約已登記，但新版申請沒有建立。";
+      }
+    }
+  }
   await prisma.auditLog.create({
     data: {
       actorId: actor.id,
@@ -362,10 +395,11 @@ export async function recordRenewal(actor: SessionActor, id: string, input: Cont
       entityType: "ContractRecord",
       entityId: id,
       requestId: crypto.randomUUID(),
-      safeChanges: { contractNo: contract.contractNo, status },
+      safeChanges: { contractNo: contract.contractNo, status, renewalApplicationNo, renewalNote },
     },
   });
-  return getContract(actor, id);
+  const detail = await getContract(actor, id);
+  return { ...detail, renewalApplicationNo, renewalApplicationId, renewalNote };
 }
 
 /** 業者下載合約 PDF：待上傳時依快照產生；已繳回則下載上傳檔。 */
@@ -448,10 +482,6 @@ export async function uploadSignedContractPdf(
     },
   });
   return getContract(actor, id);
-}
-
-export async function readContractCapture(actor: SessionActor, storage: StorageAdapter, id: string, kind: "signature" | "face") {
-  return readContractFile(actor, storage, id, kind);
 }
 
 async function readContractFile(actor: SessionActor, storage: StorageAdapter, id: string, kind: "pdf" | "signature" | "face") {

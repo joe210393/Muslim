@@ -1,4 +1,5 @@
-import { homePathForRole, userRoleLabels, type PlatformFeatureKey, type UserRole } from "@mf/contracts";
+import { applicationStatusLabels, homePathForRole, userRoleLabels, type PlatformFeatureKey, type UserRole } from "@mf/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { Link, NavLink, Outlet, ScrollRestoration, useLocation, useNavigate } from "react-router";
 import { useServices, useSession } from "../../app/session";
@@ -15,14 +16,6 @@ const publicNav = [
   ["/contact", "聯絡我們"],
 ];
 
-const cmsPages = [
-  { href: "/admin/cms/home", label: "首頁" },
-  { href: "/admin/cms/about", label: "關於我們" },
-  { href: "/admin/cms/news", label: "最新消息" },
-  { href: "/admin/cms/verification", label: "驗證介紹" },
-  { href: "/admin/cms/faq", label: "常見問題" },
-];
-
 const contractPages: NavChild[] = [
   { href: "/admin/contracts", label: "合約管理", matchPrefixes: ["/admin/contracts/issued"] },
   { href: "/admin/contracts/issue", label: "發送合約" },
@@ -32,19 +25,20 @@ const contractPages: NavChild[] = [
 
 const paymentPages: NavChild[] = [
   { href: "/admin/payments/plans", label: "方案內容" },
-  { href: "/admin/payments/reconciliation", label: "核帳", matchPrefixes: ["/admin/payments/reconciliation", "/admin/payments/accounting"] },
+  { href: "/admin/payments/reconciliation", label: "報價與核帳", matchPrefixes: ["/admin/payments/reconciliation", "/admin/payments/accounting"] },
   { href: "/admin/payments", label: "本月成交" },
   { href: "/admin/payments/record", label: "登錄付款" },
 ];
 
 const applicationPages = [
-  { href: "/admin/applications", label: "已送件" },
-  { href: "/admin/applications/initial-review", label: "初審中" },
-  { href: "/admin/applications/need-supplement", label: "待補件" },
-  { href: "/admin/applications/second-review", label: "複審中" },
-  { href: "/admin/applications/final-review", label: "待核定" },
-  { href: "/admin/applications/approved", label: "已核定" },
-  { href: "/admin/applications/rejected", label: "已退件" },
+  { href: "/admin/applications", label: applicationStatusLabels.SUBMITTED.label },
+  { href: "/admin/applications/initial-review", label: applicationStatusLabels.INITIAL_REVIEW.label },
+  { href: "/admin/applications/need-supplement", label: applicationStatusLabels.NEED_SUPPLEMENT.label },
+  { href: "/admin/applications/second-review", label: applicationStatusLabels.SECOND_REVIEW.label },
+  { href: "/admin/applications/final-review", label: applicationStatusLabels.FINAL_REVIEW.label },
+  { href: "/admin/applications/approved", label: applicationStatusLabels.APPROVED.label },
+  { href: "/admin/applications/rejected", label: applicationStatusLabels.REJECTED.label },
+  { href: "/admin/application-forms", label: "表單欄位", anyOf: ["applications.decide"] },
 ];
 
 const certificatePages = [
@@ -53,9 +47,16 @@ const certificatePages = [
   { href: "/admin/certificates/templates", label: "證書範本" },
 ];
 
+const mailPages: NavChild[] = [
+  { href: "/admin/notifications", label: "指定一位" },
+  { href: "/admin/notifications/all", label: "全部業者" },
+  { href: "/admin/notifications/templates", label: "自動通知" },
+];
+
 type NavChild = {
   href: string;
   label: string;
+  anyOf?: string[];
   children?: NavChild[];
   matchPrefixes?: string[];
 };
@@ -94,9 +95,20 @@ const portalSections: NavSection[] = [
     title: "流程",
     numbered: true,
     items: [
-      { href: "/portal/payments", label: "方案與付款" },
+      { href: "/portal/payments", label: "報價與繳費" },
       { href: "/portal/contracts", label: "合約", anyOf: ["contracts.sign"], matchPrefixes: ["/portal/contracts"] },
-      { href: "/portal/enrollments", label: "教育訓練", matchPrefixes: ["/portal/enrollments", "/portal/learning-records"] },
+      {
+        href: "/portal/training/online",
+        label: "教育訓練",
+        matchPrefixes: ["/portal/training", "/portal/enrollments", "/portal/learning-records"],
+        children: [
+          { href: "/portal/training/online", label: "線上學習" },
+          { href: "/portal/training/offline", label: "實體課程報名" },
+          { href: "/portal/training/quiz", label: "線上測驗" },
+          { href: "/portal/training/hours", label: "時數證明" },
+          { href: "/portal/training/materials", label: "資源下載" },
+        ],
+      },
       {
         href: "/portal/applications-group",
         label: "驗證申請",
@@ -115,6 +127,7 @@ const portalSections: NavSection[] = [
     title: "帳戶與資源",
     items: [
       { href: "/portal/profile", label: "業者資料", matchPrefixes: ["/portal/profile", "/portal/account"] },
+      { href: "/portal/notices", label: "通知信" },
       { href: "/portal/resources", label: "授權資源" },
     ],
   },
@@ -149,16 +162,24 @@ const adminSections: NavSection[] = [
         matchPrefixes: ["/admin/certificates"],
         children: certificatePages,
       },
+      {
+        href: "/admin/notifications",
+        label: "寄信",
+        anyOf: ["users.manage"],
+        matchPrefixes: ["/admin/notifications"],
+        children: mailPages,
+      },
     ],
   },
   {
     title: "管理",
     items: [
-      { href: "/admin/cms", label: "內容管理", anyOf: ["cms.edit"], children: cmsPages },
+      { href: "/admin/studio", label: "內容管理", anyOf: ["cms.edit"] },
+      { href: "/admin/organizations", label: "會員管理", anyOf: ["users.manage"], matchPrefixes: ["/admin/organizations"] },
       { href: "/admin/audit-logs", label: "操作紀錄", anyOf: ["audit.view"] },
       { href: "/admin/reports", label: "報表", anyOf: ["reports.export"] },
+      { href: "/admin/settings", label: "設定", anyOf: ["users.manage", "payments.manage"] },
       { href: "/admin/permissions", label: "員工", anyOf: ["users.manage"] },
-      { href: "/admin/organizations", label: "會員管理", anyOf: ["users.manage"] },
     ],
   },
 ];
@@ -291,6 +312,20 @@ function NavTree({
   );
 }
 
+function filterChildren(items: NavChild[], allowed: Set<string>): NavChild[] {
+  return items.flatMap((item) => {
+    if (item.anyOf && !item.anyOf.some((key) => allowed.has(key))) return [];
+    return [{ ...item, children: item.children ? filterChildren(item.children, allowed) : undefined }];
+  });
+}
+
+function filterNav(items: NavItem[], allowed: Set<string>): NavItem[] {
+  return items.flatMap((item) => {
+    if (item.anyOf && !item.anyOf.some((key) => allowed.has(key))) return [];
+    return [{ ...item, children: item.children ? filterChildren(item.children, allowed) : undefined }];
+  });
+}
+
 export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
   const services = useServices();
   const session = useSession();
@@ -301,7 +336,7 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => activeGroups(sections, navPath));
   const [menuOpen, setMenuOpen] = useState(false);
   const allowed = new Set(session.user?.featureKeys ?? []);
-  const visible = (items: NavItem[]) => items.filter((item) => !item.anyOf || item.anyOf.some((key) => allowed.has(key)));
+  const visible = (items: NavItem[]) => filterNav(items, allowed);
   useEffect(() => {
     setOpenGroups((current) => ({ ...current, ...activeGroups(sections, navPath) }));
     setMenuOpen(false);
@@ -395,7 +430,25 @@ export function Shell({ area }: { area: "public" | "portal" | "admin" }) {
           <Outlet />
         </main>
       </div>
+      {area === "public" ? <SupportButton /> : null}
     </div>
+  );
+}
+
+export function SupportButton() {
+  const services = useServices();
+  const content = useQuery({ queryKey: ["site-content", services.mode], queryFn: () => services.publicSite() });
+  const support = content.data?.support;
+  if (!support?.ctaHref) return null;
+  const className = "btn btn-primary no-print fixed bottom-5 right-5 z-30 rounded-full px-4 py-3 text-sm no-underline";
+  const label = support.title || "客服";
+  if (support.ctaHref.startsWith("https://")) {
+    return <a className={className} href={support.ctaHref} target="_blank" rel="noreferrer">{label}</a>;
+  }
+  return (
+    <Link to={support.ctaHref} className={className}>
+      {label}
+    </Link>
   );
 }
 

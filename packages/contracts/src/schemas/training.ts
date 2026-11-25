@@ -25,6 +25,8 @@ export const courseSchema = z.object({
   status: courseStatusSchema,
   version: z.number().int(),
   isDemo: z.boolean(),
+  hasMaterial: z.boolean(),
+  materialName: z.string().nullable(),
 });
 
 export const courseWriteSchema = z.object({
@@ -70,6 +72,13 @@ export const enrollmentSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   location: z.string(),
+  quizReady: z.boolean(),
+  quizBlockedReason: z.string(),
+  quizPassed: z.boolean(),
+  recognizedMinutes: z.number().int(),
+  quizPassedAt: z.string().datetime().nullable(),
+  hasMaterial: z.boolean(),
+  materialName: z.string().nullable(),
 });
 
 export const watchProgressSchema = z.object({

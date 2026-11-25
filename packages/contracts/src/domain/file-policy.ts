@@ -16,6 +16,22 @@ export function isAllowedMimeType(mimeType: string): mimeType is AllowedMimeType
   return (FILE_POLICY.allowedMimeTypes as readonly string[]).includes(mimeType);
 }
 
+/** 申請附件可接受的格式。照片欄仍只用 JPEG、PNG；文件欄才包含影片。 */
+export const ATTACHMENT_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png", "video/mp4", "video/webm"] as const;
+
+export function isAttachmentMimeType(mimeType: string): mimeType is AllowedMimeType | CourseVideoMime {
+  return (ATTACHMENT_MIME_TYPES as readonly string[]).includes(mimeType);
+}
+
+export function detectAttachmentSignature(bytes: Uint8Array): AllowedMimeType | CourseVideoMime | null {
+  return detectFileSignature(bytes) ?? detectCourseVideo(bytes);
+}
+
+export function formatByteLimit(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return Number.isInteger(mb) ? `${mb} MB` : `${mb.toFixed(1)} MB`;
+}
+
 export function detectFileSignature(bytes: Uint8Array): AllowedMimeType | null {
   if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
     return "application/pdf";

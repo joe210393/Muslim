@@ -25,7 +25,7 @@ export function ecpayPlainText(value: string, max: number) {
 }
 
 export function ecpayMethodLabel(value: string) {
-  if (!value) return "人工登錄";
+  if (!value || value === "MANUAL") return "人工登錄";
   if (value.startsWith("WebATM")) return "網路 ATM";
   if (value.startsWith("Credit")) return "信用卡";
   if (value.startsWith("ATM")) return "ATM";

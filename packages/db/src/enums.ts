@@ -16,4 +16,5 @@ export {
   EditorialKind,
   ContractStatus,
   PaymentStatus,
+  SitePageKind,
 } from "./generated/prisma/enums";

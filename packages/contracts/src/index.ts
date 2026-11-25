@@ -14,12 +14,15 @@ export {
   ImportBatchType,
   NotificationJobStatus,
   NotificationType,
+  SitePageKind,
   UserRole,
 } from "@mf/db/enums";
 
 export * from "./domain/status-labels";
 export * from "./domain/permissions";
 export * from "./domain/application-workflow";
+export * from "./domain/application-mail";
+export * from "./schemas/mail";
 export * from "./domain/file-policy";
 export * from "./domain/category-definition";
 export * from "./domain/application-validation";
@@ -52,6 +55,7 @@ export * from "./schemas/admin";
 export * from "./schemas/platform";
 export * from "./schemas/report";
 export * from "./schemas/payments";
+export * from "./schemas/site-pages";
 
 export * from "./registry/field-metadata";
 export * from "./fixtures/categories";

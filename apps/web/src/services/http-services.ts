@@ -8,6 +8,7 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
   const form = body instanceof FormData;
   if (!form && body !== undefined) headers.set("content-type", "application/json");
   if (method !== "GET" && method !== "HEAD") {
+    csrfToken = csrfCookie() || csrfToken;
     if (!csrfToken) await refreshCsrf();
     headers.set("x-csrf-token", csrfToken);
   }
@@ -37,6 +38,11 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
     });
   }
   return { data: json.data, meta: json.meta };
+}
+
+function csrfCookie() {
+  const match = document.cookie.match(/(?:^|;\s*)mf_csrf=([^;]*)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : "";
 }
 
 async function refreshCsrf() {
@@ -109,6 +115,15 @@ export function createHttpServices(): Services {
     async categories() {
       return (await request("GET", "/application-categories")).data as Awaited<ReturnType<Services["categories"]>>;
     },
+    async categoryForm(categoryId) {
+      return (await request("GET", `/admin/application-categories/${categoryId}/form`)).data as Awaited<ReturnType<Services["categoryForm"]>>;
+    },
+    async saveCategoryFormDraft(categoryId, definition) {
+      return (await request("PUT", `/admin/application-categories/${categoryId}/form-draft`, definition)).data as Awaited<ReturnType<Services["saveCategoryFormDraft"]>>;
+    },
+    async publishCategoryForm(categoryId, definition) {
+      return (await request("POST", `/admin/application-categories/${categoryId}/form-publish`, definition)).data as Awaited<ReturnType<Services["publishCategoryForm"]>>;
+    },
     async applications(query = {}) {
       const params = new URLSearchParams();
       Object.entries(query).forEach(([key, value]) => {
@@ -180,6 +195,28 @@ export function createHttpServices(): Services {
       const path = me.role === "APPLICANT" ? "/portal/summary" : "/admin/summary";
       return (await request("GET", path)).data as Awaited<ReturnType<Services["summary"]>>;
     },
+    async notices() {
+      return (await request("GET", "/notifications")).data as Awaited<ReturnType<Services["notices"]>>;
+    },
+    async adminNotices() {
+      return (await request("GET", "/admin/notifications")).data as Awaited<ReturnType<Services["adminNotices"]>>;
+    },
+    async mailTemplates() {
+      return (await request("GET", "/admin/mail-templates")).data as Awaited<ReturnType<Services["mailTemplates"]>>;
+    },
+    async saveMailTemplate(key, input) {
+      return (await request("PATCH", `/admin/mail-templates/${encodeURIComponent(key)}`, input)).data as Awaited<ReturnType<Services["saveMailTemplate"]>>;
+    },
+    async sendMail(input) {
+      return (await request("POST", "/admin/notifications/send", input)).data as Awaited<ReturnType<Services["sendMail"]>>;
+    },
+    async organizationProfile(lookup) {
+      const params = new URLSearchParams(Object.entries(lookup).filter((entry): entry is [string, string] => Boolean(entry[1])));
+      return (await request("GET", `/admin/organization-profile?${params.toString()}`)).data as Awaited<ReturnType<Services["organizationProfile"]>>;
+    },
+    async organizationNotices(organizationId) {
+      return (await request("GET", `/admin/organizations/${organizationId}/notifications`)).data as Awaited<ReturnType<Services["organizationNotices"]>>;
+    },
     async courses(scope) {
       return (await request("GET", scope === "manage" ? "/admin/courses" : "/courses")).data as Awaited<ReturnType<Services["courses"]>>;
     },
@@ -210,6 +247,21 @@ export function createHttpServices(): Services {
     },
     async recordBasicModuleWatch(moduleId, input) {
       return (await request("POST", `/training/basic/modules/${moduleId}/watch`, input)).data as Awaited<ReturnType<Services["recordBasicModuleWatch"]>>;
+    },
+    async startCourseQuiz(enrollmentId) {
+      return (await request("POST", `/training/enrollments/${enrollmentId}/quiz/start`)).data as Awaited<ReturnType<Services["startCourseQuiz"]>>;
+    },
+    async submitCourseQuiz(enrollmentId, input) {
+      return (await request("POST", `/training/enrollments/${enrollmentId}/quiz`, input)).data as Awaited<ReturnType<Services["submitCourseQuiz"]>>;
+    },
+    async downloadCourseMaterial(courseId) {
+      const result = await request("GET", `/courses/${courseId}/material`);
+      return { blob: result.data as Blob, name: "course-material" };
+    },
+    async uploadCourseMaterial(id, file) {
+      const form = new FormData();
+      form.append("file", file);
+      return (await request("POST", `/admin/courses/${id}/material`, form)).data as Awaited<ReturnType<Services["uploadCourseMaterial"]>>;
     },
     async startBasicQuiz() {
       return (await request("POST", "/training/basic/quiz/start")).data as Awaited<ReturnType<Services["startBasicQuiz"]>>;
@@ -275,6 +327,9 @@ export function createHttpServices(): Services {
     async reviewCompanyTrainingRequest(id, input) {
       return (await request("POST", `/admin/training/company-requests/${id}/review`, input)).data as Awaited<ReturnType<Services["reviewCompanyTrainingRequest"]>>;
     },
+    async trainingCertificates() {
+      return (await request("GET", "/admin/training/certificates")).data as Awaited<ReturnType<Services["trainingCertificates"]>>;
+    },
     async registerTrainingCertificate(input) {
       return (await request("POST", "/admin/training/certificates", input)).data as Awaited<ReturnType<Services["registerTrainingCertificate"]>>;
     },
@@ -339,6 +394,18 @@ export function createHttpServices(): Services {
     },
     async confirmReconciliation(input) {
       return (await request("POST", "/admin/payments/confirm-reconciliation", input)).data as Awaited<ReturnType<Services["confirmReconciliation"]>>;
+    },
+    async reviewPayment(input) {
+      return (await request("POST", "/admin/payments/review", input)).data as Awaited<ReturnType<Services["reviewPayment"]>>;
+    },
+    async uploadPaymentReceipt(paymentId, file) {
+      const form = new FormData();
+      form.append("file", file);
+      return (await request("POST", `/payments/${paymentId}/receipt`, form)).data as Awaited<ReturnType<Services["uploadPaymentReceipt"]>>;
+    },
+    async paymentReceipt(paymentId) {
+      const result = await request("GET", `/payments/${paymentId}/receipt`);
+      return { blob: result.data as Blob, name: "receipt" };
     },
     async markPaidPending(paymentId) {
       return (await request("POST", "/payments/pay", { paymentId })).data as Awaited<ReturnType<Services["markPaidPending"]>>;
@@ -440,6 +507,35 @@ export function createHttpServices(): Services {
     async deleteEntry(id) {
       await request("DELETE", `/admin/editorial/${id}`);
     },
+    async publicSitePages() {
+      return (await request("GET", "/site-pages")).data as Awaited<ReturnType<Services["publicSitePages"]>>;
+    },
+    async adminSitePages() {
+      return (await request("GET", "/admin/site-pages")).data as Awaited<ReturnType<Services["adminSitePages"]>>;
+    },
+    async createSitePage(input) {
+      return (await request("POST", "/admin/site-pages", input)).data as Awaited<ReturnType<Services["createSitePage"]>>;
+    },
+    async updateSitePage(id, input) {
+      return (await request("PATCH", `/admin/site-pages/${id}`, input)).data as Awaited<ReturnType<Services["updateSitePage"]>>;
+    },
+    async publishSitePage(id, expectedVersion) {
+      return (await request("POST", `/admin/site-pages/${id}/publish`, { expectedVersion })).data as Awaited<ReturnType<Services["publishSitePage"]>>;
+    },
+    async unpublishSitePage(id, expectedVersion) {
+      return (await request("POST", `/admin/site-pages/${id}/unpublish`, { expectedVersion })).data as Awaited<ReturnType<Services["unpublishSitePage"]>>;
+    },
+    async deleteSitePage(id, expectedVersion) {
+      await request("DELETE", `/admin/site-pages/${id}?expectedVersion=${expectedVersion}`);
+    },
+    async reorderSitePages(input) {
+      return (await request("POST", "/admin/site-pages/reorder", input)).data as Awaited<ReturnType<Services["reorderSitePages"]>>;
+    },
+    async uploadSitePageImage(file) {
+      const form = new FormData();
+      form.set("file", file);
+      return (await request("POST", "/admin/site-pages/images", form)).data as Awaited<ReturnType<Services["uploadSitePageImage"]>>;
+    },
     async myContracts() {
       return (await request("GET", "/contracts/mine")).data as Awaited<ReturnType<Services["myContracts"]>>;
     },
@@ -473,6 +569,18 @@ export function createHttpServices(): Services {
     },
     async adminContracts() {
       return (await request("GET", "/admin/contracts")).data as Awaited<ReturnType<Services["adminContracts"]>>;
+    },
+    async operationSetting() {
+      return (await request("GET", "/operation-settings")).data as Awaited<ReturnType<Services["operationSetting"]>>;
+    },
+    async saveOperationSetting(input) {
+      return (await request("PATCH", "/admin/operation-settings", input)).data as Awaited<ReturnType<Services["saveOperationSetting"]>>;
+    },
+    async systemConnection() {
+      return (await request("GET", "/admin/system-connection")).data as Awaited<ReturnType<Services["systemConnection"]>>;
+    },
+    async saveSystemConnection(input) {
+      return (await request("PATCH", "/admin/system-connection", input)).data as Awaited<ReturnType<Services["saveSystemConnection"]>>;
     },
     async issuableOrganizations() {
       return (await request("GET", "/admin/contracts/issuable-organizations")).data as Awaited<ReturnType<Services["issuableOrganizations"]>>;

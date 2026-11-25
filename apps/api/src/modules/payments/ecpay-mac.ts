@@ -62,10 +62,6 @@ export function ecpayCheckoutFields(
   return fields;
 }
 
-export function ecpayMerchantTradeNo() {
-  return `MF${Date.now().toString(36)}${randomBytes(3).toString("hex")}`.toUpperCase().slice(0, 20);
-}
-
 export function ecpayBody(body: unknown): Record<string, string> {
   if (!body || typeof body !== "object") return {};
   return Object.fromEntries(Object.entries(body).map(([key, value]) => [key, typeof value === "string" ? value : String(value ?? "")]));

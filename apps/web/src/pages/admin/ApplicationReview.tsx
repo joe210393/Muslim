@@ -242,6 +242,8 @@ export function caseFactRows(item: ApplicationDetail): Array<[string, ReactNode]
     ...(item.siteReviewerName ? [["複審人員", item.siteReviewerName] as [string, ReactNode]] : []),
     ["送件時間", item.submittedAt ? formatTaipei(item.submittedAt) : "—"],
     ...(item.certificateNo ? [["證書編號", item.certificateNo] as [string, ReactNode]] : []),
+    ...(item.issuedOnDate ? [["核發日", item.issuedOnDate] as [string, ReactNode]] : []),
+    ...(item.validUntilDate ? [["到期日", item.validUntilDate] as [string, ReactNode]] : []),
   ];
 }
 

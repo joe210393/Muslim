@@ -1,6 +1,6 @@
 import { ContentSlot, ContractStatus, EditorialKind } from "@mf/db/enums";
 import { z } from "zod";
-import { isSafeHref, PLATFORM_FEATURES, STAFF_FEATURES, youtubeVideoId, type PlatformFeatureKey } from "../domain/platform-defaults";
+import { isSafeHref, isSupportUrl, PLATFORM_FEATURES, STAFF_FEATURES, youtubeVideoId, type PlatformFeatureKey } from "../domain/platform-defaults";
 
 const featureKeys = PLATFORM_FEATURES.map((item) => item.key) as [PlatformFeatureKey, ...PlatformFeatureKey[]];
 const staffFeatureKeys = STAFF_FEATURES.map((item) => item.key) as [Exclude<PlatformFeatureKey, "applications.create" | "contracts.sign">, ...Array<Exclude<PlatformFeatureKey, "applications.create" | "contracts.sign">>];
@@ -124,6 +124,69 @@ export const featureToggleSchema = z.object({
   enabled: z.boolean(),
 });
 
+export const operationSettingSchema = z.object({
+  renewalReminderDays: z.number().int().min(1).max(365),
+  certificateTermMonths: z.number().int().min(1).max(36),
+  attachmentMaxBytes: z.number().int().min(1024 * 1024).max(200 * 1024 * 1024),
+  attachmentMaxMb: z.number().int().min(1).max(200),
+  paymentDueDays: z.number().int().min(1).max(90),
+  remitBankName: z.string(),
+  remitAccountNo: z.string(),
+  remitAccountName: z.string(),
+  version: z.number().int().positive(),
+});
+
+export const operationSettingWriteSchema = z.object({
+  renewalReminderDays: z.number().int().min(1, "續約提醒請填 1 到 365 天").max(365, "續約提醒請填 1 到 365 天").optional(),
+  certificateTermMonths: z.number().int().min(1, "證書效期請填 1 到 36 個月").max(36, "證書效期請填 1 到 36 個月").optional(),
+  attachmentMaxMb: z.number().int().min(1, "附件大小請填 1 到 200 MB").max(200, "附件大小請填 1 到 200 MB").optional(),
+  paymentDueDays: z.number().int().min(1, "繳費期限請填 1 到 90 天").max(90, "繳費期限請填 1 到 90 天").optional(),
+  remitBankName: z.string().trim().max(120, "銀行名稱最多 120 字").optional(),
+  remitAccountNo: z.string().trim().max(40, "帳號最多 40 字").regex(/^[0-9-]*$/, "帳號只能填數字與 -").optional(),
+  remitAccountName: z.string().trim().max(120, "戶名最多 120 字").optional(),
+  expectedVersion: z.number().int().positive(),
+}).refine((value) => [
+  value.renewalReminderDays,
+  value.certificateTermMonths,
+  value.attachmentMaxMb,
+  value.paymentDueDays,
+  value.remitBankName,
+  value.remitAccountNo,
+  value.remitAccountName,
+].some((item) => item !== undefined), { message: "請填要修改的項目" });
+
+export const systemConnectionSchema = z.object({
+  supportEnabled: z.boolean(),
+  supportLabel: z.string(),
+  supportUrl: z.string(),
+  smtpHost: z.string(),
+  smtpPort: z.number().int(),
+  smtpUser: z.string(),
+  smtpFrom: z.string(),
+  smtpPasswordSet: z.boolean(),
+  ecpayEnv: z.enum(["stage", "production"]),
+  ecpayMerchantId: z.string(),
+  ecpayHashKeySet: z.boolean(),
+  ecpayHashIvSet: z.boolean(),
+  version: z.number().int().positive(),
+});
+
+export const systemConnectionWriteSchema = z.object({
+  supportEnabled: z.boolean().optional(),
+  supportLabel: z.string().trim().min(1, "請填客服按鈕文字").max(40, "客服按鈕文字最多 40 字").optional(),
+  supportUrl: z.string().trim().max(500).refine(isSupportUrl, "客服連結請填站內路徑，或 https 開頭的網址").optional(),
+  smtpHost: z.string().trim().max(200).optional(),
+  smtpPort: z.number().int().min(1, "SMTP 埠請填 1 到 65535").max(65535, "SMTP 埠請填 1 到 65535").optional(),
+  smtpUser: z.string().trim().max(320).optional(),
+  smtpFrom: z.string().trim().max(320).optional(),
+  smtpPassword: z.string().max(200).optional(),
+  ecpayEnv: z.enum(["stage", "production"]).optional(),
+  ecpayMerchantId: z.string().trim().max(20).optional(),
+  ecpayHashKey: z.string().max(64).optional(),
+  ecpayHashIv: z.string().max(64).optional(),
+  expectedVersion: z.number().int().positive(),
+}).refine((value) => Object.entries(value).some(([key, item]) => key !== "expectedVersion" && item !== undefined), { message: "請填要修改的項目" });
+
 export const integrationWriteSchema = z.object({
   key: z.enum(["email", "payment", "media", "signature"]),
   provider: z.string().trim().min(1).max(80),
@@ -184,3 +247,7 @@ export type ContractFillSnapshot = z.infer<typeof contractFillSnapshotSchema>;
 export type ContractRenewal = z.infer<typeof contractRenewalSchema>;
 export type FeatureToggle = z.infer<typeof featureToggleSchema>;
 export type IntegrationWrite = z.infer<typeof integrationWriteSchema>;
+export type SystemConnection = z.infer<typeof systemConnectionSchema>;
+export type SystemConnectionWrite = z.infer<typeof systemConnectionWriteSchema>;
+export type OperationSetting = z.infer<typeof operationSettingSchema>;
+export type OperationSettingWrite = z.infer<typeof operationSettingWriteSchema>;

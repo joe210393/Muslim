@@ -170,6 +170,7 @@ export type DemoDataset = {
     youtubeUrl: string;
     imageFileId: string | null;
     videoFileId: string | null;
+    materialFileId: string | null;
     videoDurationSeconds: number;
     createdById: string;
     version: number;
@@ -188,9 +189,24 @@ export type DemoDataset = {
     requiredAttendanceMinutesSnapshot: number;
     attendanceRecordedById: string | null;
     attendanceRecordedAt: string | null;
+    quizPassedAt: string | null;
+    recognizedMinutes: number;
     version: number;
     enrolledAt: string;
     cancelledAt: string | null;
+  }[];
+  courseQuizAttempts: {
+    id: string;
+    enrollmentId: string;
+    userId: string;
+    correctCount: number;
+    drawCount: number;
+    passCountSnapshot: number;
+    passed: boolean;
+    drawnQuestionIds: string[];
+    answers: { questionId: string; selectedIndex: number }[] | null;
+    submittedAt: string | null;
+    createdAt: string;
   }[];
   certifications: {
     id: string;
@@ -313,6 +329,8 @@ export type DemoDataset = {
     status: NotificationJobStatus;
     attemptCount: number;
     lastErrorCode: string | null;
+    subject: string;
+    body: string;
     createdAt: string;
     sentAt: string | null;
   }[];
@@ -734,6 +752,8 @@ export function buildDemoDataset(): DemoDataset {
         status: NotificationJobStatus.MOCKED,
         attemptCount: 1,
         lastErrorCode: "MAIL_DRIVER_CONSOLE",
+        subject: "",
+        body: "",
         createdAt: isoDaysBefore(1),
         sentAt: null,
       });
@@ -849,7 +869,31 @@ export function buildDemoDataset(): DemoDataset {
       createdAt: isoDaysBefore(9),
       updatedAt: isoDaysBefore(1),
     },
-  ] satisfies Array<Omit<DemoDataset["courses"][number], "youtubeUrl" | "imageFileId" | "delivery" | "videoFileId" | "videoDurationSeconds">>).map((course) => ({ ...course, youtubeUrl: "", imageFileId: null, delivery: CourseDelivery.OFFLINE, videoFileId: null, videoDurationSeconds: 0 }));
+  ] satisfies Array<Omit<DemoDataset["courses"][number], "youtubeUrl" | "imageFileId" | "delivery" | "videoFileId" | "materialFileId" | "videoDurationSeconds">>).map((course) => ({ ...course, youtubeUrl: "", imageFileId: null, delivery: CourseDelivery.OFFLINE, videoFileId: null, materialFileId: null, videoDurationSeconds: 0 }));
+  courses.push({
+    id: demoUuid(0x510),
+    title: "線上示範：穆斯林友善接待",
+    description: "示範用線上課程。看完影片並通過測驗後，才把這一門的時數計入證明。",
+    location: "",
+    startsAt: "2026-11-01T01:00:00.000Z",
+    endsAt: "2026-12-31T15:59:00.000Z",
+    registrationOpensAt: "2026-09-01T00:00:00.000Z",
+    registrationClosesAt: "2026-12-20T15:59:00.000Z",
+    capacity: 40,
+    durationMinutes: 60,
+    requiredAttendanceMinutes: 40,
+    status: CourseStatus.PUBLISHED,
+    delivery: CourseDelivery.ONLINE,
+    youtubeUrl: "",
+    imageFileId: null,
+    videoFileId: null,
+    materialFileId: null,
+    videoDurationSeconds: 0,
+    createdById: admin.id,
+    version: 1,
+    createdAt: isoDaysBefore(5),
+    updatedAt: isoDaysBefore(1),
+  });
 
   const enrollments: DemoDataset["enrollments"] = [
     enrollment(0x601, courses[0]!.id, applicants[0]!.id, EnrollmentStatus.CONFIRMED, AttendanceStatus.NOT_RECORDED, 0, 180, null),
@@ -1294,6 +1338,7 @@ export function buildDemoDataset(): DemoDataset {
     attachments,
     courses,
     enrollments,
+    courseQuizAttempts: [],
     certifications,
     trainingPolicy,
     basicModules,
@@ -1331,6 +1376,8 @@ function enrollment(
     requiredAttendanceMinutesSnapshot,
     attendanceRecordedById,
     attendanceRecordedAt: attendanceRecordedById ? isoDaysBefore(20) : null,
+    quizPassedAt: null,
+    recognizedMinutes: 0,
     version: attendanceRecordedById ? 2 : 1,
     enrolledAt: isoDaysBefore(18),
     cancelledAt,

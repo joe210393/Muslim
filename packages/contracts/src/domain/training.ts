@@ -174,6 +174,39 @@ export function buildLearningRecord(input: {
   return { completion: "NOT_COMPLETED", countsTowardTotal: false };
 }
 
+/** 課程內容看完才能測驗。通過後才把課程分鐘數計入時數證明。 */
+export function courseQuizState(input: {
+  enrollmentStatus: EnrollmentStatus;
+  attendanceStatus: AttendanceStatus;
+  delivery?: CourseDeliveryMode;
+  watchedSeconds?: number;
+  videoDurationSeconds?: number;
+  endsAtIso: string;
+  nowIso: string;
+  quizPassedAt: string | null;
+  recognizedMinutes: number;
+}): { quizReady: boolean; quizBlockedReason: string; quizPassed: boolean; recognizedMinutes: number } {
+  if (input.quizPassedAt) {
+    return { quizReady: false, quizBlockedReason: "測驗已通過，時數已計入", quizPassed: true, recognizedMinutes: input.recognizedMinutes };
+  }
+  if (input.enrollmentStatus !== EnrollmentStatus.CONFIRMED) {
+    return { quizReady: false, quizBlockedReason: "請先報名這門課", quizPassed: false, recognizedMinutes: 0 };
+  }
+  if (input.delivery === "ONLINE") {
+    const needed = onlinePassSeconds(input.videoDurationSeconds ?? 0);
+    if (!Number.isFinite(needed)) return { quizReady: false, quizBlockedReason: "這門課還沒有影片，看完才能測驗", quizPassed: false, recognizedMinutes: 0 };
+    if ((input.watchedSeconds ?? 0) < needed) return { quizReady: false, quizBlockedReason: "請先看完課程影片", quizPassed: false, recognizedMinutes: 0 };
+    return { quizReady: true, quizBlockedReason: "", quizPassed: false, recognizedMinutes: 0 };
+  }
+  if (input.attendanceStatus === AttendanceStatus.ABSENT) {
+    return { quizReady: false, quizBlockedReason: "缺席不能參加測驗", quizPassed: false, recognizedMinutes: 0 };
+  }
+  if (Date.parse(input.nowIso) < Date.parse(input.endsAtIso)) {
+    return { quizReady: false, quizBlockedReason: "線下課程結束後才能測驗", quizPassed: false, recognizedMinutes: 0 };
+  }
+  return { quizReady: true, quizBlockedReason: "", quizPassed: false, recognizedMinutes: 0 };
+}
+
 export function withdrawState(input: {
   enrollmentStatus: EnrollmentStatus;
   completed: boolean;

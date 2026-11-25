@@ -21,6 +21,10 @@ import {
   officialCategoryDefinition,
   buildLearningRecord,
   canCancelEnrollment,
+  courseQuizState,
+  drawRandomQuestions,
+  quizPassedByCount,
+  scoreBasicQuiz,
   detectCourseVideo,
   onlinePassSeconds,
   withdrawState,
@@ -28,9 +32,22 @@ import {
   canEnroll,
   canViewApplication,
   commentRequirement,
+  customerNotice,
+  DEFAULT_MAIL_TEMPLATES,
+  renewalNotice,
+  isMailTemplateKey,
+  mailSendSchema,
+  mailTemplateWriteSchema,
+  isContractRenewalDue,
+  daysUntilContractExpiry,
+  CONTRACT_RENEWAL_WINDOW_DAYS,
   checkFieldReviews,
   reviewTargets,
+  ATTACHMENT_MIME_TYPES,
+  detectAttachmentSignature,
   detectFileSignature,
+  formatByteLimit,
+  isAttachmentMimeType,
   formatApplicationNo,
   minutesToHourLabel,
   pageMeta,
@@ -83,6 +100,9 @@ import {
   deletePlan,
   markPaidPending,
   paymentDesk,
+  paymentReceipt,
+  reviewPayment,
+  uploadPaymentReceipt,
   recordPayment,
   myPayments,
   removePlanImage,
@@ -95,6 +115,11 @@ import {
   ensureAccountFeatures,
   ensureCertificateTemplates,
   ensureEditorial,
+  ensureOperationSetting,
+  readOperationSetting,
+  readSystemConnection,
+  saveSystemConnection,
+  saveOperationSetting,
   fixHalalSpelling,
   grantAccountFeatures,
   hasFeature,
@@ -128,6 +153,7 @@ import {
   type PlatformState,
 } from "./platform";
 import { assertCanApply, ensureTrainingData, trainingDesk } from "./training-desk";
+import { adminSitePages, createSitePage, deleteSitePage, publicSitePages, publishSitePage, reorderSitePages, updateSitePage } from "./site-pages";
 
 type State = {
   data: DemoDataset;
@@ -153,6 +179,14 @@ function ensureSiteReview(state: State) {
     if (pastInitial && !app.siteReviewerId && app.assignedToId) app.siteReviewerId = app.assignedToId;
   }
   for (const item of state.data.attachments) item.capturedOnSite ??= false;
+}
+
+const categoryFormDrafts = new Map<string, ReturnType<typeof parseCategoryDefinition>>();
+
+function attachmentLimits(state: State) {
+  const row = ensureOperationSetting(state.platform);
+  const maxFileBytes = row.attachmentMaxBytes ?? 10 * 1024 * 1024;
+  return { maxFileBytes, maxApplicationBytes: Math.max(FILE_POLICY.maxApplicationBytes, maxFileBytes) };
 }
 
 function ensureOfficialCategories(state: State) {
@@ -297,6 +331,9 @@ function toDetail(state: State, id: string, viewer: DemoDataset["users"][number]
     siteReviewerId: staff ? app.siteReviewerId ?? null : null,
     siteReviewerName: staff ? siteReviewer?.displayName ?? null : null,
     certificateNo: state.data.certifications.find((item) => item.applicationId === app.id)?.certificateNo ?? null,
+    issuedOnDate: state.data.certifications.find((item) => item.applicationId === app.id)?.issuedOnDate ?? null,
+    validUntilDate: state.data.certifications.find((item) => item.applicationId === app.id)?.validUntilDate ?? null,
+    templateKey: state.data.certifications.find((item) => item.applicationId === app.id)?.templateKey ?? null,
     version: app.version,
     submittedAt: app.submittedAt,
     updatedAt: app.updatedAt,
@@ -363,6 +400,8 @@ function courseDto(state: State, course: DemoDataset["courses"][number]) {
     youtubeUrl: course.youtubeUrl ?? "",
     imageUrl: courseImage(state, course),
     hasVideo: Boolean(course.videoFileId),
+    hasMaterial: Boolean(course.materialFileId),
+    materialName: course.materialFileId ? state.data.files.find((item) => item.id === course.materialFileId)?.originalName ?? "已上傳" : null,
     videoDurationSeconds: course.videoDurationSeconds ?? 0,
     location: course.location,
     startsAt: course.startsAt,
@@ -396,13 +435,24 @@ function learningOf(state: State, enrollment: DemoDataset["enrollments"][number]
     watchedSeconds,
     videoDurationSeconds,
   });
+  const passSeconds = delivery === "ONLINE" ? onlinePassSeconds(videoDurationSeconds) : 0;
+  const quiz = courseQuizState({
+    enrollmentStatus: enrollment.status,
+    attendanceStatus: enrollment.attendanceStatus,
+    delivery,
+    watchedSeconds,
+    videoDurationSeconds,
+    endsAtIso: course.endsAt,
+    nowIso: new Date().toISOString(),
+    quizPassedAt: enrollment.quizPassedAt ?? null,
+    recognizedMinutes: enrollment.recognizedMinutes ?? 0,
+  });
   const withdraw = withdrawState({
     enrollmentStatus: enrollment.status,
-    completed: learning.completion === "COMPLETED",
+    completed: learning.completion === "COMPLETED" || quiz.quizPassed,
     registrationClosesAt: course.registrationClosesAt,
     nowIso: new Date().toISOString(),
   });
-  const passSeconds = delivery === "ONLINE" ? onlinePassSeconds(videoDurationSeconds) : 0;
   return {
     id: enrollment.id,
     courseId: course.id,
@@ -431,6 +481,13 @@ function learningOf(state: State, enrollment: DemoDataset["enrollments"][number]
     startsAt: course.startsAt,
     endsAt: course.endsAt,
     location: course.location,
+    quizReady: quiz.quizReady,
+    quizBlockedReason: quiz.quizBlockedReason,
+    quizPassed: quiz.quizPassed,
+    recognizedMinutes: quiz.recognizedMinutes,
+    quizPassedAt: enrollment.quizPassedAt ?? null,
+    hasMaterial: Boolean(course.materialFileId),
+    materialName: course.materialFileId ? state.data.files.find((item) => item.id === course.materialFileId)?.originalName ?? "已上傳" : null,
     trainingCertificateNo: state.data.trainingCertificates?.find((item) => item.enrollmentId === enrollment.id)?.certificateNo ?? null,
     trainingCertificateIssuedOn: state.data.trainingCertificates?.find((item) => item.enrollmentId === enrollment.id)?.issuedOnDate ?? null,
     trainingCertificateValidUntil: state.data.trainingCertificates?.find((item) => item.enrollmentId === enrollment.id)?.validUntilDate ?? null,
@@ -465,6 +522,9 @@ function reportRows(state: State, actor: DemoDataset["users"][number], source: "
         submittedAt: reportWhen(app.submittedAt),
         decidedAt: reportWhen(app.decidedAt),
         createdAt: reportWhen(app.createdAt),
+        certificateNo: state.data.certifications.find((item) => item.applicationId === app.id)?.certificateNo ?? "",
+        certificateIssuedOn: state.data.certifications.find((item) => item.applicationId === app.id)?.issuedOnDate ?? "",
+        certificateValidUntil: state.data.certifications.find((item) => item.applicationId === app.id)?.validUntilDate ?? "",
       };
     });
   }
@@ -493,6 +553,10 @@ function reportRows(state: State, actor: DemoDataset["users"][number], source: "
         enrollmentStatus: enrollmentStatusLabels[row.status]?.label ?? row.status,
         attendanceStatus: attendanceStatusLabels[row.attendanceStatus]?.label ?? row.attendanceStatus,
         attendedMinutes: String(row.attendedMinutes),
+        recognizedMinutes: String(row.recognizedMinutes),
+        trainingCertificateNo: state.data.trainingCertificates?.find((item) => item.enrollmentId === row.id)?.certificateNo ?? "",
+        trainingCertificateIssuedOn: state.data.trainingCertificates?.find((item) => item.enrollmentId === row.id)?.issuedOnDate ?? "",
+        trainingCertificateValidUntil: state.data.trainingCertificates?.find((item) => item.enrollmentId === row.id)?.validUntilDate ?? "",
       };
     });
   }
@@ -661,6 +725,7 @@ export async function createMockServices(): Promise<Services> {
   ensureTrainingData(state.data);
   ensureAccountFeatures(state.platform, state.data.users);
   ensureEditorial(state.platform);
+  ensureOperationSetting(state.platform);
   fixHalalSpelling(state.platform);
   for (const course of state.data.courses) {
     course.youtubeUrl ??= "";
@@ -676,11 +741,11 @@ export async function createMockServices(): Promise<Services> {
         appName: APP_NAME,
         dataMode: "mock",
         demoMode: true,
-        maxFileBytes: FILE_POLICY.maxFileBytes,
-        maxApplicationBytes: FILE_POLICY.maxApplicationBytes,
-        allowedMimeTypes: [...FILE_POLICY.allowedMimeTypes],
+        maxFileBytes: attachmentLimits(state).maxFileBytes,
+        maxApplicationBytes: attachmentLimits(state).maxApplicationBytes,
+        allowedMimeTypes: [...ATTACHMENT_MIME_TYPES],
         contactEmail: DEMO_CONTACT_EMAIL,
-        contactNote: "展示模式使用模擬資料，不會寄出真實郵件。",
+        contactNote: "展示模式，聯絡信箱為示範用。",
       };
     },
     async login(email, password) {
@@ -782,6 +847,70 @@ export async function createMockServices(): Promise<Services> {
       const page = query.page ?? 1;
       const slice = rows.slice((page - 1) * 10, page * 10);
       return { items: slice.map((app) => listItem(toDetail(state, app.id, actor))), meta: pageMeta(page, 10, rows.length) };
+    },
+    async categoryForm(categoryId) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "applications.decide")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const category = state.data.categories.find((item) => item.id === categoryId);
+      const versions = state.data.formVersions.filter((item) => item.categoryId === categoryId).sort((a, b) => b.version - a.version);
+      const latest = versions[0];
+      if (!category || !latest) throw new ClientError("找不到申請類別", { status: 404 });
+      const publishedDefinition = parseCategoryDefinition(latest.definition);
+      return {
+        categoryId: category.id,
+        code: category.code,
+        name: category.name,
+        publishedVersion: latest.version,
+        publishedDefinition,
+        draftDefinition: categoryFormDrafts.get(categoryId) ?? null,
+      };
+    },
+    async saveCategoryFormDraft(categoryId, definition) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "applications.decide")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      let parsed;
+      try { parsed = parseCategoryDefinition(definition); } catch (error) {
+        throw new ClientError(error instanceof Error ? error.message : "表單內容不正確", { status: 400 });
+      }
+      categoryFormDrafts.set(categoryId, parsed);
+      const category = state.data.categories.find((item) => item.id === categoryId);
+      const versions = state.data.formVersions.filter((item) => item.categoryId === categoryId).sort((a, b) => b.version - a.version);
+      const latest = versions[0];
+      if (!category || !latest) throw new ClientError("找不到申請類別", { status: 404 });
+      return {
+        categoryId: category.id,
+        code: category.code,
+        name: category.name,
+        publishedVersion: latest.version,
+        publishedDefinition: parseCategoryDefinition(latest.definition),
+        draftDefinition: parsed,
+      };
+    },
+    async publishCategoryForm(categoryId, definition) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "applications.decide")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      let parsed;
+      try { parsed = parseCategoryDefinition(definition); } catch (error) {
+        throw new ClientError(error instanceof Error ? error.message : "表單內容不正確", { status: 400 });
+      }
+      const versions = state.data.formVersions.filter((item) => item.categoryId === categoryId).sort((a, b) => b.version - a.version);
+      const latest = versions[0];
+      if (!latest) throw new ClientError("找不到申請類別", { status: 404 });
+      if (JSON.stringify(parseCategoryDefinition(latest.definition)) === JSON.stringify(parsed)) {
+        throw new ClientError("內容和目前正式版本相同，不用再完成一次", { status: 400 });
+      }
+      const version = latest.version + 1;
+      state.data.formVersions.push({
+        id: crypto.randomUUID(),
+        categoryId,
+        version,
+        configurationStatus: latest.configurationStatus,
+        definition: parsed,
+        createdAt: new Date().toISOString(),
+      });
+      categoryFormDrafts.delete(categoryId);
+      await save();
+      return { version, definition: parsed };
     },
     async application(id) {
       return toDetail(state, id, requireActor(state));
@@ -903,6 +1032,8 @@ export async function createMockServices(): Promise<Services> {
       state.data.events.push({ id: crypto.randomUUID(), applicationId: id, submissionId: null, actorId: actor.id, action: ApplicationAction.ASSIGN, fromStatus: app.status, toStatus: app.status, publicComment: `已指派承辦：${assignee.displayName}`, internalNote: null, requestId, requestHash: requestId, createdAt: app.updatedAt });
       state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "ASSIGN", entityType: "Application", entityId: id, requestId, safeChanges: { assignedToId }, createdAt: app.updatedAt });
       await save();
+      queueNotice(app, ApplicationAction.ASSIGN, app.status, `已指派承辦：${assignee.displayName}`, `ASSIGN:${id}:${requestId}`, app.updatedAt);
+      await deliverPending();
       return toDetail(state, id, actor);
     },
     async review(id, input) {
@@ -940,8 +1071,9 @@ export async function createMockServices(): Promise<Services> {
       app.version += 1;
       app.updatedAt = now;
       if (decision.toStatus === ApplicationStatus.APPROVED || decision.toStatus === ApplicationStatus.REJECTED) app.decidedAt = now;
-      state.data.notificationJobs.push({ id: crypto.randomUUID(), dedupeKey: `${input.action}:${id}:${input.requestId}`, type: input.action === "REQUEST_SUPPLEMENT" ? "SUPPLEMENT_REQUEST" : "DECISION_RESULT", recipientUserId: app.createdById, recipientEmail: state.data.users.find((user) => user.id === app.createdById)?.email ?? "", applicationId: id, status: "MOCKED", attemptCount: 1, lastErrorCode: "MOCK_MODE", createdAt: now, sentAt: null });
       await save();
+      queueNotice(app, input.action as ApplicationAction, decision.toStatus, visibleComment || null, `${input.action}:${id}:${input.requestId}`, now);
+      await deliverPending();
       return toDetail(state, id, actor);
     },
     async saveFieldReviews(id, expectedVersion, fieldReviews) {
@@ -997,7 +1129,8 @@ export async function createMockServices(): Promise<Services> {
       const version = state.data.formVersions.find((item) => item.id === app.categoryFormVersionId);
       const requirement = parseCategoryDefinition(version?.definition ?? { schemaVersion: 1, fields: [], attachmentRequirements: [], helpText: "" }).attachmentRequirements.find((item) => item.key === requirementKey);
       if (!requirement || requirement.group === "checklist") throw new ClientError("只能在送件附件項目上補現場拍攝");
-      if (file.size > FILE_POLICY.maxFileBytes) throw new ClientError("檔案超過 10 MiB", { code: "FILE_TOO_LARGE" });
+      const limits = attachmentLimits(state);
+      if (file.size > limits.maxFileBytes) throw new ClientError(`檔案超過 ${formatByteLimit(limits.maxFileBytes)}`, { code: "FILE_TOO_LARGE" });
       const bytes = new Uint8Array(await file.arrayBuffer());
       const signature = detectFileSignature(bytes);
       if (!signature || !signature.startsWith("image/") || signature !== file.type) throw new ClientError("現場拍攝只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
@@ -1042,12 +1175,12 @@ export async function createMockServices(): Promise<Services> {
       const definition = parseCategoryDefinition(version.definition);
       const requirement = definition.attachmentRequirements.find((item) => item.key === requirementKey);
       if (!requirement) throw new ClientError("此表單版本沒有這個附件項目");
-      if (file.size > FILE_POLICY.maxFileBytes) throw new ClientError("檔案超過 10 MiB", { code: "FILE_TOO_LARGE" });
+      const limits = attachmentLimits(state);
+      if (file.size > limits.maxFileBytes) throw new ClientError(`檔案超過 ${formatByteLimit(limits.maxFileBytes)}`, { code: "FILE_TOO_LARGE" });
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const signature = detectFileSignature(bytes);
-      if (!signature || signature !== file.type) throw new ClientError("只接受 PDF、JPEG、PNG，且內容需與格式一致", { code: "UNSUPPORTED_FILE_TYPE" });
-      if (requirement.accept === "image" && !signature.startsWith("image/")) throw new ClientError("這個照片欄只接受 JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
+      const signature = detectAttachmentSignature(bytes);
       const active = state.data.attachments.filter((item) => item.applicationId === applicationId && item.requirementKey === requirementKey && !item.removedAt && !item.capturedOnSite);
+      if (!signature || !isAttachmentMimeType(file.type) || signature !== file.type) throw new ClientError("只接受 PDF、JPEG、PNG、MP4、WebM，且內容需與格式一致", { code: "UNSUPPORTED_FILE_TYPE" });
       if (active.length >= FILE_POLICY.maxImagesPerRequirement) throw new ClientError(`這個項目最多 ${FILE_POLICY.maxImagesPerRequirement} 個檔案`);
       const now = new Date().toISOString();
       const fileId = crypto.randomUUID();
@@ -1101,6 +1234,92 @@ export async function createMockServices(): Promise<Services> {
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
         .map((course) => courseDto(state, course));
     },
+    async notices() {
+      const actor = requireActor(state);
+      await scanRenewals();
+      return state.data.notificationJobs
+        .filter((job) => job.recipientUserId === actor.id && job.type !== "PASSWORD_RESET")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 100)
+        .map((job) => presentNotice(job, false));
+    },
+    async adminNotices() {
+      const actor = requireActor(state);
+      if (actor.role === UserRole.APPLICANT) throw new ClientError("沒有此操作的權限", { status: 403 });
+      const allowed = hasFeature(state.platform, actor.id, "applications.review") || hasFeature(state.platform, actor.id, "applications.decide") || hasFeature(state.platform, actor.id, "audit.view");
+      if (!allowed) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      return state.data.notificationJobs
+        .filter((job) => job.applicationId && job.type !== "PASSWORD_RESET")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 100)
+        .map((job) => presentNotice(job, true));
+    },
+    async mailTemplates() {
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      return mailDrafts().map((item) => {
+        const draft = DEFAULT_MAIL_TEMPLATES.find((entry) => entry.key === item.key)!;
+        return { key: draft.key, label: draft.label, hint: draft.hint, subject: item.subject, body: item.body, version: item.version };
+      });
+    },
+    async saveMailTemplate(key, input) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const parsed = mailTemplateWriteSchema.parse(input);
+      if (!isMailTemplateKey(key)) throw new ClientError("找不到這一種通知", { status: 404 });
+      const current = mailDrafts().find((item) => item.key === key);
+      if (!current || current.version !== parsed.expectedVersion) throw new ClientError("內容已被更新，請重新載入", { status: 409, code: "VERSION_CONFLICT" });
+      current.subject = parsed.subject;
+      current.body = parsed.body;
+      current.version += 1;
+      current.updatedAt = new Date().toISOString();
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "MAIL_TEMPLATE_UPDATE", entityType: "MailTemplate", entityId: key, requestId: crypto.randomUUID(), safeChanges: { key }, createdAt: current.updatedAt });
+      await save();
+      const draft = DEFAULT_MAIL_TEMPLATES.find((item) => item.key === key)!;
+      return { key: draft.key, label: draft.label, hint: draft.hint, subject: current.subject, body: current.body, version: current.version };
+    },
+    async sendMail(input) {
+      const actor = requireActor(state);
+      if (!hasFeature(state.platform, actor.id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const parsed = mailSendSchema.parse(input);
+      const recipients = state.data.users.filter((user) => user.role === UserRole.APPLICANT && user.isActive && (parsed.audience === "all" || user.id === parsed.userId));
+      if (!recipients.length) throw new ClientError("沒有可寄送的業者");
+      const batch = crypto.randomUUID();
+      const now = new Date().toISOString();
+      for (const user of recipients) {
+        state.data.notificationJobs.push({
+          id: crypto.randomUUID(),
+          dedupeKey: `manual:${batch}:${user.id}`,
+          type: "MANUAL",
+          subject: parsed.subject,
+          body: parsed.body,
+          recipientUserId: user.id,
+          recipientEmail: user.email,
+          applicationId: null,
+          status: "PENDING",
+          attemptCount: 0,
+          lastErrorCode: null,
+          createdAt: now,
+          sentAt: null,
+        });
+      }
+      await deliverPending();
+      state.data.auditLogs.unshift({ id: crypto.randomUUID(), actorId: actor.id, action: "MAIL_SEND", entityType: "NotificationJob", entityId: batch, requestId: batch, safeChanges: { audience: parsed.audience, count: recipients.length }, createdAt: now });
+      await save();
+      const batchJobs = state.data.notificationJobs.filter((item) => item.dedupeKey.startsWith(`manual:${batch}:`));
+      const failed = batchJobs.filter((item) => item.status === "FAILED").length;
+      return { count: recipients.length, failed, local: failed === 0 && batchJobs.some((item) => item.status === "MOCKED") };
+    },
+    async organizationNotices(organizationId) {
+      if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const org = state.data.organizations.find((item) => item.id === organizationId);
+      if (!org) throw new ClientError("找不到業者", { status: 404 });
+      const userIds = new Set(state.data.users.filter((user) => user.organizationId === organizationId).map((user) => user.id));
+      return state.data.notificationJobs
+        .filter((job) => job.recipientUserId && userIds.has(job.recipientUserId) && job.type !== "PASSWORD_RESET")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 200)
+        .map((job) => presentNotice(job, true));
+    },
     async course(id) {
       const course = state.data.courses.find((item) => item.id === id);
       const actor = actorOf(state);
@@ -1119,7 +1338,7 @@ export async function createMockServices(): Promise<Services> {
       if (issues.length) throw new ClientError("課程資料不正確", { fieldErrors: issues });
       const now = new Date().toISOString();
       if (!current) {
-        state.data.courses.push({ id: crypto.randomUUID(), title: input.title, description: input.description, delivery: input.delivery, youtubeUrl: input.youtubeUrl, imageFileId: null, videoFileId: null, videoDurationSeconds: 0, location: input.delivery === "ONLINE" ? "" : input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, createdById: actor.id, version: 1, createdAt: now, updatedAt: now });
+        state.data.courses.push({ id: crypto.randomUUID(), title: input.title, description: input.description, delivery: input.delivery, youtubeUrl: input.youtubeUrl, imageFileId: null, videoFileId: null, materialFileId: null, videoDurationSeconds: 0, location: input.delivery === "ONLINE" ? "" : input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, createdById: actor.id, version: 1, createdAt: now, updatedAt: now });
       } else {
         Object.assign(current, { title: input.title, description: input.description, delivery: input.delivery, youtubeUrl: input.youtubeUrl, location: input.delivery === "ONLINE" ? "" : input.location, startsAt: input.startsAt, endsAt: input.endsAt, registrationOpensAt: input.registrationOpensAt, registrationClosesAt: input.registrationClosesAt, capacity: input.capacity, durationMinutes: input.durationMinutes, requiredAttendanceMinutes: input.requiredAttendanceMinutes, status: input.status, version: current.version + 1, updatedAt: now });
       }
@@ -1145,11 +1364,10 @@ export async function createMockServices(): Promise<Services> {
       if (!decision.ok) throw new ClientError(decision.message, { code: decision.code, status: decision.code === "COURSE_FULL" ? 409 : 400 });
       const now = new Date().toISOString();
       if (existing) {
-        Object.assign(existing, { status: EnrollmentStatus.CONFIRMED, cancelledAt: null, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, watchedSeconds: 0, watchUpdatedAt: null, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, version: existing.version + 1 });
+        Object.assign(existing, { status: EnrollmentStatus.CONFIRMED, cancelledAt: null, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, watchedSeconds: 0, watchUpdatedAt: null, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, quizPassedAt: null, recognizedMinutes: 0, version: existing.version + 1 });
       } else {
-        state.data.enrollments.push({ id: crypto.randomUUID(), courseId, userId: actor.id, status: EnrollmentStatus.CONFIRMED, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, watchedSeconds: 0, watchUpdatedAt: null, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, attendanceRecordedById: null, attendanceRecordedAt: null, version: 1, enrolledAt: now, cancelledAt: null });
+        state.data.enrollments.push({ id: crypto.randomUUID(), courseId, userId: actor.id, status: EnrollmentStatus.CONFIRMED, attendanceStatus: AttendanceStatus.NOT_RECORDED, attendedMinutes: 0, watchedSeconds: 0, watchUpdatedAt: null, requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes, attendanceRecordedById: null, attendanceRecordedAt: null, quizPassedAt: null, recognizedMinutes: 0, version: 1, enrolledAt: now, cancelledAt: null });
       }
-      await save();
       const row = state.data.enrollments.find((item) => item.courseId === courseId && item.userId === actor.id)!;
       return learningOf(state, row);
     },
@@ -1355,6 +1573,32 @@ export async function createMockServices(): Promise<Services> {
       if (!hasFeature(state.platform, requireActor(state).id, "users.manage")) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
       return state.data.organizations.filter((org) => !q || org.organizationName.includes(q) || org.taxId.includes(q));
     },
+    async organizationProfile(lookup) {
+      const actor = requireActor(state);
+      if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.CASE_OFFICER) throw new ClientError("沒有此操作的權限", { status: 403 });
+      const wide = ["users.manage", "payments.manage", "contracts.issue", "training.manage"].some((key) => hasFeature(state.platform, actor.id, key));
+      const reviews = hasFeature(state.platform, actor.id, "applications.review") || hasFeature(state.platform, actor.id, "applications.decide");
+      if (!wide && !reviews) throw new ClientError("這個帳號目前沒有此功能", { status: 403 });
+      const organizationId = lookup.organizationId
+        ?? (lookup.userId ? state.data.users.find((user) => user.id === lookup.userId && user.role === UserRole.APPLICANT)?.organizationId : undefined)
+        ?? (lookup.applicationId ? state.data.applications.find((app) => app.id === lookup.applicationId)?.organizationId : undefined);
+      const org = organizationId ? state.data.organizations.find((item) => item.id === organizationId) : undefined;
+      if (!org) throw new ClientError("找不到業者", { status: 404, code: "NOT_FOUND" });
+      const limited = !wide && actor.role === UserRole.CASE_OFFICER;
+      const apps = state.data.applications
+        .filter((app) => app.organizationId === org.id && (!limited || canViewApplication(actor, app)))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 20);
+      if (limited && apps.length === 0) throw new ClientError("找不到業者", { status: 404, code: "NOT_FOUND" });
+      return {
+        organization: { id: org.id, organizationName: org.organizationName, taxId: org.taxId || null, contactName: org.contactName, contactPhone: org.contactPhone, contactEmail: org.contactEmail, address: org.address, createdAt: org.createdAt, updatedAt: org.updatedAt },
+        accounts: state.data.users.filter((user) => user.organizationId === org.id && user.role === UserRole.APPLICANT).map((user) => ({ id: user.id, email: user.email, displayName: user.displayName, isActive: user.isActive, createdAt: user.createdAt })),
+        applications: apps.map((app) => ({ id: app.id, applicationNo: app.applicationNo, categoryName: state.data.categories.find((item) => item.id === app.categoryId)?.name ?? "", status: app.status, updatedAt: app.updatedAt })),
+        payments: state.platform.payments.filter((row) => row.organizationId === org.id).slice(0, 20).map((row) => ({ id: row.id, planName: row.planName, amount: row.amount, status: row.status ?? "PENDING", createdAt: row.createdAt ?? row.paidAt ?? org.createdAt })),
+        contracts: state.platform.contracts.filter((row) => row.organizationId === org.id).slice(0, 20).map((row) => ({ id: row.id, contractNo: row.contractNo, title: row.title, status: row.status })),
+        applicationsLimited: limited,
+      };
+    },
     async paymentDesk() {
       return paymentDesk(state.platform, requireActor(state), state.data);
     },
@@ -1368,10 +1612,21 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return saved;
     },
-    async markPaidPending(paymentId) {
-      const saved = markPaidPending(state.platform, requireActor(state), paymentId);
+    async reviewPayment(input) {
+      const saved = reviewPayment(state.platform, requireActor(state), state.data, input);
       await save();
       return saved;
+    },
+    async uploadPaymentReceipt(paymentId, file) {
+      const saved = await uploadPaymentReceipt(state.platform, requireActor(state), state.data, paymentId, file);
+      await save();
+      return saved;
+    },
+    async paymentReceipt(paymentId) {
+      return paymentReceipt(state.platform, requireActor(state), state.data, paymentId);
+    },
+    async markPaidPending(paymentId) {
+      return markPaidPending(state.platform, requireActor(state), paymentId);
     },
     async uploadPlanImage(planId, file, caption) {
       const saved = await uploadPlanImage(state.platform, requireActor(state), state.data, planId, file, caption);
@@ -1408,7 +1663,6 @@ export async function createMockServices(): Promise<Services> {
     },
     async startCheckout(paymentId) {
       const saved = markPaidPending(state.platform, requireActor(state), paymentId);
-      await save();
       return { action: "https://payment.local/mock-paid-pending", fields: { paymentId: saved.id, status: saved.status } };
     },
     async importTemplate(type) {
@@ -1579,7 +1833,7 @@ export async function createMockServices(): Promise<Services> {
     async exportEnrollments(courseId) {
       requireActor(state);
       const rows = await services.courseEnrollments(courseId);
-      return toCsv(["userName", "attendanceStatus", "attendedMinutes"], rows.map((row) => [row.userName, row.attendanceStatus, row.attendedMinutes]));
+      return toCsv(["userName", "attendanceStatus", "attendedMinutes", "recognizedMinutes", "trainingCertificateNo", "trainingCertificateIssuedOn", "trainingCertificateValidUntil"], rows.map((row) => [row.userName, row.attendanceStatus, row.attendedMinutes, row.recognizedMinutes, row.trainingCertificateNo ?? "", row.trainingCertificateIssuedOn ?? "", row.trainingCertificateValidUntil ?? ""]));
     },
     async audit(query) {
       const actor = requireActor(state);
@@ -1645,6 +1899,94 @@ export async function createMockServices(): Promise<Services> {
       course.updatedAt = new Date().toISOString();
       await save();
       return courseDto(state, course);
+    },
+    async uploadCourseMaterial(id, file) {
+      const actor = requireActor(state);
+      if (actor.role === UserRole.APPLICANT) throw new ClientError("沒有課程管理權限", { status: 403 });
+      const course = state.data.courses.find((item) => item.id === id);
+      if (!course) throw new ClientError("找不到課程", { status: 404 });
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const mime = detectFileSignature(bytes);
+      if (!mime) throw new ClientError("上課資料只接受 PDF、JPEG 或 PNG", { code: "UNSUPPORTED_FILE_TYPE" });
+      const stored = await rememberFile(state.data, actor.id, file.name || "material", mime, bytes);
+      course.materialFileId = stored.id;
+      course.version += 1;
+      course.updatedAt = new Date().toISOString();
+      await save();
+      return courseDto(state, course);
+    },
+    async downloadCourseMaterial(courseId) {
+      const actor = requireActor(state);
+      const course = state.data.courses.find((item) => item.id === courseId);
+      const file = course?.materialFileId ? state.data.files.find((item) => item.id === course.materialFileId) : undefined;
+      if (!course || !file) throw new ClientError("這門課還沒有上課資料", { status: 404 });
+      const staff = actor.role !== UserRole.APPLICANT;
+      const enrolled = state.data.enrollments.some((item) => item.courseId === courseId && item.userId === actor.id && item.status === EnrollmentStatus.CONFIRMED);
+      if (!staff && !enrolled) throw new ClientError("報名後才能下載這門課的上課資料", { status: 403 });
+      const binary = atob(file.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      return { blob: new Blob([bytes], { type: file.mimeType }), name: file.originalName };
+    },
+    async startCourseQuiz(enrollmentId) {
+      const actor = requireActor(state);
+      assertMockServiceUnlocked(state.platform, actor);
+      if (actor.role !== UserRole.APPLICANT) throw new ClientError("只有業者可參加測驗", { status: 403 });
+      const enrollment = state.data.enrollments.find((item) => item.id === enrollmentId && item.userId === actor.id);
+      const course = enrollment ? state.data.courses.find((item) => item.id === enrollment.courseId) : undefined;
+      if (!enrollment || !course) throw new ClientError("找不到報名", { status: 404 });
+      const quiz = courseQuizState({
+        enrollmentStatus: enrollment.status,
+        attendanceStatus: enrollment.attendanceStatus,
+        delivery: course.delivery,
+        watchedSeconds: enrollment.watchedSeconds ?? 0,
+        videoDurationSeconds: course.videoDurationSeconds ?? 0,
+        endsAtIso: course.endsAt,
+        nowIso: new Date().toISOString(),
+        quizPassedAt: enrollment.quizPassedAt ?? null,
+        recognizedMinutes: enrollment.recognizedMinutes ?? 0,
+      });
+      if (quiz.quizPassed) throw new ClientError("這門課已通過測驗");
+      if (!quiz.quizReady) throw new ClientError(quiz.quizBlockedReason);
+      state.data.courseQuizAttempts ??= [];
+      const active = state.data.courseQuizAttempts.find((item) => item.enrollmentId === enrollmentId && !item.submittedAt);
+      const policy = state.data.trainingPolicy;
+      const present = (ids: string[]) => ids.map((id) => state.data.basicQuestions.find((item) => item.id === id)).filter((item): item is NonNullable<typeof item> => Boolean(item)).map((item) => ({ id: item.id, prompt: item.prompt, options: item.options, sortOrder: item.sortOrder, isActive: true }));
+      if (active) return { attemptId: active.id, drawCount: active.drawCount, passCount: active.passCountSnapshot, questions: present(active.drawnQuestionIds) };
+      const bank = state.data.basicQuestions.filter((item) => item.isActive);
+      if (bank.length < policy.quizDrawCount) throw new ClientError(`題庫至少需要 ${policy.quizDrawCount} 題才能抽題`);
+      const drawn = drawRandomQuestions(bank, policy.quizDrawCount);
+      const attempt = { id: crypto.randomUUID(), enrollmentId, userId: actor.id, correctCount: 0, drawCount: drawn.length, passCountSnapshot: policy.quizPassCount, passed: false, drawnQuestionIds: drawn.map((item) => item.id), answers: null, submittedAt: null, createdAt: new Date().toISOString() };
+      state.data.courseQuizAttempts.push(attempt);
+      await save();
+      return { attemptId: attempt.id, drawCount: attempt.drawCount, passCount: attempt.passCountSnapshot, questions: present(attempt.drawnQuestionIds) };
+    },
+    async submitCourseQuiz(enrollmentId, input) {
+      const actor = requireActor(state);
+      if (actor.role !== UserRole.APPLICANT) throw new ClientError("只有業者可參加測驗", { status: 403 });
+      const enrollment = state.data.enrollments.find((item) => item.id === enrollmentId && item.userId === actor.id);
+      const course = enrollment ? state.data.courses.find((item) => item.id === enrollment.courseId) : undefined;
+      if (!enrollment || !course) throw new ClientError("找不到報名", { status: 404 });
+      if (enrollment.quizPassedAt) throw new ClientError("這門課已通過測驗");
+      const attempt = (state.data.courseQuizAttempts ?? []).find((item) => item.id === input.attemptId && item.enrollmentId === enrollmentId && !item.submittedAt);
+      if (!attempt) throw new ClientError("找不到進行中的測驗，請重新開始");
+      if (input.answers.length !== attempt.drawnQuestionIds.length || !attempt.drawnQuestionIds.every((id) => input.answers.some((answer) => answer.questionId === id))) {
+        throw new ClientError("請答完本次抽出的全部題目");
+      }
+      const questions = state.data.basicQuestions.filter((item) => attempt.drawnQuestionIds.includes(item.id));
+      const scored = scoreBasicQuiz(questions.map((item) => ({ id: item.id, correctIndex: item.correctIndex, options: item.options })), input.answers);
+      const passed = quizPassedByCount(scored.correct, attempt.passCountSnapshot);
+      attempt.correctCount = scored.correct;
+      attempt.passed = passed;
+      attempt.answers = input.answers;
+      attempt.submittedAt = new Date().toISOString();
+      if (passed) {
+        enrollment.quizPassedAt = attempt.submittedAt;
+        enrollment.recognizedMinutes = course.durationMinutes;
+        enrollment.version += 1;
+      }
+      await save();
+      return { passed, correctCount: scored.correct, drawCount: attempt.drawCount, recognizedMinutes: passed ? course.durationMinutes : 0, record: learningOf(state, enrollment) };
     },
     async recordWatch(id, input) {
       const actor = requireActor(state);
@@ -1714,7 +2056,47 @@ export async function createMockServices(): Promise<Services> {
       deleteEntry(state.platform, requireActor(state), id);
       await save();
     },
+    async publicSitePages() {
+      return publicSitePages(state.platform);
+    },
+    async adminSitePages() {
+      return adminSitePages(state.platform, requireActor(state), state.data);
+    },
+    async createSitePage(input) {
+      const saved = createSitePage(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async updateSitePage(id, input) {
+      const saved = updateSitePage(state.platform, requireActor(state), state.data, id, input);
+      await save();
+      return saved;
+    },
+    async publishSitePage(id, expectedVersion) {
+      const saved = publishSitePage(state.platform, requireActor(state), state.data, id, { expectedVersion }, true);
+      await save();
+      return saved;
+    },
+    async unpublishSitePage(id, expectedVersion) {
+      const saved = publishSitePage(state.platform, requireActor(state), state.data, id, { expectedVersion }, false);
+      await save();
+      return saved;
+    },
+    async deleteSitePage(id, expectedVersion) {
+      deleteSitePage(state.platform, requireActor(state), state.data, id, { expectedVersion });
+      await save();
+    },
+    async reorderSitePages(input) {
+      const saved = reorderSitePages(state.platform, requireActor(state), state.data, input);
+      await save();
+      return saved;
+    },
+    async uploadSitePageImage() {
+      requireActor(state);
+      throw new ClientError("示範模式不能上傳頁面圖片，請貼圖片網址或從圖庫挑選", { status: 400, code: "VALIDATION_ERROR" });
+    },
     async myContracts() {
+      await scanRenewals();
       return myContracts(state.platform, requireActor(state));
     },
     async contract(id) {
@@ -1744,7 +2126,7 @@ export async function createMockServices(): Promise<Services> {
     async recordRenewal(id, input) {
       const saved = recordRenewal(state.platform, requireActor(state), id, input);
       await save();
-      return saved;
+      return { renewalApplicationNo: null, renewalApplicationId: null, renewalNote: null, ...saved };
     },
     async contractTemplates() {
       return listTemplates(state.platform, requireActor(state));
@@ -1764,11 +2146,42 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return saved;
     },
-    async adminContracts() {
-      return adminContracts(state.platform, requireActor(state));
-    },
     async issuableOrganizations() {
       return listIssuableOrganizations(state.platform, requireActor(state), state.data);
+    },
+    async adminContracts() {
+      await scanRenewals();
+      return adminContracts(state.platform, requireActor(state));
+    },
+    async operationSetting() {
+      requireActor(state);
+      return readOperationSetting(state.platform);
+    },
+    async systemConnection() {
+      requireActor(state);
+      return readSystemConnection(state.platform);
+    },
+    async saveSystemConnection(input) {
+      const actor = requireActor(state);
+      const saved = saveSystemConnection(state.platform, actor, input);
+      await save();
+      return saved;
+    },
+    async saveOperationSetting(input) {
+      const actor = requireActor(state);
+      const saved = saveOperationSetting(state.platform, actor, input);
+      state.data.auditLogs.unshift({
+        id: crypto.randomUUID(),
+        actorId: actor.id,
+        action: "OPERATION_SETTING_UPDATE",
+        entityType: "OperationSetting",
+        entityId: null,
+        requestId: crypto.randomUUID(),
+        safeChanges: { renewalReminderDays: saved.renewalReminderDays, certificateTermMonths: saved.certificateTermMonths, attachmentMaxBytes: saved.attachmentMaxBytes },
+        createdAt: new Date().toISOString(),
+      });
+      await save();
+      return saved;
     },
     async issueContract(input) {
       const actor = requireActor(state);
@@ -1910,6 +2323,9 @@ export async function createMockServices(): Promise<Services> {
       await save();
       return result;
     },
+    async trainingCertificates() {
+      return desk().listTrainingCertificates();
+    },
     async resetDemo() {
       state = blank();
       sessionStorage.removeItem("mf-demo-user");
@@ -1933,6 +2349,125 @@ export async function createMockServices(): Promise<Services> {
   function desk() {
     const actor = requireActor(state);
     return trainingDesk(state.data, actor, hasFeature(state.platform, actor.id, "training.manage"));
+  }
+
+  function presentNotice(job: (typeof state.data.notificationJobs)[number], includeError: boolean) {
+    const application = state.data.applications.find((item) => item.id === job.applicationId);
+    return {
+      id: job.id,
+      type: job.type,
+      subject: job.subject || "案件通知",
+      body: job.body || "這是較早的通知紀錄，沒有留下信件本文。",
+      status: job.status,
+      applicationId: job.applicationId,
+      applicationNo: application?.applicationNo ?? null,
+      recipientEmail: job.recipientEmail,
+      createdAt: job.createdAt,
+      sentAt: job.sentAt,
+      lastErrorCode: includeError ? job.lastErrorCode : null,
+    };
+  }
+
+  function mailDrafts() {
+    const now = new Date().toISOString();
+    state.platform.mailTemplates ??= [];
+    for (const item of DEFAULT_MAIL_TEMPLATES) {
+      if (state.platform.mailTemplates.some((entry) => entry.key === item.key)) continue;
+      state.platform.mailTemplates.push({ key: item.key, subject: item.subject, body: item.body, version: 1, updatedAt: now });
+    }
+    return state.platform.mailTemplates;
+  }
+
+  function queueNotice(app: (typeof state.data.applications)[number], action: ApplicationAction, toStatus: ApplicationStatus, publicComment: string | null, dedupeKey: string, now: string) {
+    if (state.data.notificationJobs.some((item) => item.dedupeKey === dedupeKey)) return;
+    const notice = customerNotice({ action, applicationNo: app.applicationNo, toStatus, publicComment, templates: mailDrafts() });
+    const user = state.data.users.find((item) => item.id === app.createdById);
+    state.data.notificationJobs.push({
+      id: crypto.randomUUID(),
+      dedupeKey,
+      type: notice.type,
+      subject: notice.subject,
+      body: notice.body,
+      recipientUserId: app.createdById,
+      recipientEmail: user?.email ?? "",
+      applicationId: app.id,
+      status: "PENDING",
+      attemptCount: 0,
+      lastErrorCode: null,
+      createdAt: now,
+      sentAt: null,
+    });
+  }
+
+  async function deliverPending() {
+    const jobs = state.data.notificationJobs.filter((item) => item.status === "PENDING" && item.recipientEmail);
+    if (!jobs.length) return;
+    let ok = false;
+    let localCatcher = false;
+    try {
+      const response = await fetch("/dev-mail", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: jobs.map((item) => ({ to: item.recipientEmail, subject: item.subject, text: item.body })) }),
+      });
+      const payload = await response.json() as { ok?: boolean; local?: boolean };
+      ok = response.ok && payload.ok === true;
+      localCatcher = ok && payload.local !== false;
+    } catch {
+      ok = false;
+    }
+    const now = new Date().toISOString();
+    for (const job of jobs) {
+      job.attemptCount += 1;
+      job.status = ok ? (localCatcher ? "MOCKED" : "SENT") : "FAILED";
+      job.sentAt = ok && !localCatcher ? now : null;
+      job.lastErrorCode = ok ? (localCatcher ? "LOCAL_CATCHER" : null) : "SMTP_ERROR";
+    }
+    await save();
+  }
+
+  async function scanRenewals() {
+    const reminderDays = state.platform.operationSetting?.renewalReminderDays ?? CONTRACT_RENEWAL_WINDOW_DAYS;
+    const templates = mailDrafts();
+    let added = false;
+    for (const contract of state.platform.contracts) {
+      if (contract.status !== "SIGNED" || !contract.signedAt || !isContractRenewalDue(contract.signedAt, new Date(), reminderDays)) continue;
+      const letter = renewalNotice({
+        contractNo: contract.contractNo,
+        organizationName: contract.organizationName,
+        daysLeft: daysUntilContractExpiry(contract.signedAt),
+        reminderDays,
+        templates,
+      });
+      const recipients = state.data.users.filter((user) => user.organizationId === contract.organizationId && user.role === UserRole.APPLICANT && user.isActive);
+      for (const user of recipients) {
+        const dedupeKey = `renewal:${contract.id}:${contract.signedAt}:${user.id}`;
+        const existing = state.data.notificationJobs.find((item) => item.dedupeKey === dedupeKey);
+        if (existing?.status === "SENT" || existing?.status === "MOCKED") continue;
+        if (existing) {
+          existing.status = "PENDING";
+          added = true;
+          continue;
+        }
+        state.data.notificationJobs.push({
+          id: crypto.randomUUID(),
+          dedupeKey,
+          type: letter.type,
+          subject: letter.subject,
+          body: letter.body,
+          recipientUserId: user.id,
+          recipientEmail: user.email,
+          applicationId: null,
+          status: "PENDING",
+          attemptCount: 0,
+          lastErrorCode: null,
+          createdAt: new Date().toISOString(),
+          sentAt: null,
+        });
+        added = true;
+      }
+    }
+    if (added) await deliverPending();
   }
 
   async function transition(id: string, expectedVersion: number, requestId: string, action: typeof ApplicationAction.SUBMIT | typeof ApplicationAction.RESUBMIT) {
@@ -1963,8 +2498,10 @@ export async function createMockServices(): Promise<Services> {
     app.version += 1;
     app.submittedAt = app.submittedAt ?? now;
     app.updatedAt = now;
-    state.data.notificationJobs.push({ id: crypto.randomUUID(), dedupeKey: `${action}:${id}:${requestId}`, type: "SUBMISSION_CONFIRMATION", recipientUserId: actor.id, recipientEmail: actor.email, applicationId: id, status: "MOCKED", attemptCount: 1, lastErrorCode: "MOCK_MODE", createdAt: now, sentAt: null });
     await save();
+    const revision = state.data.submissions.filter((item) => item.applicationId === id).length;
+    queueNotice(app, action, decision.toStatus, null, `submission:${id}:${revision}`, now);
+    await deliverPending();
     return toDetail(state, id, actor);
   }
 

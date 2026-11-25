@@ -38,6 +38,9 @@ export const applicationListItemSchema = z.object({
   siteReviewerName: z.string().nullable(),
   /** 由 certifications 關聯帶出；尚未發證為 null。 */
   certificateNo: z.string().nullable(),
+  issuedOnDate: z.string().nullable(),
+  validUntilDate: z.string().nullable(),
+  templateKey: z.string().nullable(),
   version: z.number().int(),
   submittedAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
@@ -205,8 +208,18 @@ export const certificationWriteSchema = z.object({
   templateKey: z.string().trim().min(1).max(64).optional(),
 });
 
+export const categoryFormViewSchema = z.object({
+  categoryId: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  publishedVersion: z.number().int(),
+  publishedDefinition: categoryDefinitionSchema,
+  draftDefinition: categoryDefinitionSchema.nullable(),
+});
+
 export type ApplicationListItem = z.infer<typeof applicationListItemSchema>;
 export type ApplicationDetail = z.infer<typeof applicationDetailSchema>;
 export type ApplicationPatch = z.infer<typeof applicationPatchSchema>;
 export type CategorySummary = z.infer<typeof categorySummarySchema>;
+export type CategoryFormView = z.infer<typeof categoryFormViewSchema>;
 export type Certification = z.infer<typeof certificationSchema>;

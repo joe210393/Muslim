@@ -107,7 +107,7 @@ async function rowsFor(actor: SessionActor, source: ReportSource): Promise<Array
   if (source === "APPLICATION") {
     const rows = await prisma.application.findMany({
       where: actor.role === UserRole.ADMIN ? {} : officerCaseWhere(actor.id),
-      include: { category: true, organization: true, assignedTo: true },
+      include: { category: true, organization: true, assignedTo: true, certification: true },
       orderBy: { applicationNo: "asc" },
       take: 5000,
     });

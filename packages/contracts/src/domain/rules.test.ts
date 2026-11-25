@@ -2,11 +2,13 @@ import { ApplicationAction, ApplicationStatus, AttendanceStatus, EnrollmentStatu
 import { describe, expect, it } from "vitest";
 import { validateDraft, validateSubmit } from "./application-validation";
 import { resolveTransition } from "./application-workflow";
-import { certificationValidity, validateCertificationDates } from "./certification";
+import { customerNotice } from "./application-mail";
+import { certificateDefaultUntil, certificationValidity, validateCertificationDates } from "./certification";
+import { isContractRenewalDue } from "./official-contract";
 import { cat01DefinitionV1, officialCategoryDefinition } from "../fixtures/categories";
 import { buildDemoDataset } from "../fixtures/demo-dataset";
 import { sanitizeCsvCell, toCsv } from "./csv";
-import { acceptWatchProgress, buildLearningRecord, canEnroll } from "./training";
+import { acceptWatchProgress, buildLearningRecord, canEnroll, courseQuizState } from "./training";
 import { CourseStatus } from "@mf/db/enums";
 import { applicationStatusLabels, userRoleLabels } from "./status-labels";
 import {
@@ -165,6 +167,40 @@ describe("狀態轉移", () => {
   });
 });
 
+describe("客戶通知信", () => {
+  it("補件與審查下一步各寫一封給客戶的信", () => {
+    const supplement = customerNotice({
+      action: ApplicationAction.REQUEST_SUPPLEMENT,
+      applicationNo: "MF-2026-00901",
+      toStatus: ApplicationStatus.NEED_SUPPLEMENT,
+      publicComment: "請補菜單",
+    });
+    expect(supplement.type).toBe("SUPPLEMENT_REQUEST");
+    expect(supplement.subject).toBe("請補充驗證申請資料");
+    expect(supplement.body).toContain("MF-2026-00901");
+    expect(supplement.body).toContain("請補菜單");
+
+    const review = customerNotice({
+      action: ApplicationAction.PASS_INITIAL,
+      applicationNo: "MF-2026-00901",
+      toStatus: ApplicationStatus.SECOND_REVIEW,
+      publicComment: null,
+    });
+    expect(review.type).toBe("CASE_PROGRESS");
+    expect(review.subject).toBe("驗證申請進入複審");
+    expect(review.body).toContain("未複審");
+
+    const custom = customerNotice({
+      action: ApplicationAction.REQUEST_SUPPLEMENT,
+      applicationNo: "MF-2026-00901",
+      toStatus: ApplicationStatus.NEED_SUPPLEMENT,
+      templates: [{ key: "supplement", subject: "請補資料", body: "案件 {applicationNo} 要補件。" }],
+    });
+    expect(custom.subject).toBe("請補資料");
+    expect(custom.body).toBe("案件 MF-2026-00901 要補件。");
+  });
+});
+
 describe("學習紀錄", () => {
   it("未登錄不算不合格，取消不計時數", () => {
     expect(
@@ -240,6 +276,9 @@ describe("證書與 CSV", () => {
       "已逾效期",
     );
     expect(validateCertificationDates("2026-10-02", "2026-10-01")).toHaveLength(1);
+    expect(certificateDefaultUntil("2026-11-23", 12)).toBe("2027-11-22");
+    expect(isContractRenewalDue("2026-01-01T00:00:00.000Z", new Date("2026-11-23T00:00:00.000Z"), 60)).toBe(true);
+    expect(isContractRenewalDue("2026-01-01T00:00:00.000Z", new Date("2026-11-23T00:00:00.000Z"), 30)).toBe(false);
   });
 
   it("避免 CSV 公式注入", () => {
@@ -310,11 +349,45 @@ describe("基礎教育訓練與專班", () => {
 });
 
 describe("示範資料", () => {
-  it("含 8 家業者、6 門課程，且標籤覆蓋角色與狀態", () => {
+  it("線下課程結束後才能測驗，通過後才保留認可時數", () => {
+    const waiting = courseQuizState({
+      enrollmentStatus: EnrollmentStatus.CONFIRMED,
+      attendanceStatus: AttendanceStatus.NOT_RECORDED,
+      delivery: "OFFLINE",
+      endsAtIso: "2099-01-01T00:00:00.000Z",
+      nowIso: "2026-11-23T00:00:00.000Z",
+      quizPassedAt: null,
+      recognizedMinutes: 0,
+    });
+    expect(waiting.quizReady).toBe(false);
+    const ready = courseQuizState({
+      enrollmentStatus: EnrollmentStatus.CONFIRMED,
+      attendanceStatus: AttendanceStatus.NOT_RECORDED,
+      delivery: "OFFLINE",
+      endsAtIso: "2026-10-20T00:00:00.000Z",
+      nowIso: "2026-11-23T00:00:00.000Z",
+      quizPassedAt: null,
+      recognizedMinutes: 0,
+    });
+    expect(ready.quizReady).toBe(true);
+    const passed = courseQuizState({
+      enrollmentStatus: EnrollmentStatus.CONFIRMED,
+      attendanceStatus: AttendanceStatus.PRESENT,
+      delivery: "OFFLINE",
+      endsAtIso: "2026-10-20T00:00:00.000Z",
+      nowIso: "2026-11-23T00:00:00.000Z",
+      quizPassedAt: "2026-11-01T00:00:00.000Z",
+      recognizedMinutes: 360,
+    });
+    expect(passed.quizPassed).toBe(true);
+    expect(passed.recognizedMinutes).toBe(360);
+  });
+
+  it("含 8 家業者、7 門課程，且標籤覆蓋角色與狀態", () => {
     const data = buildDemoDataset();
     expect(data.organizations).toHaveLength(8);
-    expect(data.applications).toHaveLength(0);
-    expect(data.courses).toHaveLength(6);
+    expect(data.applications).toHaveLength(14);
+    expect(data.courses).toHaveLength(7);
     expect(data.basicModules.length).toBeGreaterThanOrEqual(2);
     expect(data.basicQuestions.length).toBeGreaterThanOrEqual(3);
     expect(data.trainingPolicy?.privateRequestMinHeadcount).toBe(20);

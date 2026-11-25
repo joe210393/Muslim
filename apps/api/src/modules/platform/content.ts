@@ -18,6 +18,8 @@ import { ApiError, isUniqueViolation } from "../../lib/errors";
 import type { SessionActor } from "../../middleware/auth";
 import type { StorageAdapter } from "../../storage/storage";
 import { assertFeature, assertIntegration, ensurePlatform } from "./access";
+import { SITE_PAGE_FILE_PREFIX } from "./site-pages";
+import { connectionRow } from "./system-connection";
 
 export async function ensureContent() {
   await ensurePlatform();
@@ -25,15 +27,36 @@ export async function ensureContent() {
     const defaults = DEFAULT_SITE_CONTENT[slot];
     await prisma.siteContent.upsert({
       where: { slot },
-      create: { slot, ...defaults },
+      create: { slot, ...defaults, isPublished: slot !== ContentSlot.SUPPORT },
       update: {},
     });
   }
   for (const kind of Object.values(EditorialKind)) {
+    const seeds = DEFAULT_EDITORIAL.filter((item) => item.kind === kind);
+    if (kind === EditorialKind.CATEGORY_INTRO) {
+      for (const item of seeds) {
+        const existing = await prisma.editorialEntry.findUnique({ where: { kind_slug: { kind, slug: item.slug } } });
+        if (existing) continue;
+        await prisma.editorialEntry.create({
+          data: {
+            kind: item.kind,
+            slug: item.slug,
+            groupLabel: item.groupLabel,
+            title: item.title,
+            summary: item.summary,
+            body: item.body,
+            note: item.note,
+            publishedOn: item.publishedOn ? new Date(`${item.publishedOn}T00:00:00.000Z`) : null,
+            sortOrder: item.sortOrder,
+          },
+        });
+      }
+      continue;
+    }
     const count = await prisma.editorialEntry.count({ where: { kind } });
     if (count > 0) continue;
     await prisma.editorialEntry.createMany({
-      data: DEFAULT_EDITORIAL.filter((item) => item.kind === kind).map((item) => ({
+      data: seeds.map((item) => ({
         kind: item.kind,
         slug: item.slug,
         groupLabel: item.groupLabel,
@@ -138,6 +161,24 @@ function entryView(row: {
   };
 }
 
+async function publicSupport() {
+  const connection = await connectionRow();
+  if (!connection.supportEnabled || !connection.supportUrl) return null;
+  return {
+    slot: ContentSlot.SUPPORT,
+    eyebrow: "客服",
+    title: connection.supportLabel,
+    subtitle: "前台右下角的按鈕。",
+    body: "",
+    ctaLabel: connection.supportLabel,
+    ctaHref: connection.supportUrl,
+    secondaryCtaLabel: "",
+    secondaryCtaHref: "",
+    youtubeUrl: "",
+    imageUrl: null,
+  };
+}
+
 export async function publicSite() {
   await ensureContent();
   const rows = await prisma.siteContent.findMany();
@@ -149,6 +190,8 @@ export async function publicSite() {
     newsIntro: publishedSlot(rows, ContentSlot.NEWS_INTRO),
     verification: publishedSlot(rows, ContentSlot.VERIFICATION),
     faq: publishedSlot(rows, ContentSlot.FAQ),
+    training: publishedSlot(rows, ContentSlot.TRAINING),
+    support: await publicSupport(),
     entries: entries.map((row) => entryView(row, false)),
   };
 }
@@ -248,6 +291,8 @@ export async function readSiteImage(actor: SessionActor | null, storage: Storage
   }
   const planImage = await prisma.servicePlanImage.findFirst({ where: { fileId } });
   if (planImage) return readStoredFile(storage, fileId);
+  const pageImage = await prisma.fileObject.findFirst({ where: { id: fileId, storageKey: { startsWith: SITE_PAGE_FILE_PREFIX } } });
+  if (pageImage) return readStoredFile(storage, fileId);
   throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到圖片");
 }
 
@@ -297,6 +342,7 @@ export async function adminEntries(actor: SessionActor) {
 export async function createEntry(actor: SessionActor, raw: unknown) {
   await assertFeature(actor, "cms.edit");
   const input = editorialCreateSchema.parse(raw);
+  if (input.kind === EditorialKind.CATEGORY_INTRO) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "類別介紹不能新增，請修改現有的七段");
   try {
     const saved = await prisma.editorialEntry.create({
       data: {
@@ -358,6 +404,7 @@ export async function deleteEntry(actor: SessionActor, id: string) {
   await assertFeature(actor, "cms.edit");
   const current = await prisma.editorialEntry.findUnique({ where: { id } });
   if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到這則內容");
+  if (current.kind === EditorialKind.CATEGORY_INTRO) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "類別介紹不能刪除，可以改成不發布");
   await prisma.editorialEntry.delete({ where: { id } });
   await prisma.auditLog.create({
     data: { actorId: actor.id, action: "EDITORIAL_DELETE", entityType: "EditorialEntry", entityId: current.id, requestId: crypto.randomUUID(), safeChanges: { kind: current.kind, slug: current.slug } },

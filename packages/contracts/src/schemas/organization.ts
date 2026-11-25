@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { nullableText } from "./common";
+import { applicationStatusSchema, nullableText } from "./common";
+import { paymentStatusSchema } from "./payments";
 import { staffFeatureKeySchema } from "./platform";
 
 export const organizationSchema = z.object({
@@ -49,5 +50,50 @@ export const updateStaffUserSchema = z
   })
   .strict();
 
+/** 後台點業者名稱時的查詢：三擇一，業者、帳號或申請案件。 */
+export const organizationLookupSchema = z
+  .object({
+    organizationId: z.string().uuid().optional(),
+    userId: z.string().uuid().optional(),
+    applicationId: z.string().uuid().optional(),
+  })
+  .strict()
+  .refine((value) => [value.organizationId, value.userId, value.applicationId].filter(Boolean).length === 1, "請指定一個業者、帳號或案件");
+
+export const organizationProfileSchema = z.object({
+  organization: organizationSchema.extend({ createdAt: z.string().datetime() }),
+  accounts: z.array(z.object({
+    id: z.string().uuid(),
+    email: z.string(),
+    displayName: z.string(),
+    isActive: z.boolean(),
+    createdAt: z.string().datetime(),
+  })),
+  applications: z.array(z.object({
+    id: z.string().uuid(),
+    applicationNo: z.string(),
+    categoryName: z.string(),
+    status: applicationStatusSchema,
+    updatedAt: z.string().datetime(),
+  })),
+  payments: z.array(z.object({
+    id: z.string().uuid(),
+    planName: z.string(),
+    amount: z.number().int(),
+    status: paymentStatusSchema,
+    createdAt: z.string().datetime(),
+  })),
+  contracts: z.array(z.object({
+    id: z.string().uuid(),
+    contractNo: z.string(),
+    title: z.string(),
+    status: z.enum(["ISSUED", "SIGNED", "RENEWED", "NOT_RENEWED", "VOID"]),
+  })),
+  /** 承辦只看得到自己可見的案件時為 true，案件清單已經過濾。 */
+  applicationsLimited: z.boolean(),
+});
+
 export type Organization = z.infer<typeof organizationSchema>;
 export type OrganizationPatch = z.infer<typeof organizationPatchSchema>;
+export type OrganizationLookup = z.infer<typeof organizationLookupSchema>;
+export type OrganizationProfile = z.infer<typeof organizationProfileSchema>;

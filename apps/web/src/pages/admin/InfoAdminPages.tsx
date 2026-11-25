@@ -1,4 +1,4 @@
-import { CONTRACT_CHECKBOX_GROUPS, DEFAULT_CONTRACT_BODY, DEFAULT_CONTRACT_TITLE, EditorialKind, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, attachmentIsVisible, contractAdminTabs, contractStatusLabels, daysUntilContractExpiry, ensureContractHtml, isContractRenewalDue, reportFieldId, reportFieldsFor, sourceLabel, suggestedContractChecksForCategory, type ApplicationDetail, type ContentSlot, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
+import { CONTRACT_CHECKBOX_GROUPS, CONTRACT_RENEWAL_WINDOW_DAYS, DEFAULT_CONTRACT_BODY, DEFAULT_CONTRACT_TITLE, REPORT_SOURCES, STAFF_FEATURES, applicationStatusLabels, attachmentIsVisible, contractAdminTabs, contractStatusLabels, daysUntilContractExpiry, ensureContractHtml, isContractRenewalDue, reportFieldId, reportFieldsFor, sourceLabel, suggestedContractChecksForCategory, type ApplicationDetail, type ContractStatus, type ReportPreview, type ReportSource, type SavedReport } from "@mf/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -6,428 +6,14 @@ import { caseFactRows } from "./ApplicationReview";
 import { CaseFacts, CaseLayout, type CaseJump } from "./CaseLayout";
 import { useServices, useSession } from "../../app/session";
 import { AttachmentImages } from "../../components/AttachmentImages";
+import { OrgLink } from "../../components/OrgLink";
 import { ContractRichEditor } from "../../components/ContractRichEditor";
 import { standardReports } from "../../content/site-content";
 import { ApplicationPreview, FileChooser, OpenPdfButton } from "../portal/PortalPages";
 import { ContractBodyViewWithSeals, ContractPdfViewer, formatSignedDate } from "../portal/ContractFlow";
 import { AdminPageHeader, Badge, Button, Card, DataTable, Empty, ErrorText, Field, Modal, PasswordInput, SectionHeader, SectionNav, SelectInput, StatCard, TextArea, TextInput, confirmDelete, tableRowClass, NoticeText, failNotice, type Notice } from "../../components/ui";
-import { ClientError, type AdminEditorialEntry, type AdminSiteSlot, type ContractTemplateItem, type EditorialUpdate, type EditorialWrite, type Services, type SiteSlotInput } from "../../services/types";
+import { ClientError, type ContractTemplateItem, type Services } from "../../services/types";
 import { formatTaipei } from "../../lib/format";
-
-const COPY_LABELS: Partial<Record<ContentSlot, { subtitle: string; body: string }>> = {
-  ABOUT: { subtitle: "第一段", body: "第二段" },
-  NEWS_INTRO: { subtitle: "導言", body: "補充" },
-  VERIFICATION: { subtitle: "導言", body: "朝拜時間說明" },
-  FAQ: { subtitle: "導言", body: "補充" },
-};
-
-const CMS_PAGES: Record<string, { title: string; lede: string; part: string }> = {
-  home: { title: "首頁", lede: "這一頁只改首頁。圖庫出現在頁首和首頁文字之間。Hero、Banner 與重點分開。", part: "gallery" },
-  about: { title: "關於我們", lede: "這一頁只改關於我們。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
-  news: { title: "最新消息", lede: "每一則消息是一篇文章。文章可以上傳圖片與 YouTube 連結。", part: "list" },
-  verification: { title: "驗證介紹", lede: "這一頁只改驗證介紹。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
-  faq: { title: "常見問題", lede: "這一頁只改常見問題。頁首可以上傳圖片與 YouTube 連結。", part: "page" },
-};
-
-export function CmsPage() {
-  const { page = "" } = useParams();
-  const config = CMS_PAGES[page];
-  const services = useServices();
-  const client = useQueryClient();
-  const slots = useQuery({ queryKey: ["admin-site"], queryFn: () => services.adminSite() });
-  const entries = useQuery({ queryKey: ["admin-editorial"], queryFn: () => services.adminEntries() });
-  const [part, setPart] = useState(config?.part ?? "page");
-  useEffect(() => { setPart(config?.part ?? "page"); }, [page, config?.part]);
-  async function refresh() {
-    await client.invalidateQueries({ queryKey: ["admin-site"] });
-    await client.invalidateQueries({ queryKey: ["admin-editorial"] });
-    await client.invalidateQueries({ queryKey: ["site-content"] });
-  }
-  if (!config) return <p>找不到這個頁面。</p>;
-  const slot = (id: ContentSlot) => slots.data?.find((item) => item.slot === id);
-  const list = entries.data ?? [];
-  return (
-    <div className="space-y-4">
-      <AdminPageHeader title={config.title} description={config.lede} />
-      {slots.isLoading || entries.isLoading ? <p>載入中…</p> : null}
-      {slots.error || entries.error ? <ErrorText message="無法載入內容" /> : null}
-      {page === "home" ? (
-        <>
-          <SectionNav items={[{ id: "gallery", label: "圖庫" }, { id: "HOME_HERO", label: "Hero" }, { id: "HOME_BANNER", label: "Banner" }, { id: "points", label: "重點" }]} value={part} onChange={setPart} />
-          {part === "gallery" ? <GalleryDesk entries={list} onChanged={refresh} /> : null}
-          {part === "points" ? <EntryDesk kind={EditorialKind.HOME_POINT} entries={list} onChanged={refresh} /> : null}
-          {part !== "points" && part !== "gallery" && slot(part as ContentSlot) ? <SlotEditor key={part} slot={slot(part as ContentSlot)!} mode="media" onSaved={refresh} /> : null}
-        </>
-      ) : null}
-      {page === "about" ? <CopyAndList part={part} setPart={setPart} pageSlot={slot("ABOUT")} listLabel="重點" listKind={EditorialKind.ABOUT_FACT} entries={list} onSaved={refresh} /> : null}
-      {page === "news" ? <EntryDesk kind={EditorialKind.NEWS} entries={list} onChanged={refresh} /> : null}
-      {page === "verification" ? (
-        <>
-          <SectionNav items={[{ id: "page", label: "頁首" }, { id: "steps", label: "申請流程" }, { id: "fees", label: "費用" }, { id: "mail", label: "通知草稿" }]} value={part} onChange={setPart} />
-          {part === "page" && slot("VERIFICATION") ? <SlotEditor key="VERIFICATION" slot={slot("VERIFICATION")!} mode="copy" onSaved={refresh} /> : null}
-          {part === "steps" ? <EntryDesk kind={EditorialKind.VERIFICATION_STEP} entries={list} onChanged={refresh} /> : null}
-          {part === "fees" ? <EntryDesk kind={EditorialKind.FEE} entries={list} onChanged={refresh} /> : null}
-          {part === "mail" ? <EntryDesk kind={EditorialKind.EMAIL_DRAFT} entries={list} onChanged={refresh} /> : null}
-        </>
-      ) : null}
-      {page === "faq" ? <CopyAndList part={part} setPart={setPart} pageSlot={slot("FAQ")} listLabel="問答" listKind={EditorialKind.FAQ} entries={list} onSaved={refresh} /> : null}
-    </div>
-  );
-}
-
-function CopyAndList({ part, setPart, pageSlot, listLabel, listKind, entries, onSaved }: { part: string; setPart: (id: string) => void; pageSlot?: AdminSiteSlot; listLabel: string; listKind: EditorialKind; entries: AdminEditorialEntry[]; onSaved: () => Promise<void> }) {
-  return (
-    <>
-      <SectionNav items={[{ id: "page", label: "頁首" }, { id: "list", label: listLabel }]} value={part} onChange={setPart} />
-      {part === "page" && pageSlot ? <SlotEditor key={pageSlot.slot} slot={pageSlot} mode="copy" onSaved={onSaved} /> : null}
-      {part === "list" ? <EntryDesk kind={listKind} entries={entries} onChanged={onSaved} /> : null}
-    </>
-  );
-}
-
-function SlotEditor({ slot, onSaved, mode }: { slot: AdminSiteSlot; onSaved: () => Promise<void>; mode: "media" | "copy" }) {
-  const services = useServices();
-  const [form, setForm] = useState<SiteSlotInput>({
-    eyebrow: slot.eyebrow,
-    title: slot.title,
-    subtitle: slot.subtitle,
-    body: slot.body,
-    ctaLabel: slot.ctaLabel,
-    ctaHref: slot.ctaHref,
-    secondaryCtaLabel: slot.secondaryCtaLabel,
-    secondaryCtaHref: slot.secondaryCtaHref,
-    youtubeUrl: slot.youtubeUrl ?? "",
-    isPublished: slot.isPublished,
-    expectedVersion: slot.version,
-  });
-  const [message, setMessage] = useState<Notice>(null);
-  useEffect(() => {
-    setForm({
-      eyebrow: slot.eyebrow,
-      title: slot.title,
-      subtitle: slot.subtitle,
-      body: slot.body,
-      ctaLabel: slot.ctaLabel,
-      ctaHref: slot.ctaHref,
-      secondaryCtaLabel: slot.secondaryCtaLabel,
-      secondaryCtaHref: slot.secondaryCtaHref,
-      youtubeUrl: slot.youtubeUrl ?? "",
-      isPublished: slot.isPublished,
-      expectedVersion: slot.version,
-    });
-  }, [slot]);
-  const labels = COPY_LABELS[slot.slot] ?? { subtitle: "副標", body: "內文" };
-  const name = slot.slot === "HOME_HERO" ? "首頁 Hero" : slot.slot === "HOME_BANNER" ? "首頁 Banner" : slot.title;
-  return (
-    <Card>
-      <h2 className="text-2xl">{name}</h2>
-      <form
-        className="mt-4 space-y-3"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          try {
-            await services.saveSite(slot.slot, form);
-            setMessage("已儲存");
-            await onSaved();
-          } catch (error) {
-            setMessage(failNotice(error instanceof ClientError ? error.message : "儲存失敗"));
-          }
-        }}
-      >
-        <Field label="眉題"><TextInput value={form.eyebrow} onChange={(event) => setForm({ ...form, eyebrow: event.target.value })} /></Field>
-        <Field label="標題"><TextInput value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field>
-        <Field label={labels.subtitle}><TextInput value={form.subtitle} onChange={(event) => setForm({ ...form, subtitle: event.target.value })} /></Field>
-        <Field label={labels.body}><TextArea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></Field>
-        {mode === "media" ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="主按鈕文字"><TextInput value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} /></Field>
-            <Field label="主按鈕路徑"><TextInput value={form.ctaHref} onChange={(event) => setForm({ ...form, ctaHref: event.target.value })} /></Field>
-            <Field label="次按鈕文字"><TextInput value={form.secondaryCtaLabel} onChange={(event) => setForm({ ...form, secondaryCtaLabel: event.target.value })} /></Field>
-            <Field label="次按鈕路徑"><TextInput value={form.secondaryCtaHref} onChange={(event) => setForm({ ...form, secondaryCtaHref: event.target.value })} /></Field>
-          </div>
-        ) : null}
-        <Field label="YouTube 連結" hint="貼上 youtube.com 或 youtu.be 的影片網址。留白表示這一頁不放影片。"><TextInput value={form.youtubeUrl} placeholder="https://www.youtube.com/watch?v=" onChange={(event) => setForm({ ...form, youtubeUrl: event.target.value })} /></Field>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPublished} onChange={(event) => setForm({ ...form, isPublished: event.target.checked })} />發布</label>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit">儲存</Button>
-          <label className="btn rounded-md px-4 py-2 text-sm">
-            上傳圖片
-            <input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              try {
-                await services.uploadSiteImage(slot.slot, file);
-                setMessage("已更換圖片");
-                await onSaved();
-              } catch (error) {
-                setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
-              }
-            }} />
-          </label>
-        </div>
-        {slot.imageUrl ? <img src={slot.imageUrl} alt="" className="mt-3 h-36 w-full rounded-md object-cover" /> : <p className="text-sm text-[var(--muted)]">還沒有圖片。</p>}
-        <NoticeText notice={message} />
-      </form>
-    </Card>
-  );
-}
-
-const ENTRY_FIELDS: Record<EditorialKind, { title: string; summary?: string; body: string; note?: string; group?: boolean; date?: boolean; slug?: boolean; order?: boolean }> = {
-  HOME_GALLERY: { title: "說明", body: "備註", order: true },
-  HOME_POINT: { title: "標題", body: "說明", order: true },
-  ABOUT_FACT: { title: "標籤", body: "內容", order: true },
-  NEWS: { title: "標題", summary: "摘要", body: "內文", date: true, slug: true },
-  VERIFICATION_STEP: { title: "步驟", body: "說明", order: true },
-  FEE: { title: "項目", summary: "計費", body: "金額", note: "退費", slug: true, order: true },
-  FAQ: { title: "問題", body: "答案", group: true, order: true },
-  EMAIL_DRAFT: { title: "主旨", summary: "寄送時機", body: "內文", order: true },
-};
-
-function GalleryDesk({ entries, onChanged }: { entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
-  const services = useServices();
-  const slides = entries.filter((item) => item.kind === EditorialKind.HOME_GALLERY).sort((a, b) => a.sortOrder - b.sortOrder);
-  const [message, setMessage] = useState<Notice>(null);
-  async function upload(files: File[]) {
-    setMessage("上傳中…");
-    let order = slides.reduce((max, item) => Math.max(max, item.sortOrder), 0);
-    try {
-      for (const file of files) {
-        order += 1;
-        const title = file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "圖片";
-        const created = await services.createEntry({
-          kind: EditorialKind.HOME_GALLERY,
-          slug: `slide-${crypto.randomUUID().slice(0, 8)}`,
-          groupLabel: "",
-          title,
-          summary: "",
-          body: "首頁輪播",
-          note: "",
-          youtubeUrl: "",
-          publishedOn: null,
-          sortOrder: order,
-          isPublished: true,
-        });
-        try {
-          await services.uploadEntryImage(created.id, file);
-        } catch (uploadError) {
-          await services.deleteEntry(created.id).catch(() => undefined);
-          throw uploadError;
-        }
-      }
-      setMessage("已加入輪播");
-      await onChanged();
-    } catch (error) {
-      setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
-    }
-  }
-  async function move(index: number, direction: -1 | 1) {
-    const next = slides.slice();
-    const target = index + direction;
-    if (target < 0 || target >= next.length) return;
-    const [picked] = next.splice(index, 1);
-    if (!picked) return;
-    next.splice(target, 0, picked);
-    for (let position = 0; position < next.length; position += 1) {
-      const item = next[position];
-      if (!item || item.sortOrder === position + 1) continue;
-      await services.updateEntry(item.id, { ...writeOf(item), sortOrder: position + 1, expectedVersion: item.version });
-    }
-    await onChanged();
-  }
-  return (
-    <Card className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl">圖庫</h2>
-        <label className="btn rounded-md px-4 py-2 text-sm">
-          上傳圖片
-          <input className="sr-only" type="file" accept="image/jpeg,image/png" multiple onChange={async (event) => {
-            const files = Array.from(event.target.files ?? []);
-            event.target.value = "";
-            if (files.length) await upload(files);
-          }} />
-        </label>
-      </div>
-      <p className="text-sm text-[var(--muted)]">JPEG 或 PNG。有兩張以上時，首頁會每 5 秒換一張。沒有圖片時不顯示輪播。</p>
-      {slides.length === 0 ? <p className="text-sm text-[var(--muted)]">還沒有輪播圖片。</p> : null}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {slides.map((item, index) => (
-          <div key={item.id} className="overflow-hidden rounded-lg border border-[var(--line)]">
-            {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-40 w-full object-cover" /> : <div className="h-40 bg-[var(--panel)]" />}
-            <div className="flex flex-wrap gap-2 p-3">
-              <Button disabled={index === 0} onClick={() => void move(index, -1)}>往前</Button>
-              <Button disabled={index === slides.length - 1} onClick={() => void move(index, 1)}>往後</Button>
-              <Button variant="danger" onClick={async () => { if (!confirmDelete(item.title || "這張輪播圖")) return; await services.deleteEntry(item.id); await onChanged(); }}>刪除</Button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <NoticeText notice={message} />
-    </Card>
-  );
-}
-
-function writeOf(item: AdminEditorialEntry): EditorialWrite {
-  return {
-    kind: item.kind,
-    slug: item.slug,
-    groupLabel: item.groupLabel,
-    title: item.title,
-    summary: item.summary,
-    body: item.body,
-    note: item.note,
-    youtubeUrl: item.youtubeUrl,
-    publishedOn: item.publishedOn,
-    sortOrder: item.sortOrder,
-    isPublished: item.isPublished,
-  };
-}
-
-function EntryDesk({ kind, entries, onChanged }: { kind: EditorialKind; entries: AdminEditorialEntry[]; onChanged: () => Promise<void> }) {
-  const mine = entries.filter((item) => item.kind === kind).sort((a, b) => (b.publishedOn ?? "").localeCompare(a.publishedOn ?? "") || a.sortOrder - b.sortOrder);
-  const [editing, setEditing] = useState<string | "new" | null>(null);
-  const selected = mine.find((item) => item.id === editing) ?? null;
-  const fields = ENTRY_FIELDS[kind];
-  const noun = kind === EditorialKind.NEWS ? "消息" : kind === EditorialKind.FAQ ? "問答" : "項目";
-  return (
-    <div className="space-y-3">
-      <SectionHeader title={`${noun}列表`} hint={`共 ${mine.length} 筆`} actions={<Button onClick={() => setEditing("new")}>＋ 新增{noun}</Button>} />
-      {mine.length === 0 ? <Empty title={`還沒有${noun}`} body={`按右上角「＋ 新增${noun}」。`} /> : (
-        <DataTable columns={[fields.title, ...(fields.date ? ["日期"] : []), ...(fields.group ? ["分類"] : []), "狀態", "操作"]}>
-          {mine.map((item) => (
-            <tr key={item.id} className={tableRowClass}>
-              <td className="p-3 font-medium">{item.title}</td>
-              {fields.date ? <td className="p-3 whitespace-nowrap">{item.publishedOn ?? "—"}</td> : null}
-              {fields.group ? <td className="p-3">{item.groupLabel || "—"}</td> : null}
-              <td className="p-3"><Badge tone={item.isPublished ? "success" : "neutral"}>{item.isPublished ? "發布中" : "未發布"}</Badge></td>
-              <td className="p-3"><button type="button" className="table-action" onClick={() => setEditing(item.id)}>編輯</button></td>
-            </tr>
-          ))}
-        </DataTable>
-      )}
-      {editing ? (
-        <Modal title={selected ? `編輯${noun}` : `新增${noun}`} wide onClose={() => setEditing(null)}>
-          <EntryForm key={`${kind}-${editing}`} kind={kind} entry={editing === "new" ? null : selected} onSaved={async (id) => { setEditing(id); await onChanged(); }} onDeleted={async () => { setEditing(null); await onChanged(); }} />
-        </Modal>
-      ) : null}
-    </div>
-  );
-}
-
-function EntryForm({ kind, entry, onSaved, onDeleted }: { kind: EditorialKind; entry: AdminEditorialEntry | null; onSaved: (id: string) => Promise<void>; onDeleted: () => Promise<void> }) {
-  const services = useServices();
-  const fields = ENTRY_FIELDS[kind];
-  const [form, setForm] = useState<EditorialWrite>({
-    kind,
-    slug: entry?.slug ?? "",
-    groupLabel: entry?.groupLabel ?? (kind === EditorialKind.FAQ ? "申請" : ""),
-    title: entry?.title ?? "",
-    summary: entry?.summary ?? "",
-    body: entry?.body ?? "",
-    note: entry?.note ?? "",
-    youtubeUrl: entry?.youtubeUrl ?? "",
-    publishedOn: entry?.publishedOn ?? (fields.date ? new Date().toISOString().slice(0, 10) : null),
-    sortOrder: entry?.sortOrder ?? 1,
-    isPublished: entry?.isPublished ?? true,
-  });
-  const [message, setMessage] = useState<Notice>(null);
-  async function save() {
-    const slug = fields.slug ? form.slug : entry?.slug || `item-${crypto.randomUUID().slice(0, 8)}`;
-    const payload: EditorialWrite = { ...form, kind, slug, publishedOn: fields.date ? form.publishedOn : null, groupLabel: fields.group ? form.groupLabel : "", summary: fields.summary ? form.summary : "", note: fields.note ? form.note : "" };
-    try {
-      if (entry) {
-        const update: EditorialUpdate = { ...payload, expectedVersion: entry.version };
-        const saved = await services.updateEntry(entry.id, update);
-        setMessage("已儲存");
-        await onSaved(saved.id);
-      } else {
-        const saved = await services.createEntry(payload);
-        setMessage("已新增");
-        await onSaved(saved.id);
-      }
-    } catch (error) {
-      setMessage(failNotice(error instanceof ClientError ? error.message : "儲存失敗"));
-    }
-  }
-  return (
-    <div className="space-y-3">
-      {fields.slug ? <Field label="代碼" hint="小寫英文、數字與連字號。消息的網址會用這個代碼，建立後不能改。"><TextInput value={form.slug} disabled={Boolean(entry)} onChange={(event) => setForm({ ...form, slug: event.target.value })} /></Field> : null}
-      {fields.date ? <Field label="日期"><TextInput type="date" value={form.publishedOn ?? ""} onChange={(event) => setForm({ ...form, publishedOn: event.target.value || null })} /></Field> : null}
-      {fields.group ? <Field label="分類"><TextInput value={form.groupLabel} onChange={(event) => setForm({ ...form, groupLabel: event.target.value })} /></Field> : null}
-      <Field label={fields.title}><TextInput value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field>
-      {fields.summary ? <Field label={fields.summary}><TextInput value={form.summary} onChange={(event) => setForm({ ...form, summary: event.target.value })} /></Field> : null}
-      <Field label={fields.body}><TextArea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></Field>
-      {kind === EditorialKind.NEWS ? (
-        <>
-          <Field label="YouTube 連結" hint="貼上 youtube.com 或 youtu.be 的影片網址。留白表示這篇文章不放影片。">
-            <TextInput value={form.youtubeUrl} placeholder="https://www.youtube.com/watch?v=" onChange={(event) => setForm({ ...form, youtubeUrl: event.target.value })} />
-          </Field>
-          {entry ? (
-            <div>
-              <label className="btn inline-block cursor-pointer rounded-md px-3 py-2 text-sm">上傳圖片
-                <input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={async (event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (!file) return;
-                  try {
-                    const saved = await services.uploadEntryImage(entry.id, file);
-                    setMessage("已更換圖片");
-                    await onSaved(saved.id);
-                  } catch (error) {
-                    setMessage(failNotice(error instanceof ClientError ? error.message : "上傳失敗"));
-                  }
-                }} />
-              </label>
-              {entry.imageUrl ? <img src={entry.imageUrl} alt="" className="mt-3 h-48 w-full rounded-md object-cover" /> : <p className="mt-2 text-sm text-[var(--muted)]">還沒有圖片。</p>}
-            </div>
-          ) : <p className="text-sm text-[var(--muted)]">先儲存文章，再上傳圖片。</p>}
-        </>
-      ) : null}
-      {fields.note ? <Field label={fields.note}><TextInput value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></Field> : null}
-      {fields.order ? <Field label="排序"><TextInput type="number" value={form.sortOrder} onChange={(event) => setForm({ ...form, sortOrder: Number(event.target.value) })} /></Field> : null}
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPublished} onChange={(event) => setForm({ ...form, isPublished: event.target.checked })} />發布</label>
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => void save()}>儲存</Button>
-        {entry ? <Button variant="danger" onClick={async () => { if (!confirmDelete(entry.title)) return; try { await services.deleteEntry(entry.id); await onDeleted(); } catch (error) { setMessage(failNotice(error instanceof ClientError ? error.message : "刪除失敗")); } }}>刪除</Button> : null}
-      </div>
-      <NoticeText notice={message} />
-    </div>
-  );
-}
-
-export function SiteReviewPage() {
-  const services = useServices();
-  const session = useSession();
-  const query = useQuery({ queryKey: ["admin-applications", "", "SECOND_REVIEW"], queryFn: () => services.applications({ status: "SECOND_REVIEW", page: 1 }) });
-  const items = (query.data?.items ?? []).filter((item) => session.user?.role === "ADMIN" || item.siteReviewerId === session.user?.id);
-  return (
-    <div className="space-y-6">
-      <AdminPageHeader title="現場複審" description="初審通過時指定的複審人員在這裡看送件預覽，並做現場複審。" />
-      {items.length === 0 ? <Empty title="目前沒有待現場複審的案件" body="初審通過並指定複審人員之後，案件會出現在這裡。" /> : (
-        <DataTable columns={["編號", "業者", "類別", "複審人員", "狀態", "操作"]}>
-          {items.map((item) => <tr key={item.id} className={tableRowClass}><td className="p-3 font-medium">{item.applicationNo}</td><td className="p-3">{item.organizationName}</td><td className="p-3">{item.categoryName}</td><td className="p-3">{item.siteReviewerName ?? "未指定"}</td><td className="p-3"><Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge></td><td className="p-3"><Link className="text-[var(--link)] underline" to={`/admin/site-reviews/${item.id}`}>複審</Link></td></tr>)}
-        </DataTable>
-      )}
-    </div>
-  );
-}
-
-export function SiteReviewDetail() {
-  const { applicationId = "" } = useParams();
-  const services = useServices();
-  const client = useQueryClient();
-  const application = useQuery({ queryKey: ["application", applicationId], queryFn: () => services.application(applicationId) });
-  if (!application.data) return application.isLoading ? <p>載入中…</p> : <ErrorText message="找不到案件" />;
-  const item = application.data;
-  if (item.status !== "SECOND_REVIEW") {
-    return (
-      <Card>
-        <p>這件目前不是現場複審。</p>
-        <Link className="mt-3 inline-block text-[var(--link)]" to="/admin/site-reviews">回到現場複審</Link>
-      </Card>
-    );
-  }
-  return <SiteReviewBody item={item} onChanged={async () => { await client.invalidateQueries({ queryKey: ["application", applicationId] }); }} />;
-}
 
 export function SiteReviewBody({ item, onChanged, onFlash, embedded = false, extraMain, extraJumps = [] }: { item: ApplicationDetail; onChanged: () => Promise<void>; onFlash?: (message: string) => void; embedded?: boolean; extraMain?: ReactNode; extraJumps?: CaseJump[] }) {
   const services = useServices();
@@ -507,7 +93,7 @@ export function SiteReviewBody({ item, onChanged, onFlash, embedded = false, ext
       {embedded ? null : (
         <AdminPageHeader
           title={item.applicationNo}
-          description={`${item.organizationName} · ${item.categoryName}`}
+          description={<><OrgLink name={item.organizationName} organizationId={item.organizationId} /> · {item.categoryName}</>}
           actions={
             <>
               <Badge tone={applicationStatusLabels[item.status].tone}>{applicationStatusLabels[item.status].label}</Badge>
@@ -579,9 +165,53 @@ const NEW_TEMPLATE_BODY = DEFAULT_CONTRACT_BODY;
 
 type AdminContractTab = (typeof contractAdminTabs)[number]["id"];
 
+function RenewalReminderEditor() {
+  const services = useServices();
+  const client = useQueryClient();
+  const setting = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
+  const [days, setDays] = useState("");
+  const [message, setMessage] = useState<Notice>(null);
+  useEffect(() => {
+    if (setting.data) setDays(String(setting.data.renewalReminderDays));
+  }, [setting.data]);
+  if (!setting.data) return null;
+  const version = setting.data.version;
+  return (
+    <Card>
+      <form
+        className="flex flex-wrap items-end gap-3"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const parsed = Number(days);
+          if (!Number.isInteger(parsed) || parsed < 1 || parsed > 365) {
+            setMessage(failNotice("續約提醒請填 1 到 365 天"));
+            return;
+          }
+          try {
+            await services.saveOperationSetting({ renewalReminderDays: parsed, expectedVersion: version });
+            setMessage("已儲存。只影響可續約清單，已簽署的合約沒有改。");
+            await client.invalidateQueries({ queryKey: ["operation-setting"] });
+          } catch (error) {
+            setMessage(failNotice(error instanceof ClientError ? error.message : "無法儲存"));
+          }
+        }}
+      >
+        <Field label="續約提醒天數" hint="已簽約、還沒過期，而且剩餘天數在這個範圍內，才會出現在可續約。">
+          <TextInput inputMode="numeric" className="w-28" value={days} onChange={(event) => setDays(event.target.value)} />
+        </Field>
+        <Button type="submit">儲存</Button>
+        <NoticeText notice={message} />
+      </form>
+    </Card>
+  );
+}
+
 export function IssuedContractsPage() {
   const services = useServices();
   const [params, setParams] = useSearchParams();
+  const setting = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
+  const reminderDays = setting.data?.renewalReminderDays ?? CONTRACT_RENEWAL_WINDOW_DAYS;
+  const renewable = (signedAt: string | null) => isContractRenewalDue(signedAt, new Date(), reminderDays);
   const requested = params.get("tab");
   const tab: AdminContractTab = contractAdminTabs.some((item) => item.id === requested) ? (requested as AdminContractTab) : "pending";
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -590,7 +220,7 @@ export function IssuedContractsPage() {
   const counts = {
     pending: all.filter((item) => item.status === "ISSUED").length,
     signed: all.filter((item) => item.status === "SIGNED" || item.status === "RENEWED").length,
-    renewable: all.filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt)).length,
+    renewable: all.filter((item) => item.status === "SIGNED" && renewable(item.signedAt)).length,
     not_renewed: all.filter((item) => item.status === "NOT_RENEWED").length,
     recalled: all.filter((item) => item.status === "VOID").length,
   };
@@ -598,7 +228,7 @@ export function IssuedContractsPage() {
     ? all.filter((item) => {
         if (tab === "pending") return item.status === "ISSUED";
         if (tab === "signed") return item.status === "SIGNED" || item.status === "RENEWED";
-        if (tab === "renewable") return item.status === "SIGNED" && isContractRenewalDue(item.signedAt);
+        if (tab === "renewable") return item.status === "SIGNED" && renewable(item.signedAt);
         if (tab === "not_renewed") return item.status === "NOT_RENEWED";
         if (tab === "recalled") return item.status === "VOID";
         return false;
@@ -616,6 +246,7 @@ export function IssuedContractsPage() {
         description="發出的合約依狀態分開追蹤。用錯範本或欄位時，待上傳的可以修改；已經發給廠商的可以收回。"
         actions={<Link to="/admin/contracts/issue" className="btn btn-primary rounded-md px-3 py-2 text-sm no-underline">＋ 發送合約</Link>}
       />
+      <RenewalReminderEditor />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {contractAdminTabs.map((item) => (
           <StatCard key={item.id} label={item.label} value={counts[item.id]} active={tab === item.id} onClick={() => selectTab(item.id)} />
@@ -628,7 +259,7 @@ export function IssuedContractsPage() {
             hint={
               tab === "pending" ? "等業者下載 PDF、蓋章後上傳。用錯可以修改，或收回後重發。"
                 : tab === "signed" ? "已簽約以實際上傳 PDF 當日為簽約日期。發錯請收回後重發。"
-                  : tab === "renewable" ? "效期一年、剩餘兩個月內的已簽約。續約付款方式尚未定。"
+                  : tab === "renewable" ? `效期一年、剩餘 ${reminderDays} 天內的已簽約。續約付款方式尚未定。`
                     : tab === "recalled" ? "已從廠商端收回。可以再到發送合約，發一份正確的。"
                       : "業者已登記為未續約的合約。"
             }
@@ -637,7 +268,7 @@ export function IssuedContractsPage() {
           {rows.length === 0 && !contracts.isLoading ? (
             <Empty
               title={`沒有${tabLabel}的合約`}
-              body={tab === "renewable" ? "目前沒有剩餘兩個月內到期的已簽約合約。" : "換上方的狀態，或到發送合約建立一份新合約。"}
+              body={tab === "renewable" ? `目前沒有剩餘 ${reminderDays} 天內到期的已簽約合約。` : "換上方的狀態，或到發送合約建立一份新合約。"}
             />
           ) : null}
           {rows.length > 0 ? (
@@ -658,7 +289,7 @@ export function IssuedContractsPage() {
                   {rows.map((item) => (
                     <tr key={item.id} className="border-t border-[var(--line)]">
                       <td className="p-3 font-medium">{item.contractNo}</td>
-                      <td className="p-3">{item.organizationName}</td>
+                      <td className="p-3"><OrgLink name={item.organizationName} organizationId={item.organizationId} /></td>
                       <td className="p-3">{item.title}</td>
                       <td className="p-3">
                         <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
@@ -710,7 +341,7 @@ function ContractPreviewModal({ contractId, onClose }: { contractId: string; onC
             <h3 className="text-xl">{item.title}</h3>
             <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
           </div>
-          <p className="text-sm text-[var(--muted)]">{item.organizationName}</p>
+          <p className="text-sm text-[var(--muted)]"><OrgLink name={item.organizationName} organizationId={item.organizationId} /></p>
           <p className="text-sm leading-7">{statusNote(item.status)}</p>
           {item.signedAt ? <p className="text-sm font-medium">簽約日期（上傳 PDF）：{formatSignedDate(item.signedAt)}</p> : null}
           <div className="flex flex-wrap gap-3">
@@ -756,7 +387,9 @@ export function IssuedContractDetailPage() {
   const services = useServices();
   const client = useQueryClient();
   const detail = useQuery({ queryKey: ["admin-contract", contractId], queryFn: () => services.contract(contractId), enabled: Boolean(contractId) });
+  const setting = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
   const item = detail.data;
+  const reminderDays = setting.data?.renewalReminderDays ?? CONTRACT_RENEWAL_WINDOW_DAYS;
   const [editing, setEditing] = useState(params.get("edit") === "1");
   const [notice, setNotice] = useState<Notice>(null);
   const [recalling, setRecalling] = useState(false);
@@ -778,11 +411,11 @@ export function IssuedContractDetailPage() {
             <h2 className="text-2xl">{item.title}</h2>
             <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
           </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">{item.organizationName}</p>
+          <p className="mt-2 text-sm text-[var(--muted)]"><OrgLink name={item.organizationName} organizationId={item.organizationId} /></p>
           <p className="mt-3 text-sm leading-7">{statusNote(item.status)}</p>
           {item.signedAt ? <p className="mt-3 text-sm font-medium">簽約日期（上傳 PDF）：{formatSignedDate(item.signedAt)}</p> : null}
           {item.signerName ? <p className="mt-1 text-sm text-[var(--muted)]">上傳人 {item.signerName}</p> : null}
-          {item.status === "SIGNED" && item.signedAt && isContractRenewalDue(item.signedAt) ? (
+          {item.status === "SIGNED" && item.signedAt && isContractRenewalDue(item.signedAt, new Date(), reminderDays) ? (
             <p className="mt-2 text-sm text-amber-800">剩餘約 {daysUntilContractExpiry(item.signedAt)} 天到期，列在「可續約」。續約付款方式尚未定。</p>
           ) : null}
           <div className="mt-4 flex flex-wrap gap-3">
@@ -1082,7 +715,7 @@ export function IssueContractPage() {
                 <div className="min-w-[16rem] rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm">
                   {selectedOrg ? (
                     <span>
-                      {selectedOrg.organizationName}
+                      <OrgLink name={selectedOrg.organizationName} organizationId={selectedOrg.id} />
                       {selectedOrg.taxId ? ` · ${selectedOrg.taxId}` : ""}
                       {selectedApp ? ` · ${selectedApp.label}` : ""}
                     </span>
@@ -1653,7 +1286,7 @@ function CustomReports() {
   );
 }
 
-const CHART_COLORS = ["#1f6eae", "#6aafe6", "#0c4f86", "#2f7d6d", "#a56b2a", "#6b4c9a", "#9a4d55", "#8ec0e4"];
+const CHART_COLORS = ["#0e6b3a", "#b8893a", "#08351e", "#2f7d6d", "#a56b2a", "#6b4c9a", "#9a4d55", "#efe4d2"];
 
 function compactPoints(points: Array<{ label: string; count: number }>, limit: number) {
   if (points.length <= limit) return points;
@@ -1794,7 +1427,8 @@ export function PermissionsPage() {
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["access"], queryFn: () => services.accessSettings() });
   const [message, setMessage] = useState<Notice>(null);
-  const [tab, setTab] = useState("staff");
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get("tab") === "integrations" ? "integrations" : "staff");
   const [keyword, setKeyword] = useState("");
   const [selectedId, setSelectedId] = useState<string | "new" | null>(null);
   const [integrationKey, setIntegrationKey] = useState("");

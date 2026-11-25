@@ -1,6 +1,7 @@
 import { ErrorCodes, type ErrorCode } from "@mf/contracts";
 import { Prisma } from "@mf/db/server";
 import type { NextFunction, Request, Response } from "express";
+import multer from "multer";
 import { ZodError } from "zod";
 import { ApiError } from "./errors";
 
@@ -26,6 +27,14 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
     res.status(error.status).json({
       success: false,
       error: { code: error.code, message: error.message, ...(error.fieldErrors ? { fieldErrors: error.fieldErrors } : {}) },
+      requestId,
+    });
+    return;
+  }
+  if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+    res.status(413).json({
+      success: false,
+      error: { code: ErrorCodes.FILE_TOO_LARGE, message: "單一檔案不能超過 200 MB" },
       requestId,
     });
     return;

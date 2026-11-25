@@ -28,15 +28,16 @@ export const userRoleLabels = record<UserRole>({
   [UserRole.ADMIN]: { label: "管理員", tone: "neutral" },
 });
 
+/** 用 1124 案件生命週期規格的名稱。enum 值不變，只換顯示文字。 */
 export const applicationStatusLabels = record<ApplicationStatus>({
-  [ApplicationStatus.DRAFT]: { label: "草稿", tone: "neutral" },
-  [ApplicationStatus.SUBMITTED]: { label: "已送件", tone: "info" },
+  [ApplicationStatus.DRAFT]: { label: "未申請", tone: "neutral" },
+  [ApplicationStatus.SUBMITTED]: { label: "未初審", tone: "info" },
   [ApplicationStatus.INITIAL_REVIEW]: { label: "初審中", tone: "info" },
-  [ApplicationStatus.SECOND_REVIEW]: { label: "複審中", tone: "info" },
-  [ApplicationStatus.FINAL_REVIEW]: { label: "待核定", tone: "warning" },
-  [ApplicationStatus.NEED_SUPPLEMENT]: { label: "待補件", tone: "warning" },
-  [ApplicationStatus.APPROVED]: { label: "已核定", tone: "success" },
-  [ApplicationStatus.REJECTED]: { label: "已退件", tone: "danger" },
+  [ApplicationStatus.SECOND_REVIEW]: { label: "未複審", tone: "info" },
+  [ApplicationStatus.FINAL_REVIEW]: { label: "未核複審", tone: "warning" },
+  [ApplicationStatus.NEED_SUPPLEMENT]: { label: "未補件", tone: "warning" },
+  [ApplicationStatus.APPROVED]: { label: "審核通過", tone: "success" },
+  [ApplicationStatus.REJECTED]: { label: "未成立", tone: "danger" },
 });
 
 export const courseStatusLabels = record<CourseStatus>({
@@ -112,6 +113,12 @@ export const contractPortalTabs = [
   { id: "renewable", label: "可續約", status: null },
   { id: "not_renewed", label: "未續約", status: "NOT_RENEWED" as const },
 ] as const;
+
+/** 業者端列表用指揮台的短名稱，避免同一筆在方塊寫未簽訂、列上又寫待上傳合約。 */
+export function portalContractStatusLabel(status: keyof typeof contractStatusLabels) {
+  const tab = contractPortalTabs.find((item) => item.status === status);
+  return tab?.label ?? contractStatusLabels[status].label;
+}
 
 export const completionLabels = {
   PENDING: { label: "待登錄", tone: "warning" },

@@ -2,6 +2,7 @@ import { NotificationJobStatus } from "@mf/contracts";
 import { prisma } from "@mf/db/server";
 import nodemailer from "nodemailer";
 import type { Env } from "../../config/env";
+import { resolveMail } from "../platform/system-connection";
 
 export async function deliverNotification(env: Env, jobId: string, consoleDetail?: string): Promise<void> {
   const job = await prisma.notificationJob.findUnique({ where: { id: jobId } });
@@ -14,7 +15,8 @@ export async function deliverNotification(env: Env, jobId: string, consoleDetail
     });
     return;
   }
-  if (env.MAIL_DRIVER === "console") {
+  const mail = await resolveMail(env);
+  if (!mail.enabled) {
     console.info(
       `[mail:console] type=${job.type} to=${job.recipientEmail} status=MOCKED ${consoleDetail ? `detail=${consoleDetail}` : ""}（未真正寄出）`,
     );
@@ -26,19 +28,25 @@ export async function deliverNotification(env: Env, jobId: string, consoleDetail
   }
   try {
     const transport = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined,
+      host: mail.host,
+      port: mail.port,
+      auth: mail.user ? { user: mail.user, pass: mail.password } : undefined,
     });
     await transport.sendMail({
-      from: env.MAIL_FROM,
+      from: mail.from,
       to: job.recipientEmail,
-      subject: subjectFor(job.type),
-      text: consoleDetail ?? "請登入系統查看案件或帳號通知。此信不包含密碼或重設 token 以外的機密。",
+      subject: job.subject || subjectFor(job.type),
+      text: job.body || consoleDetail || "請登入系統查看案件或帳號通知。",
     });
+    const localCatcher = mail.local;
     await prisma.notificationJob.update({
       where: { id: job.id },
-      data: { status: NotificationJobStatus.SENT, attemptCount: { increment: 1 }, sentAt: new Date(), lastErrorCode: null },
+      data: {
+        status: localCatcher ? NotificationJobStatus.MOCKED : NotificationJobStatus.SENT,
+        attemptCount: { increment: 1 },
+        sentAt: localCatcher ? null : new Date(),
+        lastErrorCode: localCatcher ? "LOCAL_CATCHER" : null,
+      },
     });
   } catch (error) {
     console.error("[mail:smtp] failed", error instanceof Error ? error.message : "unknown");
@@ -51,7 +59,10 @@ export async function deliverNotification(env: Env, jobId: string, consoleDetail
 
 function subjectFor(type: string): string {
   if (type === "PASSWORD_RESET") return "密碼重設";
-  if (type === "SUPPLEMENT_REQUEST") return "案件需要補件";
-  if (type === "DECISION_RESULT") return "案件審核結果";
-  return "申請已送出";
+  if (type === "SUPPLEMENT_REQUEST") return "請補充驗證申請資料";
+  if (type === "DECISION_RESULT") return "驗證申請審核結果";
+  if (type === "MANUAL") return "通知";
+  if (type === "RENEWAL") return "驗證合約即將到期";
+  if (type === "CASE_PROGRESS") return "驗證申請有新進度";
+  return "已收到驗證申請";
 }

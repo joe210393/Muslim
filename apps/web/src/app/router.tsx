@@ -1,7 +1,10 @@
+import { SITE_BUILTIN_PAGES } from "@mf/contracts";
 import { createBrowserRouter, Navigate, useParams } from "react-router";
 import { FeatureGuard, Guard, Shell } from "../components/shell/Shell";
 import { AdminApplicationDetail, AdminApplicationList, AdminCertificatesPage, AdminHome, AuditPage, CourseFormPage, EnrollmentAdminPage, ImportsPage, OrganizationsPage, UsersPage } from "../pages/admin/AdminPages";
 import { CertificateTemplatesPage } from "../pages/admin/CertificateTemplatesPage";
+import { CategoryFormsPage } from "../pages/admin/CategoryFormsPage";
+import { SystemSettingsPage } from "../pages/admin/SystemSettingsPage";
 import {
   BasicCoursesAdminPage,
   CompanyTrainingAdminPage,
@@ -10,30 +13,30 @@ import {
   TrainingCertificatesAdminPage,
   TrainingPolicyAdminPage,
 } from "../pages/admin/TrainingAdminPages";
-import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, EnrollmentPage, FileWindowPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
-import { CmsPage, ContractSealsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage } from "../pages/admin/InfoAdminPages";
+import { AccountPage, ApplicationDetailPage, ApplicationEditPage, ApplicationListPage, CertificationPage, FileWindowPage, LearningPage, NewApplicationPage, PortalHome, ProfilePage } from "../pages/portal/PortalPages";
+import { PortalNoticesPage, AdminNoticesPage, OrganizationMailPage } from "../pages/NoticesPage";
+import { TrainingSectionPage } from "../pages/portal/TrainingSections";
+import { ContractSealsPage, ContractTemplatesPage, IssueContractPage, IssuedContractDetailPage, IssuedContractsPage, PermissionsPage, ReportsPage } from "../pages/admin/InfoAdminPages";
 import { PaymentsPage } from "../pages/admin/PaymentsPage";
 import { PortalPaymentsPage, RenewalPage, ResourcePage, SupplementPage } from "../pages/portal/MemberPages";
 import { ContractPage, ContractSignPage } from "../pages/portal/ContractFlow";
-import { AboutPage, ContactPage, FaqPage, NewsDetailPage, NewsListPage, VerificationPage } from "../pages/public/InfoPages";
-import { CourseDetailPage, CoursesPage, ForgotPage, GuidePage, HomePage, LoginPage, RegisterPage, ResetPage } from "../pages/public/PublicPages";
+import { NewsDetailPage } from "../pages/public/InfoPages";
+import { CourseDetailPage, ForgotPage, LoginPage, RegisterPage, ResetPage } from "../pages/public/PublicPages";
+import { LivePublicLayout, PageFrame, PublishedPage, SitePageView } from "../pages/public/preview/PreviewSite";
+import { SiteStudio } from "../pages/public/preview/PreviewStudio";
 
 export const router = createBrowserRouter([
-  { element: <Shell area="public" />, children: [
-    { path: "/", element: <HomePage /> },
-    { path: "/about", element: <AboutPage /> },
-    { path: "/news", element: <NewsListPage /> },
-    { path: "/news/:slug", element: <NewsDetailPage /> },
-    { path: "/verification", element: <VerificationPage /> },
-    { path: "/guide", element: <GuidePage /> },
-    { path: "/faq", element: <FaqPage /> },
-    { path: "/contact", element: <ContactPage /> },
-    { path: "/courses", element: <CoursesPage /> },
-    { path: "/courses/:courseId", element: <CourseDetailPage /> },
-    { path: "/login", element: <LoginPage /> },
-    { path: "/register", element: <RegisterPage /> },
-    { path: "/forgot-password", element: <ForgotPage /> },
-    { path: "/reset-password", element: <ResetPage /> },
+  { element: <LivePublicLayout />, children: [
+    ...SITE_BUILTIN_PAGES.map((page) => ({ path: page.path, element: <SitePageView key={page.slug} slug={page.slug} /> })),
+    { path: "/p/:slug", element: <PublishedPage /> },
+    { element: <PageFrame />, children: [
+      { path: "/news/:slug", element: <NewsDetailPage /> },
+      { path: "/courses/:courseId", element: <CourseDetailPage /> },
+      { path: "/login", element: <LoginPage /> },
+      { path: "/register", element: <RegisterPage /> },
+      { path: "/forgot-password", element: <ForgotPage /> },
+      { path: "/reset-password", element: <ResetPage /> },
+    ] },
   ] },
   { element: <Shell area="portal" />, children: [
     { element: <Guard allow={["APPLICANT"]} />, children: [
@@ -50,9 +53,11 @@ export const router = createBrowserRouter([
       { path: "/portal/applications/new", element: <NewApplicationPage /> },
       { path: "/portal/applications/:applicationId/edit", element: <ApplicationEditPage /> },
       { path: "/portal/applications/:applicationId", element: <ApplicationDetailPage /> },
-      { path: "/portal/enrollments", element: <EnrollmentPage /> },
+      { path: "/portal/enrollments", element: <Navigate to="/portal/training/online" replace /> },
+      { path: "/portal/training/:section", element: <TrainingSectionPage /> },
       { path: "/portal/learning-records", element: <LearningPage /> },
       { path: "/portal/certifications", element: <CertificationPage /> },
+      { path: "/portal/notices", element: <PortalNoticesPage /> },
     ] },
   ] },
   { element: <Shell area="admin" />, children: [
@@ -65,8 +70,8 @@ export const router = createBrowserRouter([
       { path: "/admin/users", element: <UsersPage /> },
       { path: "/admin/imports", element: <ImportsPage /> },
       { element: <FeatureGuard anyOf={["cms.edit"]} />, children: [
-        { path: "/admin/cms", element: <Navigate to="/admin/cms/home" replace /> },
-        { path: "/admin/cms/:page", element: <CmsPage /> },
+        { path: "/admin/cms", element: <Navigate to="/admin/studio" replace /> },
+        { path: "/admin/cms/:page", element: <CmsRedirect /> },
       ] },
       { element: <FeatureGuard anyOf={["applications.review", "applications.decide"]} />, children: [
         { path: "/admin/applications", element: <AdminApplicationList /> },
@@ -79,6 +84,7 @@ export const router = createBrowserRouter([
         { path: "/admin/applications/:applicationId", element: <AdminApplicationDetail /> },
       ] },
       { element: <FeatureGuard anyOf={["applications.decide"]} />, children: [
+        { path: "/admin/application-forms", element: <CategoryFormsPage /> },
         { path: "/admin/certificates", element: <AdminCertificatesPage /> },
         { path: "/admin/certificates/issued", element: <AdminCertificatesPage /> },
         { path: "/admin/certificates/templates", element: <CertificateTemplatesPage /> },
@@ -111,18 +117,49 @@ export const router = createBrowserRouter([
       { element: <FeatureGuard anyOf={["reports.export"]} />, children: [
         { path: "/admin/reports", element: <ReportsPage /> },
       ] },
+      { element: <FeatureGuard anyOf={["users.manage", "payments.manage"]} />, children: [
+        { path: "/admin/settings", element: <SystemSettingsPage /> },
+      ] },
       { element: <FeatureGuard anyOf={["users.manage"]} />, children: [
         { path: "/admin/permissions", element: <PermissionsPage /> },
         { path: "/admin/organizations", element: <OrganizationsPage /> },
+        { path: "/admin/organizations/:organizationId", element: <OrganizationMailPage /> },
+        { path: "/admin/notifications", element: <AdminNoticesPage /> },
+        { path: "/admin/notifications/all", element: <AdminNoticesPage /> },
+        { path: "/admin/notifications/templates", element: <AdminNoticesPage /> },
       ] },
       { element: <FeatureGuard anyOf={["audit.view"]} />, children: [
         { path: "/admin/audit-logs", element: <AuditPage /> },
       ] },
     ] },
   ] },
+  { path: "/guide", element: <Navigate to="/verification" replace /> },
+  { path: "/preview", element: <Navigate to="/" replace /> },
+  { path: "/preview/:page", element: <PreviewRedirect /> },
+  { element: <Guard allow={["ADMIN", "CASE_OFFICER"]} />, children: [
+    { element: <FeatureGuard anyOf={["cms.edit"]} />, children: [
+      { path: "/admin/studio", element: <SiteStudio /> },
+    ] },
+  ] },
   { path: "/files/:fileId", element: <FileWindowPage /> },
   { path: "*", element: <p className="p-6">找不到這個頁面。</p> },
 ]);
+
+const previewPaths: Record<string, string> = { verify: "/verification", login: "/login", studio: "/admin/studio" };
+
+function PreviewRedirect() {
+  const { page = "" } = useParams();
+  const known = SITE_BUILTIN_PAGES.find((item) => item.slug === page);
+  return <Navigate to={previewPaths[page] ?? known?.path ?? "/"} replace />;
+}
+
+const cmsPages: Record<string, string> = { home: "home", about: "about", news: "news", faq: "faq", training: "courses", verification: "verification" };
+
+function CmsRedirect() {
+  const { page = "" } = useParams();
+  if (page === "support") return <Navigate to="/admin/settings" replace />;
+  return <Navigate to={cmsPages[page] ? `/admin/studio?page=${cmsPages[page]}` : "/admin/studio"} replace />;
+}
 
 function SiteReviewRedirect() {
   const { applicationId = "" } = useParams();

@@ -14,6 +14,7 @@ import {
   checkFieldReviews,
   reviewTargets,
   resolveTransition,
+  customerNotice,
   sha256Hex,
   snapshotPayload,
   taipeiYear,
@@ -23,17 +24,18 @@ import {
   type FieldReview,
 } from "@mf/contracts";
 import { randomUUID } from "node:crypto";
-import { prisma, type Prisma } from "@mf/db/server";
+import { Prisma, prisma } from "@mf/db/server";
 import type { Env } from "../../config/env";
 import { ApiError } from "../../lib/errors";
 import { fieldFailure } from "../../lib/http";
 import type { SessionActor as Actor } from "../../middleware/auth";
 import { deliverNotification } from "../notifications/mailer";
+import { loadMailTemplates } from "../notifications/desk";
 import type { StorageAdapter } from "../../storage/storage";
 
 type Tx = Prisma.TransactionClient;
 
-const listInclude = { organization: true, category: true, assignedTo: true, siteReviewer: true, certification: { select: { certificateNo: true } } } satisfies Prisma.ApplicationInclude;
+const listInclude = { organization: true, category: true, assignedTo: true, siteReviewer: true, certification: { select: { certificateNo: true, issuedOnDate: true, validUntilDate: true, templateKey: true } } } satisfies Prisma.ApplicationInclude;
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -109,6 +111,9 @@ export function toListItem(app: Prisma.ApplicationGetPayload<{ include: typeof l
     siteReviewerId: staff ? app.siteReviewerId : null,
     siteReviewerName: staff ? app.siteReviewer?.displayName ?? null : null,
     certificateNo: app.certification?.certificateNo ?? null,
+    issuedOnDate: app.certification?.issuedOnDate ?? null,
+    validUntilDate: app.certification?.validUntilDate ?? null,
+    templateKey: app.certification?.templateKey ?? null,
     version: app.version,
     submittedAt: iso(app.submittedAt),
     updatedAt: app.updatedAt.toISOString(),
@@ -247,6 +252,70 @@ export async function createDraft(actor: Actor, categoryId: string) {
   return getApplication(actor, created.id);
 }
 
+/** 續約成功後另開一筆草稿，綁定該類別目前正式版本。舊案件的表單版本不變。 */
+export async function openRenewalDraft(actor: Actor, contractId: string, categoryId: string, sourceApplicationId: string | null) {
+  if (actor.role !== UserRole.APPLICANT || !actor.organizationId) {
+    throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可以建立續約申請");
+  }
+  const existing = await prisma.application.findFirst({
+    where: { sourceSystem: "renewal", sourceRecordKey: contractId },
+  });
+  if (existing) return { id: existing.id, applicationNo: existing.applicationNo };
+  const { assertServiceUnlocked } = await import("../payments/service");
+  await assertServiceUnlocked(actor, "續約已登記。新版申請要先完成方案付款與核帳才能建立");
+  const { assertBasicTrainingGate } = await import("../training/basic");
+  await assertBasicTrainingGate(actor);
+  const [category, organization, source] = await Promise.all([
+    prisma.applicationCategory.findUnique({
+      where: { id: categoryId },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    }),
+    prisma.organization.findUnique({ where: { id: actor.organizationId } }),
+    sourceApplicationId ? prisma.application.findUnique({ where: { id: sourceApplicationId } }) : Promise.resolve(null),
+  ]);
+  const version = category?.versions[0];
+  if (!category || !category.isActive || !version) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到申請類別");
+  if (!organization) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者資料");
+  const definition = parseCategoryDefinition(version.definition);
+  const allowed = new Set(definition.fields.map((field) => field.key));
+  const copied = Object.fromEntries(Object.entries(asFormData(source?.formData)).filter(([key]) => allowed.has(key)));
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const applicationNo = await nextApplicationNo(tx);
+      return tx.application.create({
+        data: {
+          applicationNo,
+          organizationId: organization.id,
+          createdById: actor.id,
+          categoryId: category.id,
+          categoryFormVersionId: version.id,
+          status: ApplicationStatus.DRAFT,
+          organizationNameSnapshot: organization.organizationName,
+          taxIdSnapshot: organization.taxId,
+          contactNameSnapshot: organization.contactName,
+          contactPhoneSnapshot: organization.contactPhone,
+          contactEmailSnapshot: organization.contactEmail,
+          organizationAddressSnapshot: organization.address,
+          siteName: source?.siteName ?? null,
+          siteAddress: source?.siteAddress ?? null,
+          applicationDescription: "續約申請，使用目前正式的表單版本。先前的案件維持原版本。",
+          declarationAccepted: false,
+          formData: copied,
+          sourceSystem: "renewal",
+          sourceRecordKey: contractId,
+        },
+      });
+    });
+    return { id: created.id, applicationNo: created.applicationNo };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const again = await prisma.application.findFirst({ where: { sourceSystem: "renewal", sourceRecordKey: contractId } });
+      if (again) return { id: again.id, applicationNo: again.applicationNo };
+    }
+    throw error;
+  }
+}
+
 export async function deleteDraft(actor: Actor, storage: StorageAdapter, id: string) {
   if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可以刪除草稿");
   const app = await prisma.application.findUnique({
@@ -354,6 +423,7 @@ async function writeSubmission(env: Env, actor: Actor, id: string, action: typeo
     await assertBasicTrainingGate(actor);
   }
   const requestHash = await sha256Hex(JSON.stringify({ action, expectedVersion, id }));
+  const templates = await loadMailTemplates().catch(() => undefined);
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.applicationEvent.findUnique({ where: { applicationId_requestId: { applicationId: id, requestId } } });
     if (existing) {
@@ -421,10 +491,19 @@ async function writeSubmission(env: Env, actor: Actor, id: string, action: typeo
         requestHash,
       },
     });
+    const notice = customerNotice({
+      action,
+      applicationNo: app.applicationNo,
+      toStatus: transition.toStatus,
+      publicComment: null,
+      templates,
+    });
     const job = await tx.notificationJob.create({
       data: {
         dedupeKey: `submission:${id}:${revision}`,
-        type: "SUBMISSION_CONFIRMATION",
+        type: notice.type,
+        subject: notice.subject,
+        body: notice.body,
         recipientUserId: actor.id,
         recipientEmail: actor.email,
         applicationId: id,
@@ -491,20 +570,21 @@ export async function listSubmissions(actor: Actor, id: string) {
   }));
 }
 
-export async function assignApplication(actor: Actor, id: string, assignedToId: string, expectedVersion: number, requestId: string) {
+export async function assignApplication(env: Env, actor: Actor, id: string, assignedToId: string, expectedVersion: number, requestId: string) {
   if (actor.role !== UserRole.ADMIN) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有管理員可以派案");
   const requestHash = await sha256Hex(JSON.stringify({ action: "ASSIGN", assignedToId, expectedVersion }));
-  await prisma.$transaction(async (tx) => {
+  const templates = await loadMailTemplates().catch(() => undefined);
+  const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.applicationEvent.findUnique({ where: { applicationId_requestId: { applicationId: id, requestId } } });
     if (existing) {
       if (existing.requestHash !== requestHash) throw new ApiError(409, ErrorCodes.VALIDATION_ERROR, "相同 requestId 的內容不一致");
-      return;
+      return { jobId: null as string | null };
     }
     const assignee = await tx.user.findUnique({ where: { id: assignedToId } });
     if (!assignee || !assignee.isActive || (assignee.role !== UserRole.CASE_OFFICER && assignee.role !== UserRole.ADMIN)) {
       throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "承辦人必須是啟用中的承辦或管理員");
     }
-    const app = await tx.application.findUnique({ where: { id } });
+    const app = await tx.application.findUnique({ where: { id }, include: { createdBy: true } });
     if (!app) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到案件");
     if (app.status === ApplicationStatus.DRAFT) throw new ApiError(409, ErrorCodes.INVALID_TRANSITION, "草稿尚未送件，不能派案");
     const changed = await tx.application.updateMany({
@@ -512,6 +592,7 @@ export async function assignApplication(actor: Actor, id: string, assignedToId: 
       data: { assignedToId, version: { increment: 1 } },
     });
     if (changed.count !== 1) throw new ApiError(409, ErrorCodes.VERSION_CONFLICT, "資料已被更新，請重新載入");
+    const publicComment = `已指派承辦：${assignee.displayName}`;
     await tx.applicationEvent.create({
       data: {
         applicationId: id,
@@ -519,9 +600,28 @@ export async function assignApplication(actor: Actor, id: string, assignedToId: 
         action: ApplicationAction.ASSIGN,
         fromStatus: app.status,
         toStatus: app.status,
-        publicComment: `已指派承辦：${assignee.displayName}`,
+        publicComment,
         requestId,
         requestHash,
+      },
+    });
+    const notice = customerNotice({
+      action: ApplicationAction.ASSIGN,
+      applicationNo: app.applicationNo,
+      toStatus: app.status,
+      publicComment,
+      templates,
+    });
+    const job = await tx.notificationJob.create({
+      data: {
+        dedupeKey: `ASSIGN:${id}:${requestId}`,
+        type: notice.type,
+        subject: notice.subject,
+        body: notice.body,
+        recipientUserId: app.createdById,
+        recipientEmail: app.createdBy.email,
+        applicationId: id,
+        status: "PENDING",
       },
     });
     await tx.auditLog.create({
@@ -534,7 +634,9 @@ export async function assignApplication(actor: Actor, id: string, assignedToId: 
         safeChanges: { assignedToId },
       },
     });
+    return { jobId: job.id };
   });
+  if (result.jobId) await deliverNotification(env, result.jobId);
   return getApplication(actor, id);
 }
 
@@ -570,6 +672,7 @@ export async function reviewApplication(
 ) {
   const action = input.action as ApplicationAction;
   const requestHash = await sha256Hex(JSON.stringify(input));
+  const templates = await loadMailTemplates().catch(() => undefined);
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.applicationEvent.findUnique({ where: { applicationId_requestId: { applicationId: id, requestId: input.requestId } } });
     if (existing) {
@@ -636,23 +739,26 @@ export async function reviewApplication(
       },
     });
     let jobId: string | null = null;
-    const notify =
-      action === ApplicationAction.REQUEST_SUPPLEMENT ||
-      action === ApplicationAction.APPROVE ||
-      action === ApplicationAction.REJECT;
-    if (notify) {
-      const job = await tx.notificationJob.create({
-        data: {
-          dedupeKey: `${action}:${id}:${input.requestId}`,
-          type: action === ApplicationAction.REQUEST_SUPPLEMENT ? "SUPPLEMENT_REQUEST" : "DECISION_RESULT",
-          recipientUserId: app.createdById,
-          recipientEmail: app.createdBy.email,
-          applicationId: id,
-          status: "PENDING",
-        },
-      });
-      jobId = job.id;
-    }
+    const notice = customerNotice({
+      action,
+      applicationNo: app.applicationNo,
+      toStatus: transition.toStatus,
+      publicComment: visibleComment || null,
+      templates,
+    });
+    const job = await tx.notificationJob.create({
+      data: {
+        dedupeKey: `${action}:${id}:${input.requestId}`,
+        type: notice.type,
+        subject: notice.subject,
+        body: notice.body,
+        recipientUserId: app.createdById,
+        recipientEmail: app.createdBy.email,
+        applicationId: id,
+        status: "PENDING",
+      },
+    });
+    jobId = job.id;
     await tx.auditLog.create({
       data: {
         actorId: actor.id,

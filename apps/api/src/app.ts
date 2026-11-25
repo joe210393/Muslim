@@ -3,6 +3,7 @@ import {
   COURSE_VIDEO_MAX_BYTES,
   DEMO_CONTACT_EMAIL,
   decodeUploadedText,
+  ATTACHMENT_MIME_TYPES,
   FILE_POLICY,
   ErrorCodes,
   UserRole,
@@ -18,6 +19,7 @@ import {
   createStaffUserSchema,
   forgotPasswordRequestSchema,
   loginRequestSchema,
+  organizationLookupSchema,
   organizationPatchSchema,
   paginationQuerySchema,
   auditListQuerySchema,
@@ -45,6 +47,8 @@ import {
   servicePlanWriteSchema,
   servicePlanUpdateSchema,
   paymentRecordWriteSchema,
+  mailSendSchema,
+  mailTemplateWriteSchema,
 } from "@mf/contracts";
 import { getEnv, repoRoot } from "./config/env";
 import { prisma } from "@mf/db/server";
@@ -59,21 +63,28 @@ import { errorMiddleware, ok, route } from "./lib/http";
 import { csrfGuard, isStaff, loadActor, requireActor, requireRoles } from "./middleware/auth";
 import * as admin from "./modules/admin/service";
 import * as applications from "./modules/applications/service";
+import * as formEditor from "./modules/applications/form-editor";
 import * as auth from "./modules/auth/service";
 import * as files from "./modules/files/service";
 import * as training from "./modules/training/service";
 import * as basicTraining from "./modules/training/basic";
 import * as access from "./modules/platform/access";
 import * as siteContent from "./modules/platform/content";
+import * as sitePages from "./modules/platform/site-pages";
 import * as contracts from "./modules/platform/contracts";
 import * as contractSeals from "./modules/platform/contract-seals";
+import * as operationSettings from "./modules/platform/operation-settings";
+import * as systemConnection from "./modules/platform/system-connection";
 import * as certificates from "./modules/platform/certificates";
 import * as reports from "./modules/reports/service";
 import * as payments from "./modules/payments/service";
+import * as notices from "./modules/notifications/list";
+import * as mailDesk from "./modules/notifications/desk";
 import { createStorage } from "./storage/storage";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: FILE_POLICY.maxFileBytes } });
 const uploadVideo = multer({ storage: multer.memoryStorage(), limits: { fileSize: COURSE_VIDEO_MAX_BYTES } });
+const uploadAttachment = multer({ storage: multer.memoryStorage(), limits: { fileSize: COURSE_VIDEO_MAX_BYTES } });
 
 export function createApp() {
   const env = getEnv();
@@ -101,13 +112,14 @@ export function createApp() {
   api.use(csrfGuard);
 
   api.get("/public-config", route(async (req, res) => {
+    const setting = await operationSettings.getOperationSetting();
     ok(res, req, {
       appName: APP_NAME,
       dataMode: "api" as const,
       demoMode: env.DEMO_MODE,
-      maxFileBytes: FILE_POLICY.maxFileBytes,
-      maxApplicationBytes: FILE_POLICY.maxApplicationBytes,
-      allowedMimeTypes: [...FILE_POLICY.allowedMimeTypes],
+      maxFileBytes: setting.attachmentMaxBytes,
+      maxApplicationBytes: Math.max(FILE_POLICY.maxApplicationBytes, setting.attachmentMaxBytes),
+      allowedMimeTypes: [...ATTACHMENT_MIME_TYPES],
       contactEmail: DEMO_CONTACT_EMAIL,
       contactNote: "聯絡資訊為占位，正式窗口待確認。",
     });
@@ -193,7 +205,7 @@ export function createApp() {
     const body = submitApplicationSchema.parse(req.body);
     ok(res, req, await applications.resubmitApplication(env, actor, String(req.params.id), body.expectedVersion, body.requestId));
   }));
-  api.post("/applications/:id/attachments", upload.single("file"), route(async (req, res) => {
+  api.post("/applications/:id/attachments", uploadAttachment.single("file"), route(async (req, res) => {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇檔案");
     const requirementKey = String(req.body.requirementKey ?? "");
     ok(res, req, await files.addAttachment(await requireActor(req), storage, String(req.params.id), requirementKey, req.file));
@@ -236,6 +248,15 @@ export function createApp() {
   api.post("/training/basic/modules/:moduleId/watch", route(async (req, res) => ok(res, req, await basicTraining.recordModuleWatch(await requireActor(req), String(req.params.moduleId), req.body))));
   api.get("/training/basic/modules/:moduleId/material", route(async (req, res) => {
     const file = await basicTraining.downloadModuleMaterial(await requireActor(req), storage, String(req.params.moduleId));
+    res.setHeader("Content-Type", file.mimeType);
+    const asciiName = file.name.replace(/[^\x20-\x7e]/g, "_") || "download";
+    res.setHeader("Content-Disposition", `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    res.send(Buffer.from(file.bytes));
+  }));
+  api.post("/training/enrollments/:enrollmentId/quiz/start", route(async (req, res) => ok(res, req, await training.startCourseQuiz(await requireActor(req), String(req.params.enrollmentId)))));
+  api.post("/training/enrollments/:enrollmentId/quiz", route(async (req, res) => ok(res, req, await training.submitCourseQuiz(await requireActor(req), String(req.params.enrollmentId), req.body))));
+  api.get("/courses/:id/material", route(async (req, res) => {
+    const file = await training.readCourseMaterial(await requireActor(req), storage, String(req.params.id));
     res.setHeader("Content-Type", file.mimeType);
     const asciiName = file.name.replace(/[^\x20-\x7e]/g, "_") || "download";
     res.setHeader("Content-Disposition", `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(file.name)}`);
@@ -317,7 +338,7 @@ export function createApp() {
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
     await access.assertFeature(actor, "applications.decide");
     const body = assignApplicationSchema.parse(req.body);
-    ok(res, req, await applications.assignApplication(actor, String(req.params.id), body.assignedToId, body.expectedVersion, body.requestId));
+    ok(res, req, await applications.assignApplication(env, actor, String(req.params.id), body.assignedToId, body.expectedVersion, body.requestId));
   }));
   api.post("/admin/applications/:id/actions", route(async (req, res) => {
     const actor = await requireActor(req);
@@ -345,7 +366,7 @@ export function createApp() {
     const body = saveSiteCheckSchema.parse(req.body);
     ok(res, req, await applications.saveSiteCheck(actor, String(req.params.id), body.expectedVersion, body.requirementKey, body.result));
   }));
-  api.post("/admin/applications/:id/site-photos", upload.single("file"), route(async (req, res) => {
+  api.post("/admin/applications/:id/site-photos", uploadAttachment.single("file"), route(async (req, res) => {
     const actor = await requireActor(req);
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有審查權限");
     await access.assertFeature(actor, "applications.review");
@@ -467,6 +488,11 @@ export function createApp() {
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
     ok(res, req, await basicTraining.reviewCompanyRequest(actor, String(req.params.id), req.body));
   }));
+  api.get("/admin/training/certificates", route(async (req, res) => {
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    ok(res, req, await basicTraining.listCertificates(actor));
+  }));
   api.post("/admin/training/certificates", route(async (req, res) => {
     const actor = await requireActor(req);
     requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
@@ -505,6 +531,13 @@ export function createApp() {
     const durationSeconds = Number(req.body?.durationSeconds);
     ok(res, req, await training.uploadCourseVideo(actor, storage, String(req.params.id), req.file, durationSeconds));
   }));
+  api.post("/admin/courses/:id/material", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇上課資料");
+    const actor = await requireActor(req);
+    requireRoles(actor, [UserRole.ADMIN, UserRole.CASE_OFFICER]);
+    await access.assertFeature(actor, "training.manage");
+    ok(res, req, await training.uploadCourseMaterial(actor, storage, String(req.params.id), req.file));
+  }));
   api.post("/admin/courses/:id/image", upload.single("file"), route(async (req, res) => {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
     const actor = await requireActor(req);
@@ -518,7 +551,7 @@ export function createApp() {
     await access.assertFeature(actor, "reports.export");
     const result = await training.courseEnrollments(actor, String(req.params.id), 1, 50);
     const { toCsv } = await import("@mf/contracts");
-    res.type("text/csv").send(toCsv(["userName", "userEmail", "status", "attendanceStatus", "attendedMinutes", "completion"], result.items.map((item) => [item.userName, item.userEmail, item.status, item.attendanceStatus, item.attendedMinutes, item.completion])));
+    res.type("text/csv").send(toCsv(["userName", "userEmail", "status", "attendanceStatus", "attendedMinutes", "recognizedMinutes", "completion", "trainingCertificateNo", "trainingCertificateIssuedOn", "trainingCertificateValidUntil"], result.items.map((item) => [item.userName, item.userEmail, item.status, item.attendanceStatus, item.attendedMinutes, item.recognizedMinutes, item.completion, item.trainingCertificateNo ?? "", item.trainingCertificateIssuedOn ?? "", item.trainingCertificateValidUntil ?? ""])));
   }));
   api.get("/admin/courses/:id/enrollments", route(async (req, res) => {
     const actor = await requireActor(req);
@@ -571,6 +604,9 @@ export function createApp() {
     if (!org) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到業者");
     ok(res, req, { ...org, createdAt: org.createdAt.toISOString(), updatedAt: org.updatedAt.toISOString() });
   }));
+  api.get("/admin/organization-profile", route(async (req, res) => {
+    ok(res, req, await admin.organizationProfile(await requireActor(req), organizationLookupSchema.parse(req.query)));
+  }));
   api.get("/admin/imports/template/:type", route(async (req, res) => {
     const actor = await requireActor(req);
     if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
@@ -591,6 +627,30 @@ export function createApp() {
     await access.assertFeature(actor, "users.manage");
     const body = z.object({ requestId: z.string().uuid() }).parse(req.body);
     ok(res, req, await admin.commitImport(actor, String(req.params.id), body.requestId));
+  }));
+  api.get("/notifications", route(async (req, res) => {
+    ok(res, req, await notices.listOwnNotices(await requireActor(req)));
+  }));
+  api.get("/admin/mail-templates", route(async (req, res) => {
+    ok(res, req, await mailDesk.listMailTemplates(await requireActor(req)));
+  }));
+  api.patch("/admin/mail-templates/:key", route(async (req, res) => {
+    ok(res, req, await mailDesk.saveMailTemplate(await requireActor(req), String(req.params.key), mailTemplateWriteSchema.parse(req.body)));
+  }));
+  api.post("/admin/notifications/send", route(async (req, res) => {
+    ok(res, req, await mailDesk.sendManualMail(await requireActor(req), mailSendSchema.parse(req.body)));
+  }));
+  api.get("/admin/organizations/:id/notifications", route(async (req, res) => {
+    ok(res, req, await mailDesk.listOrganizationNotices(await requireActor(req), String(req.params.id)));
+  }));
+  api.get("/admin/notifications", route(async (req, res) => {
+    const actor = await requireActor(req);
+    if (!isStaff(actor.role)) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有此操作的權限");
+    const keys = await access.enabledFeatureKeys(actor.id, actor.role);
+    if (!keys.some((key) => key === "applications.review" || key === "applications.decide" || key === "audit.view")) {
+      throw new ApiError(403, ErrorCodes.FORBIDDEN, "這個帳號目前沒有此功能");
+    }
+    ok(res, req, await notices.listStaffNotices());
   }));
   api.get("/admin/audit-logs", route(async (req, res) => {
     const actor = await requireActor(req);
@@ -622,6 +682,20 @@ export function createApp() {
     if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
     const slot = contentSlotSchema.parse(req.params.slot);
     ok(res, req, await siteContent.uploadSiteImage(await requireActor(req), storage, slot, req.file));
+  }));
+  api.get("/site-pages", route(async (req, res) => ok(res, req, await sitePages.publicPages())));
+  api.get("/admin/site-pages", route(async (req, res) => ok(res, req, await sitePages.adminPages(await requireActor(req)))));
+  api.post("/admin/site-pages", route(async (req, res) => ok(res, req, await sitePages.createPage(await requireActor(req), req.body))));
+  api.post("/admin/site-pages/reorder", route(async (req, res) => ok(res, req, await sitePages.reorderPages(await requireActor(req), req.body))));
+  api.post("/admin/site-pages/images", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇圖片");
+    ok(res, req, await sitePages.uploadPageImage(await requireActor(req), storage, req.file));
+  }));
+  api.patch("/admin/site-pages/:id", route(async (req, res) => ok(res, req, await sitePages.updatePage(await requireActor(req), String(req.params.id), req.body))));
+  api.post("/admin/site-pages/:id/publish", route(async (req, res) => ok(res, req, await sitePages.publishPage(await requireActor(req), String(req.params.id), req.body, true))));
+  api.post("/admin/site-pages/:id/unpublish", route(async (req, res) => ok(res, req, await sitePages.publishPage(await requireActor(req), String(req.params.id), req.body, false))));
+  api.delete("/admin/site-pages/:id", route(async (req, res) => {
+    ok(res, req, await sitePages.deletePage(await requireActor(req), String(req.params.id), { expectedVersion: Number(req.query.expectedVersion) }));
   }));
   api.get("/admin/editorial", route(async (req, res) => ok(res, req, await siteContent.adminEntries(await requireActor(req)))));
   api.post("/admin/editorial", route(async (req, res) => ok(res, req, await siteContent.createEntry(await requireActor(req), req.body))));
@@ -665,6 +739,26 @@ export function createApp() {
     const input = voidContractSchema.parse(req.body);
     ok(res, req, await contracts.recallContract(await requireActor(req), String(req.params.id), input.expectedVersion));
   }));
+  api.get("/admin/application-categories/:id/form", route(async (req, res) => {
+    ok(res, req, await formEditor.getCategoryForm(await requireActor(req), String(req.params.id)));
+  }));
+  api.put("/admin/application-categories/:id/form-draft", route(async (req, res) => {
+    ok(res, req, await formEditor.saveCategoryFormDraft(await requireActor(req), String(req.params.id), req.body));
+  }));
+  api.post("/admin/application-categories/:id/form-publish", route(async (req, res) => {
+    ok(res, req, await formEditor.publishCategoryForm(await requireActor(req), String(req.params.id), req.body));
+  }));
+  api.get("/admin/system-connection", route(async (req, res) => {
+    ok(res, req, await systemConnection.getSystemConnection(await requireActor(req), env));
+  }));
+  api.patch("/admin/system-connection", route(async (req, res) => {
+    ok(res, req, await systemConnection.saveSystemConnection(await requireActor(req), env, req.body));
+  }));
+  api.get("/operation-settings", route(async (req, res) => {
+    await requireActor(req);
+    ok(res, req, await operationSettings.getOperationSetting());
+  }));
+  api.patch("/admin/operation-settings", route(async (req, res) => ok(res, req, await operationSettings.saveOperationSetting(await requireActor(req), req.body))));
   api.get("/contract-seals", route(async (req, res) => ok(res, req, await contractSeals.getContractSeals(await requireActor(req)))));
   api.get("/contract-seals/media/:kind", route(async (req, res) => {
     await requireActor(req);
@@ -689,6 +783,17 @@ export function createApp() {
   api.post("/payments/pay", route(async (req, res) => {
     const paymentId = z.string().uuid().parse((req.body as { paymentId?: unknown } | undefined)?.paymentId);
     ok(res, req, await payments.markPaidPending(await requireActor(req), paymentId));
+  }));
+  api.post("/payments/:id/receipt", upload.single("file"), route(async (req, res) => {
+    if (!req.file) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請選擇繳費單據");
+    ok(res, req, await payments.uploadPaymentReceipt(await requireActor(req), storage, String(req.params.id), req.file));
+  }));
+  api.get("/payments/:id/receipt", route(async (req, res) => {
+    const file = await payments.readPaymentReceipt(await requireActor(req), storage, String(req.params.id));
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(file.name)}"`);
+    res.send(Buffer.from(file.bytes));
   }));
   api.post("/payments/checkout", route(async (req, res) => {
     const actor = await requireActor(req);
@@ -729,6 +834,7 @@ export function createApp() {
   api.delete("/admin/plans/:id/images/:imageId", route(async (req, res) => {
     ok(res, req, await payments.removePlanImage(await requireActor(req), String(req.params.id), String(req.params.imageId)));
   }));
+  api.post("/admin/payments/review", route(async (req, res) => ok(res, req, await payments.reviewPayment(await requireActor(req), req.body))));
   api.post("/admin/payments/confirm-reconciliation", route(async (req, res) => ok(res, req, await payments.confirmReconciliation(await requireActor(req), req.body))));
   api.post("/admin/payments/confirm-accounting", route(async (req, res) => ok(res, req, await payments.confirmReconciliation(await requireActor(req), req.body))));
   api.post("/admin/payments", route(async (req, res) => ok(res, req, await payments.recordPayment(await requireActor(req), paymentRecordWriteSchema.parse(req.body)))));

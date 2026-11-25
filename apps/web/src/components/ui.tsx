@@ -214,6 +214,18 @@ export function SectionHeader({ title, hint, actions }: { title: ReactNode; hint
   );
 }
 
+export function WorkTile({ label, hint, to, count }: { label: string; hint: string; to: string; count?: number }) {
+  return (
+    <Link to={to} className="flex min-h-28 flex-col justify-between rounded-lg border border-[var(--line)] bg-[var(--surface)] p-4 text-[var(--ink)] no-underline hover:border-[var(--accent-deep)]">
+      <span className="flex items-start justify-between gap-3">
+        <span className="text-base font-medium">{label}</span>
+        {count && count > 0 ? <span className="rounded-full bg-[var(--warn-bg)] px-2 py-0.5 text-sm font-semibold text-[var(--warn)]">{count}</span> : null}
+      </span>
+      <span className="mt-3 text-sm leading-5 text-[var(--muted)]">{hint}</span>
+    </Link>
+  );
+}
+
 export function StatCard({ label, value, hint, to, active, onClick, tone }: { label: ReactNode; value: ReactNode; hint?: ReactNode; to?: string; active?: boolean; onClick?: () => void; tone?: "warning" | "danger" }) {
   const body = (
     <>
@@ -224,7 +236,7 @@ export function StatCard({ label, value, hint, to, active, onClick, tone }: { la
   );
   const className = cx(
     "block rounded-lg border p-4 text-left text-[var(--ink)] no-underline transition",
-    active ? "border-[var(--accent-deep)] bg-[#6aafe6]/20" : "border-[var(--line)] bg-[var(--surface)]",
+    active ? "border-[var(--accent-deep)] bg-[#0e6b3a]/12" : "border-[var(--line)] bg-[var(--surface)]",
     (to || onClick) && "hover:border-[var(--accent-deep)]",
   );
   if (to) return <Link to={to} className={className}>{body}</Link>;

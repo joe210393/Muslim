@@ -1,4 +1,4 @@
-import { contractPortalTabs, contractStatusLabels, daysUntilContractExpiry, ensureContractHtml, isContractRenewalDue } from "@mf/contracts";
+import { CONTRACT_RENEWAL_WINDOW_DAYS, contractPortalTabs, contractStatusLabels, daysUntilContractExpiry, ensureContractHtml, isContractRenewalDue, portalContractStatusLabel } from "@mf/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -17,18 +17,20 @@ export function ContractPage() {
   const tab = contractPortalTabs.some((item) => item.id === requested) ? (requested as PortalContractTab) : null;
   const [previewId, setPreviewId] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["contracts", "mine"], queryFn: () => services.myContracts() });
+  const setting = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
+  const reminderDays = setting.data?.renewalReminderDays ?? CONTRACT_RENEWAL_WINDOW_DAYS;
   const all = query.data ?? [];
   const counts = {
     pending: all.filter((item) => item.status === "ISSUED").length,
     signed: all.filter((item) => item.status === "SIGNED" || item.status === "RENEWED").length,
-    renewable: all.filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt)).length,
+    renewable: all.filter((item) => item.status === "SIGNED" && isContractRenewalDue(item.signedAt, new Date(), reminderDays)).length,
     not_renewed: all.filter((item) => item.status === "NOT_RENEWED").length,
   };
   const rows = tab
     ? all.filter((item) => {
         if (tab === "pending") return item.status === "ISSUED";
         if (tab === "signed") return item.status === "SIGNED" || item.status === "RENEWED";
-        if (tab === "renewable") return item.status === "SIGNED" && isContractRenewalDue(item.signedAt);
+        if (tab === "renewable") return item.status === "SIGNED" && isContractRenewalDue(item.signedAt, new Date(), reminderDays);
         if (tab === "not_renewed") return item.status === "NOT_RENEWED";
         return false;
       })
@@ -44,7 +46,7 @@ export function ContractPage() {
           <button
             key={item.id}
             type="button"
-            className={`rounded-lg border p-4 text-left transition ${tab === item.id ? "border-[var(--accent-deep)] bg-[#6aafe6]/20" : "border-[var(--line)] bg-[var(--surface)]"}`}
+            className={`rounded-lg border p-4 text-left transition ${tab === item.id ? "border-[var(--accent-deep)] bg-[#0e6b3a]/12" : "border-[var(--line)] bg-[var(--surface)]"}`}
             onClick={() => {
               setPreviewId(null);
               setParams({ tab: item.id });
@@ -87,7 +89,7 @@ export function ContractPage() {
                       <td className="p-3 font-medium">{item.contractNo}</td>
                       <td className="p-3">{item.title}</td>
                       <td className="p-3">
-                        <Badge tone={contractStatusLabels[item.status].tone}>{contractStatusLabels[item.status].label}</Badge>
+                        <Badge tone={contractStatusLabels[item.status].tone}>{portalContractStatusLabel(item.status)}</Badge>
                       </td>
                       <td className="p-3">
                         {tab === "pending"
@@ -152,6 +154,8 @@ export function ContractSignPage() {
   const services = useServices();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["contract", contractId], queryFn: () => services.contract(contractId), enabled: Boolean(contractId) });
+  const setting = useQuery({ queryKey: ["operation-setting"], queryFn: () => services.operationSetting() });
+  const reminderDays = setting.data?.renewalReminderDays ?? CONTRACT_RENEWAL_WINDOW_DAYS;
   const seals = useQuery({ queryKey: ["contract-seals"], queryFn: () => services.contractSeals() });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -179,9 +183,9 @@ export function ContractSignPage() {
       {item ? (
         <>
           <p className="text-sm text-[var(--muted)]">
-            {item.contractNo} · {contractStatusLabels[item.status].label}
+            {item.contractNo} · {portalContractStatusLabel(item.status)}
             {item.signedAt ? ` · 簽約日期 ${formatSignedDate(item.signedAt)}` : ""}
-            {item.status === "SIGNED" && item.signedAt && isContractRenewalDue(item.signedAt)
+            {item.status === "SIGNED" && item.signedAt && isContractRenewalDue(item.signedAt, new Date(), reminderDays)
               ? ` · 剩餘約 ${daysUntilContractExpiry(item.signedAt)} 天可續約`
               : ""}
           </p>

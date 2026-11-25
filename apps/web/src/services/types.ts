@@ -5,17 +5,27 @@ import type {
   ApplicationPatch,
   AuditLog,
   BasicTrainingStatus,
+  CategoryDefinition,
+  CategoryFormView,
   CategorySummary,
   ContractFillSnapshot,
   Certification,
   CompanyTrainingRequest,
   Course,
   CourseWrite,
+  CustomerNoticeItem,
   DashboardCounts,
+  MailTemplateView,
   ImportPreview,
   LearningRecord,
   Organization,
+  OrganizationLookup,
   OrganizationPatch,
+  OrganizationProfile,
+  OperationSetting,
+  OperationSettingWrite,
+  SystemConnection,
+  SystemConnectionWrite,
   PublicConfig,
   PublicUser,
   ReportPreview,
@@ -24,6 +34,7 @@ import type {
   PaymentDesk,
   PaymentItem,
   PaymentRecordWrite,
+  PaymentReview,
   SavedReport,
   SavedReportWrite,
   ServicePlanItem,
@@ -31,6 +42,11 @@ import type {
   ServicePlanWrite,
   TrainingCertificate,
   TrainingPolicy,
+  PublicSitePage,
+  SitePageCreate,
+  SitePageItem,
+  SitePageReorder,
+  SitePageUpdate,
 } from "@mf/contracts";
 
 export type Page<T> = { items: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number } };
@@ -74,6 +90,8 @@ export type PublicSite = {
   newsIntro: SiteSlot | null;
   verification: SiteSlot | null;
   faq: SiteSlot | null;
+  training: SiteSlot | null;
+  support: SiteSlot | null;
   entries: EditorialEntry[];
 };
 export type SiteSlotInput = {
@@ -142,6 +160,9 @@ export type Services = {
   organization: () => Promise<Organization>;
   updateOrganization: (patch: OrganizationPatch) => Promise<Organization>;
   categories: () => Promise<CategorySummary[]>;
+  categoryForm: (categoryId: string) => Promise<CategoryFormView>;
+  saveCategoryFormDraft: (categoryId: string, definition: CategoryDefinition) => Promise<CategoryFormView>;
+  publishCategoryForm: (categoryId: string, definition: CategoryDefinition) => Promise<{ version: number; definition: CategoryDefinition }>;
   applications: (query?: { q?: string; status?: string; categoryId?: string; certification?: "pending" | "issued"; page?: number }) => Promise<Page<ApplicationListItem>>;
   application: (id: string) => Promise<ApplicationDetail>;
   createApplication: (categoryId: string) => Promise<ApplicationDetail>;
@@ -161,6 +182,12 @@ export type Services = {
   removeAttachment: (applicationId: string, attachmentId: string) => Promise<void>;
   download: (fileId: string) => Promise<{ blob: Blob; name: string }>;
   summary: () => Promise<DashboardCounts>;
+  notices: () => Promise<CustomerNoticeItem[]>;
+  adminNotices: () => Promise<CustomerNoticeItem[]>;
+  mailTemplates: () => Promise<MailTemplateView[]>;
+  saveMailTemplate: (key: string, input: { subject: string; body: string; expectedVersion: number }) => Promise<MailTemplateView>;
+  sendMail: (input: { audience: "all" | "one"; userId?: string; subject: string; body: string }) => Promise<{ count: number; failed: number; local?: boolean }>;
+  organizationNotices: (organizationId: string) => Promise<CustomerNoticeItem[]>;
   courses: (scope: "public" | "manage") => Promise<Course[]>;
   course: (id: string, scope?: "public" | "manage") => Promise<Course>;
   saveCourse: (input: CourseWrite, id?: string) => Promise<Course>;
@@ -171,6 +198,10 @@ export type Services = {
   attendance: (id: string, input: { expectedVersion: number; attendanceStatus: "NOT_RECORDED" | "PRESENT" | "ABSENT"; attendedMinutes: number }) => Promise<LearningRecord>;
   basicTrainingStatus: () => Promise<BasicTrainingStatus>;
   recordBasicModuleWatch: (moduleId: string, input: { watchedSeconds: number; videoDurationSeconds: number }) => Promise<BasicTrainingStatus>;
+  startCourseQuiz: (enrollmentId: string) => Promise<NonNullable<BasicTrainingStatus["activeAttempt"]>>;
+  submitCourseQuiz: (enrollmentId: string, input: { attemptId: string; answers: Array<{ questionId: string; selectedIndex: number }> }) => Promise<{ passed: boolean; correctCount: number; drawCount: number; recognizedMinutes: number; record: LearningRecord }>;
+  downloadCourseMaterial: (courseId: string) => Promise<{ blob: Blob; name: string }>;
+  uploadCourseMaterial: (id: string, file: File) => Promise<Course>;
   startBasicQuiz: () => Promise<NonNullable<BasicTrainingStatus["activeAttempt"]>>;
   submitBasicQuiz: (input: { attemptId: string; answers: Array<{ questionId: string; selectedIndex: number }> }) => Promise<BasicTrainingStatus & { justPassed: boolean; scorePercent: number; correctCount: number; drawCount: number }>;
   downloadBasicModuleMaterial: (moduleId: string) => Promise<{ blob: Blob; name: string }>;
@@ -206,6 +237,7 @@ export type Services = {
   submitCompanyTrainingRequest: (id: string, expectedVersion: number) => Promise<CompanyTrainingRequest>;
   adminCompanyTrainingRequests: () => Promise<CompanyTrainingRequest[]>;
   reviewCompanyTrainingRequest: (id: string, input: { action: "APPROVE" | "REJECT"; adminNote: string; courseId?: string | null; expectedVersion: number }) => Promise<CompanyTrainingRequest>;
+  trainingCertificates: () => Promise<TrainingCertificate[]>;
   registerTrainingCertificate: (input: { enrollmentId: string; certificateNo: string; issuedOnDate: string; validUntilDate: string }) => Promise<TrainingCertificate>;
   certificateTemplates: () => Promise<Array<{
     key: string;
@@ -257,6 +289,7 @@ export type Services = {
   createUser: (input: { email: string; displayName: string; password: string; features: string[] }) => Promise<void>;
   updateUser: (id: string, input: { isActive?: boolean; role?: "CASE_OFFICER" | "ADMIN" }) => Promise<void>;
   organizations: (q?: string) => Promise<Organization[]>;
+  organizationProfile: (lookup: OrganizationLookup) => Promise<OrganizationProfile>;
   paymentDesk: () => Promise<PaymentDesk>;
   createPlan: (input: ServicePlanWrite) => Promise<ServicePlanItem>;
   updatePlan: (id: string, input: ServicePlanUpdate) => Promise<ServicePlanItem>;
@@ -265,6 +298,9 @@ export type Services = {
   removePlanImage: (planId: string, imageId: string) => Promise<ServicePlanItem>;
   selectPlan: (input: { planId: string }) => Promise<PaymentItem>;
   confirmReconciliation: (input: { paymentId: string }) => Promise<PaymentItem>;
+  reviewPayment: (input: PaymentReview) => Promise<PaymentItem>;
+  uploadPaymentReceipt: (paymentId: string, file: File) => Promise<PaymentItem>;
+  paymentReceipt: (paymentId: string) => Promise<{ blob: Blob; name: string }>;
   markPaidPending: (paymentId: string) => Promise<PaymentItem>;
   recordPayment: (input: PaymentRecordWrite) => Promise<PaymentItem>;
   myPayments: () => Promise<MyPayments>;
@@ -293,16 +329,29 @@ export type Services = {
   createEntry: (input: EditorialWrite) => Promise<AdminEditorialEntry>;
   updateEntry: (id: string, input: EditorialUpdate) => Promise<AdminEditorialEntry>;
   deleteEntry: (id: string) => Promise<void>;
+  publicSitePages: () => Promise<PublicSitePage[]>;
+  adminSitePages: () => Promise<SitePageItem[]>;
+  createSitePage: (input: SitePageCreate) => Promise<SitePageItem>;
+  updateSitePage: (id: string, input: SitePageUpdate) => Promise<SitePageItem>;
+  publishSitePage: (id: string, expectedVersion: number) => Promise<SitePageItem>;
+  unpublishSitePage: (id: string, expectedVersion: number) => Promise<SitePageItem>;
+  deleteSitePage: (id: string, expectedVersion: number) => Promise<void>;
+  reorderSitePages: (input: SitePageReorder) => Promise<SitePageItem[]>;
+  uploadSitePageImage: (file: File) => Promise<{ url: string }>;
   myContracts: () => Promise<ContractItem[]>;
   contract: (id: string) => Promise<ContractItem & { body: string; templateId?: string; fill?: ContractFillSnapshot | null }>;
   uploadSignedContract: (id: string, input: { expectedVersion: number; pdf: Blob }) => Promise<ContractItem & { body: string }>;
   contractDocument: (id: string) => Promise<{ blob: Blob; name: string }>;
-  recordRenewal: (id: string, input: { decision: "RENEWED" | "NOT_RENEWED"; expectedVersion: number }) => Promise<ContractItem & { body: string }>;
+  recordRenewal: (id: string, input: { decision: "RENEWED" | "NOT_RENEWED"; expectedVersion: number }) => Promise<ContractItem & { body: string; renewalApplicationNo: string | null; renewalApplicationId: string | null; renewalNote: string | null }>;
   contractTemplates: () => Promise<ContractTemplateItem[]>;
   createContractTemplate: (input: { title: string; body: string }) => Promise<ContractTemplateItem>;
   createContractTemplateVersion: (id: string, input: { title: string; body: string }) => Promise<ContractTemplateItem>;
   saveContractTemplate: (id: string, input: { title: string; body: string; expectedVersion: number }) => Promise<ContractTemplateItem>;
   adminContracts: () => Promise<ContractItem[]>;
+  operationSetting: () => Promise<OperationSetting>;
+  saveOperationSetting: (input: OperationSettingWrite) => Promise<OperationSetting>;
+  systemConnection: () => Promise<SystemConnection>;
+  saveSystemConnection: (input: SystemConnectionWrite) => Promise<SystemConnection>;
   issuableOrganizations: () => Promise<Array<{
     id: string;
     organizationName: string;

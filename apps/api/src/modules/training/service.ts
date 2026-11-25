@@ -7,14 +7,21 @@ import {
   ErrorCodes,
   UserRole,
   acceptWatchProgress,
+  basicQuizSubmitSchema,
   buildLearningRecord,
   canCancelEnrollment,
   canEnroll,
+  courseQuizState,
   detectCourseVideo,
   detectFileSignature,
+  drawRandomQuestions,
   extensionForMime,
   minutesToHourLabel,
   onlinePassSeconds,
+  quizPassedByCount,
+  repairUtf8Mojibake,
+  safeDisplayName,
+  scoreBasicQuiz,
   pageMeta,
   remainingSeats,
   sha256Hex,
@@ -39,6 +46,8 @@ function courseDto(course: {
   youtubeUrl: string;
   imageFileId: string | null;
   videoFileId: string | null;
+  materialFileId: string | null;
+  material?: { originalName: string } | null;
   videoDurationSeconds: number;
   location: string;
   startsAt: Date;
@@ -59,6 +68,8 @@ function courseDto(course: {
     youtubeUrl: course.youtubeUrl,
     imageUrl: course.imageFileId ? `/api/v1/media/${course.imageFileId}` : null,
     hasVideo: Boolean(course.videoFileId),
+    hasMaterial: Boolean(course.materialFileId),
+    materialName: course.material ? repairUtf8Mojibake(course.material.originalName) : null,
     videoDurationSeconds: course.videoDurationSeconds,
     location: course.location,
     startsAt: course.startsAt.toISOString(),
@@ -82,7 +93,7 @@ async function confirmedCount(courseId: string, tx: Prisma.TransactionClient | t
 
 export async function listCourses(scope: "public" | "manage") {
   const where: Prisma.CourseWhereInput = scope === "manage" ? {} : { status: { not: CourseStatus.DRAFT } };
-  const courses = await prisma.course.findMany({ where, orderBy: { startsAt: "asc" } });
+  const courses = await prisma.course.findMany({ where, orderBy: { startsAt: "asc" }, include: { material: true } });
   const counts = await prisma.enrollment.groupBy({
     by: ["courseId"],
     where: { status: EnrollmentStatus.CONFIRMED, courseId: { in: courses.map((course) => course.id) } },
@@ -93,7 +104,7 @@ export async function listCourses(scope: "public" | "manage") {
 }
 
 export async function getCourse(actor: SessionActor | null, id: string) {
-  const course = await prisma.course.findUnique({ where: { id } });
+  const course = await prisma.course.findUnique({ where: { id }, include: { material: true } });
   if (!course) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到課程");
   const staff = actor && (actor.role === UserRole.ADMIN || actor.role === UserRole.CASE_OFFICER);
   if (!staff && course.status === CourseStatus.DRAFT) {
@@ -178,7 +189,7 @@ export async function uploadCourseImage(actor: SessionActor, storage: StorageAda
     await storage.delete(storageKey).catch(() => undefined);
     throw error;
   }
-  return courseDto((await prisma.course.findUnique({ where: { id } }))!, await confirmedCount(id));
+  return courseDto((await prisma.course.findUnique({ where: { id }, include: { material: true } }))!, await confirmedCount(id));
 }
 
 export async function uploadCourseVideo(actor: SessionActor, storage: StorageAdapter, id: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }, durationSeconds: number) {
@@ -212,7 +223,7 @@ export async function uploadCourseVideo(actor: SessionActor, storage: StorageAda
     await storage.delete(storageKey).catch(() => undefined);
     throw error;
   }
-  return courseDto((await prisma.course.findUnique({ where: { id } }))!, await confirmedCount(id));
+  return courseDto((await prisma.course.findUnique({ where: { id }, include: { material: true } }))!, await confirmedCount(id));
 }
 
 export async function enroll(actor: SessionActor, courseId: string) {
@@ -249,6 +260,8 @@ export async function enroll(actor: SessionActor, courseId: string) {
           watchUpdatedAt: null,
           attendanceRecordedAt: null,
           attendanceRecordedById: null,
+          quizPassedAt: null,
+          recognizedMinutes: 0,
           requiredAttendanceMinutesSnapshot: course.requiredAttendanceMinutes,
           version: { increment: 1 },
         },
@@ -327,7 +340,7 @@ export async function updateAttendance(actor: SessionActor, enrollmentId: string
 async function mapEnrollment(id: string) {
   const row = await prisma.enrollment.findUnique({
     where: { id },
-    include: { course: true, user: { include: { organization: true } }, trainingCertificate: true },
+    include: { course: { include: { material: true } }, user: { include: { organization: true } }, trainingCertificate: true },
   });
   if (!row) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
   const learning = buildLearningRecord({
@@ -339,9 +352,20 @@ async function mapEnrollment(id: string) {
     watchedSeconds: row.watchedSeconds,
     videoDurationSeconds: row.course.videoDurationSeconds,
   });
+  const quiz = courseQuizState({
+    enrollmentStatus: row.status,
+    attendanceStatus: row.attendanceStatus,
+    delivery: row.course.delivery,
+    watchedSeconds: row.watchedSeconds,
+    videoDurationSeconds: row.course.videoDurationSeconds,
+    endsAtIso: row.course.endsAt.toISOString(),
+    nowIso: new Date().toISOString(),
+    quizPassedAt: row.quizPassedAt?.toISOString() ?? null,
+    recognizedMinutes: row.recognizedMinutes,
+  });
   const withdraw = withdrawState({
     enrollmentStatus: row.status,
-    completed: learning.completion === "COMPLETED",
+    completed: learning.completion === "COMPLETED" || quiz.quizPassed,
     registrationClosesAt: row.course.registrationClosesAt.toISOString(),
     nowIso: new Date().toISOString(),
   });
@@ -377,6 +401,13 @@ async function mapEnrollment(id: string) {
     startsAt: row.course.startsAt.toISOString(),
     endsAt: row.course.endsAt.toISOString(),
     location: row.course.location,
+    quizReady: quiz.quizReady,
+    quizBlockedReason: quiz.quizBlockedReason,
+    quizPassed: quiz.quizPassed,
+    recognizedMinutes: quiz.recognizedMinutes,
+    quizPassedAt: row.quizPassedAt?.toISOString() ?? null,
+    hasMaterial: Boolean(row.course.materialFileId),
+    materialName: row.course.material ? repairUtf8Mojibake(row.course.material.originalName) : null,
   };
 }
 
@@ -432,4 +463,123 @@ export async function courseEnrollments(actor: SessionActor, courseId: string, p
     prisma.enrollment.findMany({ where, orderBy: { enrolledAt: "asc" }, skip: (page - 1) * pageSize, take: pageSize }),
   ]);
   return { items: await Promise.all(rows.map((row) => mapEnrollment(row.id))), meta: pageMeta(page, pageSize, total) };
+}
+
+export async function uploadCourseMaterial(actor: SessionActor, storage: StorageAdapter, id: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }) {
+  if (actor.role === UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "沒有課程管理權限");
+  const current = await prisma.course.findUnique({ where: { id } });
+  if (!current) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到課程");
+  const bytes = new Uint8Array(file.buffer);
+  const mime = detectFileSignature(bytes);
+  if (!mime) throw new ApiError(400, ErrorCodes.UNSUPPORTED_FILE_TYPE, "上課資料只接受 PDF、JPEG 或 PNG");
+  const fileId = randomUUID();
+  const displayName = safeDisplayName(file.originalname);
+  const extension = displayName.match(/(\.[A-Za-z0-9]{1,8})$/)?.[1] ?? extensionForMime(mime);
+  const storageKey = `course-materials/${fileId}${extension.startsWith(".") ? extension : `.${extension}`}`;
+  await storage.save(storageKey, bytes);
+  try {
+    await prisma.fileObject.create({
+      data: {
+        id: fileId,
+        uploadedById: actor.id,
+        storageKey,
+        originalName: displayName,
+        mimeType: mime,
+        sizeBytes: bytes.byteLength,
+        sha256: await sha256Hex(bytes),
+      },
+    });
+    await prisma.course.update({ where: { id }, data: { materialFileId: fileId, version: { increment: 1 } } });
+  } catch (error) {
+    await storage.delete(storageKey).catch(() => undefined);
+    throw error;
+  }
+  return courseDto((await prisma.course.findUnique({ where: { id }, include: { material: true } }))!, await confirmedCount(id));
+}
+
+export async function readCourseMaterial(actor: SessionActor, storage: StorageAdapter, courseId: string) {
+  const course = await prisma.course.findUnique({ where: { id: courseId }, include: { material: true, enrollments: { where: { userId: actor.id, status: EnrollmentStatus.CONFIRMED } } } });
+  if (!course?.material) throw new ApiError(404, ErrorCodes.NOT_FOUND, "這門課還沒有上課資料");
+  const staff = actor.role === UserRole.ADMIN || actor.role === UserRole.CASE_OFFICER;
+  if (!staff && course.enrollments.length === 0) throw new ApiError(403, ErrorCodes.FORBIDDEN, "報名後才能下載這門課的上課資料");
+  const bytes = await storage.read(course.material.storageKey);
+  return { bytes, mimeType: course.material.mimeType, name: repairUtf8Mojibake(course.material.originalName) };
+}
+
+function presentDrawnQuestion(row: { id: string; prompt: string; options: Prisma.JsonValue; sortOrder: number }) {
+  return { id: row.id, prompt: row.prompt, options: row.options as string[], sortOrder: row.sortOrder, isActive: true };
+}
+
+export async function startCourseQuiz(actor: SessionActor, enrollmentId: string) {
+  if (actor.role === UserRole.APPLICANT) {
+    const { assertServiceUnlocked } = await import("../payments/service");
+    await assertServiceUnlocked(actor, "請先完成方案付款與核帳後，才能使用教育訓練");
+  }
+  if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可參加測驗");
+  const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
+  if (!enrollment || enrollment.userId !== actor.id) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
+  const quiz = courseQuizState({
+    enrollmentStatus: enrollment.status,
+    attendanceStatus: enrollment.attendanceStatus,
+    delivery: enrollment.course.delivery,
+    watchedSeconds: enrollment.watchedSeconds,
+    videoDurationSeconds: enrollment.course.videoDurationSeconds,
+    endsAtIso: enrollment.course.endsAt.toISOString(),
+    nowIso: new Date().toISOString(),
+    quizPassedAt: enrollment.quizPassedAt?.toISOString() ?? null,
+    recognizedMinutes: enrollment.recognizedMinutes,
+  });
+  if (quiz.quizPassed) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "這門課已通過測驗");
+  if (!quiz.quizReady) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, quiz.quizBlockedReason);
+  const active = await prisma.courseQuizAttempt.findFirst({ where: { enrollmentId, submittedAt: null }, orderBy: { createdAt: "desc" } });
+  const policy = await prisma.trainingPolicy.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!policy) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "尚未設定測驗門檻");
+  if (active) {
+    const drawnIds = active.drawnQuestionIds as string[];
+    const rows = await prisma.basicTrainingQuestion.findMany({ where: { id: { in: drawnIds } } });
+    const ordered = drawnIds.map((id) => rows.find((item) => item.id === id)).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    return { attemptId: active.id, drawCount: active.drawCount, passCount: active.passCountSnapshot, questions: ordered.map(presentDrawnQuestion) };
+  }
+  const bank = await prisma.basicTrainingQuestion.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } });
+  if (bank.length < policy.quizDrawCount) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, `題庫至少需要 ${policy.quizDrawCount} 題才能抽題`);
+  const drawn = drawRandomQuestions(bank, policy.quizDrawCount);
+  const attempt = await prisma.courseQuizAttempt.create({
+    data: {
+      enrollmentId,
+      userId: actor.id,
+      drawCount: drawn.length,
+      passCountSnapshot: policy.quizPassCount,
+      drawnQuestionIds: drawn.map((item) => item.id),
+    },
+  });
+  return { attemptId: attempt.id, drawCount: attempt.drawCount, passCount: attempt.passCountSnapshot, questions: drawn.map(presentDrawnQuestion) };
+}
+
+export async function submitCourseQuiz(actor: SessionActor, enrollmentId: string, body: unknown) {
+  if (actor.role !== UserRole.APPLICANT) throw new ApiError(403, ErrorCodes.FORBIDDEN, "只有業者可參加測驗");
+  const input = basicQuizSubmitSchema.parse(body);
+  const enrollment = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
+  if (!enrollment || enrollment.userId !== actor.id) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
+  if (enrollment.quizPassedAt) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "這門課已通過測驗");
+  const attempt = await prisma.courseQuizAttempt.findFirst({ where: { id: input.attemptId, enrollmentId, userId: actor.id, submittedAt: null } });
+  if (!attempt) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "找不到進行中的測驗，請重新開始");
+  const drawnIds = attempt.drawnQuestionIds as string[];
+  if (input.answers.length !== drawnIds.length || !drawnIds.every((id) => input.answers.some((answer) => answer.questionId === id))) {
+    throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "請答完本次抽出的全部題目");
+  }
+  const rows = await prisma.basicTrainingQuestion.findMany({ where: { id: { in: drawnIds } } });
+  const scored = scoreBasicQuiz(rows.map((item) => ({ id: item.id, correctIndex: item.correctIndex, options: item.options as string[] })), input.answers);
+  const passed = quizPassedByCount(scored.correct, attempt.passCountSnapshot);
+  const now = new Date();
+  await prisma.courseQuizAttempt.update({
+    where: { id: attempt.id },
+    data: { correctCount: scored.correct, passed, answers: input.answers, submittedAt: now },
+  });
+  if (passed) {
+    await prisma.enrollment.update({
+      where: { id: enrollment.id },
+      data: { quizPassedAt: now, recognizedMinutes: enrollment.course.durationMinutes, version: { increment: 1 } },
+    });
+  }
+  return { passed, correctCount: scored.correct, drawCount: attempt.drawCount, recognizedMinutes: passed ? enrollment.course.durationMinutes : 0, record: await mapEnrollment(enrollment.id) };
 }

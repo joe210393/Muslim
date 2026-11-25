@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { formatTaipei } from "../lib/format";
 import type { Course } from "@mf/contracts";
 
-const COLORS = ["#1f6eae", "#0c4f86", "#2f7d6d", "#a56b2a", "#6b4c9a", "#9a4d55"];
+const COLORS = ["#0e6b3a", "#08351e", "#2f7d6d", "#b8893a", "#6b4c9a", "#9a4d55"];
 
 function courseColor(id: string) {
   let hash = 0;

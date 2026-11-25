@@ -1,7 +1,6 @@
 /**
- * 尚未改由內容管理儲存的前台占位。
- * 首頁、關於我們、最新消息、驗證介紹與常見問題改在後台編輯。
- * 朝拜時間不填推測值。每一段仍標成待甲方確認。
+ * 尚未改由內容管理儲存的占位文案。
+ * 公開頁面版面改在頁面編輯；這裡只留品牌名稱與少數仍寫在畫面裡的說明。
  */
 export const contentStatus = {
   label: "待甲方確認",
@@ -10,35 +9,7 @@ export const contentStatus = {
 
 export const brand = {
   name: "HALAL 驗證",
-  product: "穆斯林友善驗證線上申請暨審核",
-  summary: "公開前台說明制度，業者會員區處理申請與補件，內部後台負責審查、訓練與紀錄。",
 };
-
-export const prayerSchedule = {
-  note: "甲方需提供正式朝拜時間表或指定資料來源。以下只保留欄位，不填入推測時間。",
-  columns: ["日期", "晨禮", "晌禮", "晡禮", "昏禮", "宵禮"],
-  rows: [
-    ["待填", "待填", "待填", "待填", "待填", "待填"],
-  ],
-};
-
-export const contactContent = {
-  title: "聯絡我們",
-  email: "contact@example.test",
-  phone: "待填",
-  address: "待填",
-  hours: "待填",
-  inboxNote: "正式收件信箱與是否改由表單進件，都待甲方確認。按下送出只會留在這台瀏覽器，不會寄信。",
-};
-
-export const contractFields = [
-  { key: "version", label: "合約版本", hint: "正式範本編號，待甲方提供" },
-  { key: "signer", label: "簽約人姓名", hint: "是否必須為負責人，待確認" },
-  { key: "title", label: "職稱", hint: "" },
-  { key: "termYears", label: "年限", hint: "各類年限可能不同" },
-  { key: "start", label: "起始日", hint: "YYYY-MM-DD" },
-  { key: "scope", label: "授權範圍", hint: "可使用的名稱、菜單或標示，待法律文字" },
-];
 
 export const renewalRules = [
   "到期前兩個月是否發信提醒，待通知文案核定後才啟用。",

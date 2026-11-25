@@ -26,3 +26,7 @@ apps/web/dist/
 apps/api/dist/
 
 .playwright-cli/
+
+# 本機封存產物（截圖、e2e 輸出）
+archive/local/
+stay-274.jpg

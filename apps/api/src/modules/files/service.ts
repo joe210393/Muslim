@@ -6,9 +6,11 @@ import {
   canDownloadApplicationFile,
   canEditApplicationContent,
   canViewApplication,
+  detectAttachmentSignature,
   detectFileSignature,
   extensionForMime,
-  isAllowedMimeType,
+  formatByteLimit,
+  isAttachmentMimeType,
   parseCategoryDefinition,
   safeDisplayName,
   sha256Hex,
@@ -19,6 +21,15 @@ import { ApiError } from "../../lib/errors";
 import type { SessionActor } from "../../middleware/auth";
 import type { StorageAdapter } from "../../storage/storage";
 import { assertIntegration } from "../platform/access";
+import { getOperationSetting } from "../platform/operation-settings";
+
+async function uploadLimits() {
+  const setting = await getOperationSetting();
+  return {
+    maxFileBytes: setting.attachmentMaxBytes,
+    maxApplicationBytes: Math.max(FILE_POLICY.maxApplicationBytes, setting.attachmentMaxBytes),
+  };
+}
 
 export async function addAttachment(actor: SessionActor, storage: StorageAdapter, applicationId: string, requirementKey: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }) {
   await assertIntegration("media");
@@ -30,17 +41,18 @@ export async function addAttachment(actor: SessionActor, storage: StorageAdapter
   const definition = parseCategoryDefinition(app.categoryFormVersion.definition);
   const requirement = definition.attachmentRequirements.find((item) => item.key === requirementKey);
   if (!requirement) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "此表單版本沒有這個附件項目");
-  if (file.size > FILE_POLICY.maxFileBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, "檔案超過 10 MiB");
+  const limits = await uploadLimits();
+  if (file.size > limits.maxFileBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, `檔案超過 ${formatByteLimit(limits.maxFileBytes)}`);
   const bytes = new Uint8Array(file.buffer);
-  const signature = detectFileSignature(bytes);
-  if (!signature || !isAllowedMimeType(file.mimetype) || signature !== file.mimetype) {
-    throw new ApiError(400, ErrorCodes.UNSUPPORTED_FILE_TYPE, "只接受 PDF、JPEG、PNG，且內容需與格式一致");
+  const signature = detectAttachmentSignature(bytes);
+  if (!signature || !isAttachmentMimeType(file.mimetype) || signature !== file.mimetype) {
+    throw new ApiError(400, ErrorCodes.UNSUPPORTED_FILE_TYPE, "只接受 PDF、JPEG、PNG、MP4、WebM，且內容需與格式一致");
   }
   if (requirement.accept === "image" && !signature.startsWith("image/")) {
     throw new ApiError(400, ErrorCodes.UNSUPPORTED_FILE_TYPE, "這個照片欄只接受 JPEG 或 PNG");
   }
   const used = app.attachments.reduce((sum, item) => sum + item.file.sizeBytes, 0);
-  if (used + file.size > FILE_POLICY.maxApplicationBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, "本案附件合計超過 100 MiB");
+  if (used + file.size > limits.maxApplicationBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, `本案附件合計超過 ${formatByteLimit(limits.maxApplicationBytes)}`);
   const fileId = randomUUID();
   const storageKey = `applications/${applicationId}/${fileId}.${extensionForMime(signature)}`;
   await storage.save(storageKey, bytes);
@@ -94,7 +106,8 @@ export async function addSitePhoto(actor: SessionActor, storage: StorageAdapter,
   const definition = parseCategoryDefinition(app.categoryFormVersion.definition);
   const requirement = definition.attachmentRequirements.find((item) => item.key === requirementKey);
   if (!requirement || requirement.group === "checklist") throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "只能在送件附件項目上補現場拍攝");
-  if (file.size > FILE_POLICY.maxFileBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, "檔案超過 10 MiB");
+  const limits = await uploadLimits();
+  if (file.size > limits.maxFileBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, `檔案超過 ${formatByteLimit(limits.maxFileBytes)}`);
   const bytes = new Uint8Array(file.buffer);
   const signature = detectFileSignature(bytes);
   if (!signature || !signature.startsWith("image/") || signature !== file.mimetype) {
@@ -103,7 +116,7 @@ export async function addSitePhoto(actor: SessionActor, storage: StorageAdapter,
   const sitePhotos = app.attachments.filter((item) => item.requirementKey === requirementKey && item.capturedOnSite);
   if (sitePhotos.length >= FILE_POLICY.maxImagesPerRequirement) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, `這個項目的現場照片最多 ${FILE_POLICY.maxImagesPerRequirement} 張`);
   const used = app.attachments.reduce((sum, item) => sum + item.file.sizeBytes, 0);
-  if (used + file.size > FILE_POLICY.maxApplicationBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, "本案附件合計超過 100 MiB");
+  if (used + file.size > limits.maxApplicationBytes) throw new ApiError(413, ErrorCodes.FILE_TOO_LARGE, `本案附件合計超過 ${formatByteLimit(limits.maxApplicationBytes)}`);
   const fileId = randomUUID();
   const storageKey = `applications/${applicationId}/${fileId}.${extensionForMime(signature)}`;
   await storage.save(storageKey, bytes);

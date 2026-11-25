@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { useServices } from "../../app/session";
 import { CourseListPage } from "./AdminPages";
+import { OrgLink } from "../../components/OrgLink";
 import { AdminPageHeader, Badge, Button, Card, DataTable, Empty, ErrorText, Field, Modal, SectionHeader, SelectInput, TextArea, TextInput, tableRowClass, NoticeText, confirmDelete, type Notice } from "../../components/ui";
 import { ClientError } from "../../services/types";
 
@@ -66,7 +67,7 @@ export function CompanyTrainingAdminPage() {
 export function TrainingCertificatesAdminPage() {
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="一般課證書" description="對已完課報名人工登錄訓練證書編號。" />
+      <AdminPageHeader title="一般課證書" description="完課學員的訓練證書在這裡登錄。已登錄的證書會列出編號、核發日與到期日。" />
       <CertificatesPanel />
     </div>
   );
@@ -487,7 +488,7 @@ function CompanyPanel() {
         <DataTable columns={["業者", "人數", "希望期間", "方式", "申請人", "狀態", "操作"]}>
           {list.map((item) => (
             <tr key={item.id} className={tableRowClass}>
-              <td className="p-3 font-medium">{item.organizationName}</td>
+              <td className="p-3 font-medium"><OrgLink name={item.organizationName} organizationId={item.organizationId} /></td>
               <td className="p-3">{item.headcount} 人</td>
               <td className="p-3 whitespace-nowrap">{item.preferredStartsOn} 至 {item.preferredEndsOn}</td>
               <td className="p-3">{courseDeliveryLabels[item.delivery].label}{item.location ? ` · ${item.location}` : ""}</td>
@@ -527,6 +528,7 @@ function CompanyPanel() {
 function CertificatesPanel() {
   const services = useServices();
   const courses = useQuery({ queryKey: ["admin-courses"], queryFn: () => services.courses("manage") });
+  const issued = useQuery({ queryKey: ["training-certificates"], queryFn: () => services.trainingCertificates() });
   const [courseId, setCourseId] = useState("");
   const enrollments = useQuery({ queryKey: ["admin-course-enrollments", courseId], queryFn: () => services.courseEnrollments(courseId), enabled: Boolean(courseId) });
   const [form, setForm] = useState({ enrollmentId: "", certificateNo: "", issuedOnDate: "", validUntilDate: "" });
@@ -534,11 +536,28 @@ function CertificatesPanel() {
   const [error, setError] = useState<string | null>(null);
   const completed = (enrollments.data ?? []).filter((item) => item.completion === "COMPLETED");
   const editing = completed.find((item) => item.id === form.enrollmentId) ?? null;
+  const issuedRows = issued.data ?? [];
   return (
     <div className="space-y-3">
+      <SectionHeader title="已登錄證書" hint={issuedRows.length ? `共 ${issuedRows.length} 張` : undefined} />
+      {issued.isLoading ? <p>載入中…</p> : null}
+      {!issued.isLoading && issuedRows.length === 0 ? <Empty title="還沒有訓練證書" body="下方選擇課程，對完課學員登錄編號、核發日與到期日。" /> : null}
+      {issuedRows.length > 0 ? (
+        <DataTable columns={["課程", "學員", "證書編號", "核發日", "到期日"]}>
+          {issuedRows.map((item) => (
+            <tr key={item.id} className={tableRowClass}>
+              <td className="p-3">{item.courseTitle}</td>
+              <td className="p-3 font-medium"><OrgLink name={item.userName} userId={item.userId} /></td>
+              <td className="p-3">{item.certificateNo}</td>
+              <td className="p-3 whitespace-nowrap">{item.issuedOnDate}</td>
+              <td className="p-3 whitespace-nowrap">{item.validUntilDate}</td>
+            </tr>
+          ))}
+        </DataTable>
+      ) : null}
       <SectionHeader
         title="完課學員"
-        hint="只對已完課的報名登錄一般課訓練證書（人工編號）。"
+        hint="只對已完課的報名登錄。更新會保留並改寫原本的編號與日期。"
         actions={
           <SelectInput className="w-64" aria-label="課程" value={courseId} onChange={(event) => { setCourseId(event.target.value); setForm((current) => ({ ...current, enrollmentId: "" })); }}>
             <option value="">選擇課程</option>
@@ -547,17 +566,19 @@ function CertificatesPanel() {
         }
       />
       <NoticeText notice={editing ? null : message} />
-      {!courseId ? <Empty title="先選課程" body="選擇課程後會列出完課學員與已登錄的證書編號。" /> : null}
+      {!courseId ? <Empty title="先選課程" body="選擇課程後會列出完課學員，以及已登錄的編號、核發日、到期日。" /> : null}
       {courseId && enrollments.isLoading ? <p>載入中…</p> : null}
-      {courseId && !enrollments.isLoading && completed.length === 0 ? <Empty title="這門課還沒有完課學員" body="出席登錄達到完課門檻後，學員會出現在這裡。" /> : null}
+      {courseId && !enrollments.isLoading && completed.length === 0 ? <Empty title="這門課還沒有完課學員" body="出席登錄達到完課門檻，或線上課程看完後，學員會出現在這裡。" /> : null}
       {completed.length > 0 ? (
-        <DataTable columns={["學員", "證書編號", "操作"]}>
+        <DataTable columns={["學員", "證書編號", "核發日", "到期日", "操作"]}>
           {completed.map((item) => (
             <tr key={item.id} className={tableRowClass}>
-              <td className="p-3 font-medium">{item.userName}</td>
+              <td className="p-3 font-medium"><OrgLink name={item.userName} userId={item.userId} /></td>
               <td className="p-3">{item.trainingCertificateNo ?? <span className="text-[var(--muted)]">尚未登錄</span>}</td>
+              <td className="p-3 whitespace-nowrap">{item.trainingCertificateIssuedOn ?? "—"}</td>
+              <td className="p-3 whitespace-nowrap">{item.trainingCertificateValidUntil ?? "—"}</td>
               <td className="p-3">
-                <button type="button" className="table-action" onClick={() => { setMessage(null); setError(null); setForm({ enrollmentId: item.id, certificateNo: item.trainingCertificateNo ?? "", issuedOnDate: "", validUntilDate: "" }); }}>
+                <button type="button" className="table-action" onClick={() => { setMessage(null); setError(null); setForm({ enrollmentId: item.id, certificateNo: item.trainingCertificateNo ?? "", issuedOnDate: item.trainingCertificateIssuedOn ?? "", validUntilDate: item.trainingCertificateValidUntil ?? "" }); }}>
                   {item.trainingCertificateNo ? "更新" : "登錄證書"}
                 </button>
               </td>
@@ -578,6 +599,7 @@ function CertificatesPanel() {
                 setMessage(`已登錄 ${editing.userName} 的訓練證書`);
                 setForm({ ...form, enrollmentId: "" });
                 await enrollments.refetch();
+                await issued.refetch();
               } catch (reason) {
                 setError(reason instanceof ClientError ? reason.message : "登錄失敗");
               }

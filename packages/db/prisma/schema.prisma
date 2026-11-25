@@ -109,6 +109,9 @@ enum NotificationType {
   SUPPLEMENT_REQUEST
   DECISION_RESULT
   PASSWORD_RESET
+  CASE_PROGRESS
+  RENEWAL
+  MANUAL
 
   @@map("notification_type")
 }
@@ -135,6 +138,8 @@ enum ContentSlot {
   NEWS_INTRO
   VERIFICATION
   FAQ
+  TRAINING
+  SUPPORT
 
   @@map("content_slot")
 }
@@ -148,6 +153,7 @@ enum EditorialKind {
   FEE
   FAQ
   EMAIL_DRAFT
+  CATEGORY_INTRO
 
   @@map("editorial_kind")
 }
@@ -191,6 +197,7 @@ model User {
   importBatches           ImportBatch[]
   editedSiteContents      SiteContent[]      @relation("SiteContentEditor")
   editedEditorials        EditorialEntry[]   @relation("EditorialEditor")
+  editedSitePages         SitePage[]         @relation("SitePageEditor")
   editedContractTemplates ContractTemplate[] @relation("TemplateEditor")
   issuedContracts         ContractRecord[]   @relation("ContractIssuer")
   signedContracts         ContractRecord[]   @relation("ContractSigner")
@@ -202,6 +209,7 @@ model User {
   basicModulesUpdated     BasicTrainingModule[] @relation("BasicModuleEditor")
   basicProgress           BasicTrainingProgress[]
   basicAttempts           BasicTrainingAttempt[]
+  courseQuizAttempts      CourseQuizAttempt[]
   basicTraining           UserBasicTraining?
   companyTrainingRequests CompanyTrainingRequest[] @relation("CompanyTrainingRequester")
   companyTrainingReviews  CompanyTrainingRequest[] @relation("CompanyTrainingReviewer")
@@ -261,12 +269,14 @@ model PasswordResetToken {
 }
 
 model ApplicationCategory {
-  id           String  @id @default(uuid()) @db.Uuid
-  code         String  @unique @db.VarChar(16)
-  name         String  @db.VarChar(200)
-  description  String? @db.VarChar(1000)
-  isActive     Boolean @default(true) @map("is_active")
-  displayOrder Int     @map("display_order")
+  id              String  @id @default(uuid()) @db.Uuid
+  code            String  @unique @db.VarChar(16)
+  name            String  @db.VarChar(200)
+  description     String? @db.VarChar(1000)
+  isActive        Boolean @default(true) @map("is_active")
+  displayOrder    Int     @map("display_order")
+  /** 尚未正式完成的表單。正式完成才會新增 CategoryFormVersion，已建立的申請不改綁定版本。 */
+  draftDefinition Json?   @map("draft_definition")
 
   versions     CategoryFormVersion[]
   applications Application[]
@@ -404,6 +414,7 @@ model FileObject {
   editorialImages      EditorialEntry[]        @relation("EditorialImage")
   courseImages         Course[]                @relation("CourseImage")
   courseVideos         Course[]                @relation("CourseVideo")
+  courseMaterials      Course[]                @relation("CourseMaterial")
   contractFaces        ContractRecord[]        @relation("ContractFace")
   contractSignatures   ContractRecord[]        @relation("ContractSignature")
   contractDocuments    ContractRecord[]        @relation("ContractPdf")
@@ -412,6 +423,7 @@ model FileObject {
   basicModuleMaterials BasicTrainingModule[]   @relation("BasicModuleMaterial")
   basicCertificates    UserBasicTraining[]     @relation("BasicTrainingCertificate")
   servicePlanImages    ServicePlanImage[]      @relation("ServicePlanImage")
+  paymentReceipt       PaymentRecord?          @relation("PaymentReceipt")
 
   @@map("file_objects")
 }
@@ -441,6 +453,7 @@ model Course {
   imageFileId                String?        @unique @map("image_file_id") @db.Uuid
   videoFileId                String?        @unique @map("video_file_id") @db.Uuid
   videoDurationSeconds       Int            @default(0) @map("video_duration_seconds")
+  materialFileId             String?        @unique @map("material_file_id") @db.Uuid
   location                   String         @default("") @db.VarChar(200)
   startsAt                   DateTime     @map("starts_at") @db.Timestamptz(6)
   endsAt                     DateTime     @map("ends_at") @db.Timestamptz(6)
@@ -459,6 +472,7 @@ model Course {
   image                   FileObject?              @relation("CourseImage", fields: [imageFileId], references: [id], onDelete: Restrict)
   video                   FileObject?              @relation("CourseVideo", fields: [videoFileId], references: [id], onDelete: Restrict)
   enrollments             Enrollment[]
+  material                FileObject?              @relation("CourseMaterial", fields: [materialFileId], references: [id], onDelete: Restrict)
   companyTrainingRequests CompanyTrainingRequest[]
 
   @@index([status, registrationOpensAt, registrationClosesAt])
@@ -477,18 +491,41 @@ model Enrollment {
   requiredAttendanceMinutesSnapshot Int             @map("required_attendance_minutes_snapshot")
   attendanceRecordedById           String?          @map("attendance_recorded_by_id") @db.Uuid
   attendanceRecordedAt             DateTime?        @map("attendance_recorded_at") @db.Timestamptz(6)
+  quizPassedAt                     DateTime?        @map("quiz_passed_at") @db.Timestamptz(6)
+  recognizedMinutes                Int              @default(0) @map("recognized_minutes")
   version                          Int              @default(1)
   enrolledAt                       DateTime         @default(now()) @map("enrolled_at") @db.Timestamptz(6)
   cancelledAt                      DateTime?        @map("cancelled_at") @db.Timestamptz(6)
 
   course                 Course               @relation(fields: [courseId], references: [id], onDelete: Restrict)
   user                   User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  quizAttempts           CourseQuizAttempt[]
   attendanceRecordedBy   User?                @relation("AttendanceRecordedBy", fields: [attendanceRecordedById], references: [id], onDelete: Restrict)
   trainingCertificate    TrainingCertificate?
 
   @@unique([courseId, userId])
   @@index([userId])
   @@map("enrollments")
+}
+
+model CourseQuizAttempt {
+  id                String    @id @default(uuid()) @db.Uuid
+  enrollmentId      String    @map("enrollment_id") @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  correctCount      Int       @default(0) @map("correct_count")
+  drawCount         Int       @default(0) @map("draw_count")
+  passCountSnapshot Int       @default(0) @map("pass_count_snapshot")
+  passed            Boolean   @default(false)
+  drawnQuestionIds  Json      @default("[]") @map("drawn_question_ids")
+  answers           Json?
+  submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId, createdAt])
+  @@map("course_quiz_attempts")
 }
 
 model TrainingPolicy {
@@ -684,6 +721,8 @@ model NotificationJob {
   recipientEmail  String                @map("recipient_email") @db.VarChar(320)
   applicationId   String?               @map("application_id") @db.Uuid
   status          NotificationJobStatus
+  subject         String                @default("") @db.VarChar(200)
+  body            String                @default("") @db.Text
   attemptCount    Int                   @default(0) @map("attempt_count")
   lastErrorCode   String?               @map("last_error_code") @db.VarChar(80)
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -694,6 +733,16 @@ model NotificationJob {
 
   @@index([status])
   @@map("notification_jobs")
+}
+
+model MailTemplate {
+  key       String   @id @db.VarChar(64)
+  subject   String   @db.VarChar(200)
+  body      String   @db.Text
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("mail_templates")
 }
 
 model AuditLog {
@@ -780,6 +829,37 @@ model EditorialEntry {
   @@map("editorial_entries")
 }
 
+enum SitePageKind {
+  PAGE
+  PRODUCT
+}
+
+/// 前台頁面編輯器：草稿與已發布內容分開存。頁首固定頁（slug 為 home、faq 等）沒有紀錄時用預設版面，發布後改用這裡的版面。
+model SitePage {
+  id                   String       @id @default(uuid()) @db.Uuid
+  slug                 String       @unique @db.VarChar(80)
+  name                 String       @db.VarChar(80)
+  kind                 SitePageKind @default(PAGE)
+  inHeader             Boolean      @default(false) @map("in_header")
+  sortOrder            Int          @default(0) @map("sort_order")
+  /** 草稿頁背景圖；空字串＝用全站預設底色。 */
+  draftBackground      String       @default("") @map("draft_background") @db.VarChar(500)
+  draftSections        Json         @map("draft_sections")
+  /** 已發布頁背景圖；null 表示未發布。 */
+  publishedBackground  String?      @map("published_background") @db.VarChar(500)
+  publishedSections    Json?        @map("published_sections")
+  publishedAt          DateTime?    @map("published_at") @db.Timestamptz(6)
+  updatedById          String?      @map("updated_by_id") @db.Uuid
+  version              Int          @default(1)
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  updatedBy User? @relation("SitePageEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+  @@map("site_pages")
+}
+
 model ContractTemplate {
   id          String   @id @default(uuid()) @db.Uuid
   code        String   @db.VarChar(64)
@@ -813,6 +893,45 @@ model ContractSealSetting {
   personSeal  FileObject? @relation("ContractPersonSeal", fields: [personSealFileId], references: [id], onDelete: SetNull)
 
   @@map("contract_seal_settings")
+}
+
+/** 全站一筆：續約提醒天數與新發證書的預設效期。不回寫已簽署合約或已核發證書。 */
+model OperationSetting {
+  id                    String   @id @default("default") @db.VarChar(32)
+  renewalReminderDays   Int      @default(60) @map("renewal_reminder_days")
+  certificateTermMonths Int      @default(12) @map("certificate_term_months")
+  /** 申請附件單檔上限。預設 10 MB，可在管理／設定調整，不必改程式。 */
+  attachmentMaxBytes    Int      @default(10485760) @map("attachment_max_bytes")
+  /** 匯款單繳費期限（核准後幾天）與收款帳戶；帳戶未填時匯款單顯示「待設定」。 */
+  paymentDueDays        Int      @default(14) @map("payment_due_days")
+  remitBankName         String   @default("") @map("remit_bank_name") @db.VarChar(120)
+  remitAccountNo        String   @default("") @map("remit_account_no") @db.VarChar(40)
+  remitAccountName      String   @default("") @map("remit_account_name") @db.VarChar(120)
+  version               Int      @default(1)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("operation_settings")
+}
+
+/** 全站一筆：客服連結、郵件伺服器與金鑰。密碼與金鑰只供寄信和金流使用，API 不回傳內容。 */
+model SystemConnection {
+  id               String  @id @default("default") @db.VarChar(32)
+  supportEnabled   Boolean @default(false) @map("support_enabled")
+  supportLabel     String  @default("客服") @map("support_label") @db.VarChar(40)
+  supportUrl       String  @default("") @map("support_url") @db.VarChar(500)
+  smtpHost         String  @default("") @map("smtp_host") @db.VarChar(200)
+  smtpPort         Int?    @map("smtp_port")
+  smtpUser         String  @default("") @map("smtp_user") @db.VarChar(320)
+  smtpFrom         String  @default("") @map("smtp_from") @db.VarChar(320)
+  smtpPassword     String  @default("") @map("smtp_password") @db.VarChar(200)
+  ecpayEnv         String  @default("") @map("ecpay_env") @db.VarChar(16)
+  ecpayMerchantId  String  @default("") @map("ecpay_merchant_id") @db.VarChar(20)
+  ecpayHashKey     String  @default("") @map("ecpay_hash_key") @db.VarChar(64)
+  ecpayHashIv      String  @default("") @map("ecpay_hash_iv") @db.VarChar(64)
+  version          Int     @default(1)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_connections")
 }
 
 model ContractRecord {
@@ -867,11 +986,13 @@ model SavedReport {
   @@map("saved_reports")
 }
 
+/** QUOTED 未核案件 → PENDING 未付款（已產生匯款單）→ PAID_PENDING 未核付款 → PAID 已核帳；VOID 未成立（不核准或逾期）。 */
 enum PaymentStatus {
   QUOTED
   PENDING
   PAID_PENDING
   PAID
+  VOID
 
   @@map("payment_status")
 }
@@ -940,14 +1061,21 @@ model PaymentRecord {
   accountingConfirmedAt DateTime? @map("accounting_confirmed_at") @db.Timestamptz(6)
   recordedById     String?       @map("recorded_by_id") @db.Uuid
   note             String        @default("") @db.VarChar(200)
+  /** 管理員核准方案時依設定天數寫入；超過仍未上傳單據即改 VOID。 */
+  dueAt            DateTime?     @map("due_at") @db.Timestamptz(6)
+  receiptFileId    String?       @unique @map("receipt_file_id") @db.Uuid
+  voidedAt         DateTime?     @map("voided_at") @db.Timestamptz(6)
+  voidReason       String        @default("") @map("void_reason") @db.VarChar(200)
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   plan         ServicePlan  @relation(fields: [planId], references: [id], onDelete: Restrict)
   recordedBy   User?        @relation("PaymentRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  receipt      FileObject?  @relation("PaymentReceipt", fields: [receiptFileId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, paidAt])
   @@index([organizationId, status])
+  @@index([status, dueAt])
   @@index([status])
   @@index([paidAt])
   @@map("payment_records")

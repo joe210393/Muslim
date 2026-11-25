@@ -154,7 +154,7 @@ export async function forgotPassword(env: Env, input: ForgotPasswordRequest, ip:
     },
   });
   const resetUrl = `${env.APP_BASE_URL}/reset-password?token=${token}`;
-  await deliverNotification(env, job.id, env.MAIL_DRIVER === "console" ? resetUrl : "請使用信中的連結重設密碼。連結 30 分鐘內有效。");
+  await deliverNotification(env, job.id, `請用這個連結重設密碼，30 分鐘內有效：\n${resetUrl}`);
   return { message };
 }
 

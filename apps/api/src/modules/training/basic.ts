@@ -671,6 +671,30 @@ export async function reviewCompanyRequest(actor: SessionActor, id: string, body
   return presentCompany(updated);
 }
 
+function presentTrainingCertificate(row: { id: string; enrollmentId: string; certificateNo: string; issuedOnDate: string; validUntilDate: string; registeredAt: Date }, enrollment: { courseId: string; userId: string; course: { title: string }; user: { displayName: string } }) {
+  return {
+    id: row.id,
+    enrollmentId: row.enrollmentId,
+    courseId: enrollment.courseId,
+    courseTitle: enrollment.course.title,
+    userId: enrollment.userId,
+    userName: enrollment.user.displayName,
+    certificateNo: row.certificateNo,
+    issuedOnDate: row.issuedOnDate,
+    validUntilDate: row.validUntilDate,
+    registeredAt: row.registeredAt.toISOString(),
+  };
+}
+
+export async function listCertificates(actor: SessionActor) {
+  await assertFeature(actor, "training.manage");
+  const rows = await prisma.trainingCertificate.findMany({
+    include: { enrollment: { include: { course: true, user: true } } },
+    orderBy: { certificateNo: "asc" },
+  });
+  return rows.map((row) => presentTrainingCertificate(row, row.enrollment));
+}
+
 export async function registerCertificate(actor: SessionActor, body: unknown) {
   await assertFeature(actor, "training.manage");
   const input = trainingCertificateWriteSchema.parse(body);
@@ -680,7 +704,8 @@ export async function registerCertificate(actor: SessionActor, body: unknown) {
     include: { course: true, user: true, trainingCertificate: true },
   });
   if (!enrollment) throw new ApiError(404, ErrorCodes.NOT_FOUND, "找不到報名");
-  if (enrollment.trainingCertificate) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "這筆報名已有訓練證書");
+  const duplicate = await prisma.trainingCertificate.findFirst({ where: { certificateNo: input.certificateNo, enrollmentId: { not: enrollment.id } } });
+  if (duplicate) throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "證書編號已存在");
   const learning = buildLearningRecord({
     enrollmentStatus: enrollment.status,
     attendanceStatus: enrollment.attendanceStatus,
@@ -691,25 +716,19 @@ export async function registerCertificate(actor: SessionActor, body: unknown) {
     videoDurationSeconds: enrollment.course.videoDurationSeconds,
   });
   if (learning.completion !== "COMPLETED") throw new ApiError(400, ErrorCodes.VALIDATION_ERROR, "僅完課報名可登錄訓練證書");
-  const created = await prisma.trainingCertificate.create({
-    data: {
-      enrollmentId: input.enrollmentId,
-      certificateNo: input.certificateNo,
-      issuedOnDate: input.issuedOnDate,
-      validUntilDate: input.validUntilDate,
-      registeredById: actor.id,
-    },
-  });
-  return {
-    id: created.id,
-    enrollmentId: created.enrollmentId,
-    courseId: enrollment.courseId,
-    courseTitle: enrollment.course.title,
-    userId: enrollment.userId,
-    userName: enrollment.user.displayName,
-    certificateNo: created.certificateNo,
-    issuedOnDate: created.issuedOnDate,
-    validUntilDate: created.validUntilDate,
-    registeredAt: created.registeredAt.toISOString(),
-  };
+  const saved = enrollment.trainingCertificate
+    ? await prisma.trainingCertificate.update({
+      where: { enrollmentId: enrollment.id },
+      data: { certificateNo: input.certificateNo, issuedOnDate: input.issuedOnDate, validUntilDate: input.validUntilDate, registeredById: actor.id },
+    })
+    : await prisma.trainingCertificate.create({
+      data: {
+        enrollmentId: input.enrollmentId,
+        certificateNo: input.certificateNo,
+        issuedOnDate: input.issuedOnDate,
+        validUntilDate: input.validUntilDate,
+        registeredById: actor.id,
+      },
+    });
+  return presentTrainingCertificate(saved, enrollment);
 }
