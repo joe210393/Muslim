@@ -152,7 +152,7 @@ export function SystemSettingsPage() {
           </Card>
           <Card>
             <h2 className="text-lg font-semibold">郵件 SMTP</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">畫面上是目前正在使用的伺服器。主機留空再儲存，就改回沿用環境設定。填了主機並儲存後，之後的信改由這一組伺服器寄出。密碼在下面的金鑰區更換。</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">畫面上是目前正在使用的伺服器。主機留空再儲存，就改回沿用環境設定。填了主機並儲存後，之後的信改由這一組伺服器寄出（即使 Zeabur 仍是 MAIL_DRIVER=console）。密碼一定要在下面「金鑰與密碼」另存一次，只填主機不會帶入密碼。Gmail 請用應用程式密碼、埠 587。</p>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <Field label="SMTP 主機">
                 <TextInput value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} />

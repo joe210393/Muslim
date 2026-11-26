@@ -15,29 +15,44 @@ function noticeKind(type: string) {
   return "流程";
 }
 
+function mailErrorHint(code: string | null | undefined) {
+  if (!code) return null;
+  if (code === "MAIL_DRIVER_CONSOLE") return "伺服器仍是測試寄信模式，沒有真正寄到信箱。請到「設定 → 郵件 SMTP」填主機並儲存密碼，或在 Zeabur 設 MAIL_DRIVER=smtp 與 SMTP_*。";
+  if (code === "SMTP_ERROR") return "SMTP 連線或帳密失敗。請確認主機、埠 587、Gmail 應用程式密碼，並看垃圾郵件匣。";
+  if (code === "SMTP_HOST_MISSING") return "還沒有 SMTP 主機。請在設定頁填寫後再寄。";
+  if (code === "SMTP_PASSWORD_MISSING") return "已填帳號但還沒有郵件密碼。請到「設定 → 金鑰與密碼」儲存 SMTP 密碼。";
+  if (code === "LOCAL_CATCHER") return "信進了本機收件匣，不是對方的 Gmail。";
+  if (code === "INTEGRATION_DISABLED") return "系統串接裡的 Email 通知已停用。";
+  return `失敗代碼：${code}`;
+}
+
 function NoticeList({ rows, loading, emptyBody, casePath, showRecipient }: { rows: CustomerNoticeItem[] | undefined; loading: boolean; emptyBody: string; casePath: (id: string) => string; showRecipient: boolean }) {
   if (loading) return <p>載入中…</p>;
   if (!rows?.length) return <Empty title="還沒有通知信" body={emptyBody} />;
   return (
     <div className="space-y-3">
-      {rows.map((item) => (
-        <Card key={item.id} className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-medium">{item.subject}</p>
-            <span className="flex items-center gap-2">
-              <Badge tone="neutral">{noticeKind(item.type)}</Badge>
-              <Badge tone={notificationJobStatusLabels[item.status].tone}>{notificationJobStatusLabels[item.status].label}</Badge>
-            </span>
-          </div>
-          <p className="text-sm text-[var(--muted)]">
-            {formatTaipei(item.createdAt)}
-            {item.applicationNo ? ` · 案件 ${item.applicationNo}` : ""}
-            {showRecipient ? ` · ${item.recipientEmail}` : ""}
-          </p>
-          <p className="whitespace-pre-wrap text-sm">{item.body}</p>
-          {item.applicationId ? <Link className="text-sm text-[var(--link)]" to={casePath(item.applicationId)}>查看案件</Link> : null}
-        </Card>
-      ))}
+      {rows.map((item) => {
+        const hint = showRecipient ? mailErrorHint(item.lastErrorCode) : null;
+        return (
+          <Card key={item.id} className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium">{item.subject}</p>
+              <span className="flex items-center gap-2">
+                <Badge tone="neutral">{noticeKind(item.type)}</Badge>
+                <Badge tone={notificationJobStatusLabels[item.status].tone}>{notificationJobStatusLabels[item.status].label}</Badge>
+              </span>
+            </div>
+            <p className="text-sm text-[var(--muted)]">
+              {formatTaipei(item.createdAt)}
+              {item.applicationNo ? ` · 案件 ${item.applicationNo}` : ""}
+              {showRecipient ? ` · ${item.recipientEmail}` : ""}
+            </p>
+            {hint ? <p className="text-sm text-[var(--danger)]">{hint}</p> : null}
+            <p className="whitespace-pre-wrap text-sm">{item.body}</p>
+            {item.applicationId ? <Link className="text-sm text-[var(--link)]" to={casePath(item.applicationId)}>查看案件</Link> : null}
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -161,7 +176,13 @@ export function AdminNoticesPage() {
       setSubject("");
       setBody("");
       setUserId("");
-      setMessage(result.failed ? `已建立 ${result.count} 封，其中 ${result.failed} 封沒有送出。請到會員管理查看。` : result.local ? `已收下 ${result.count} 封，放在本機收件匣，還沒有進對方的 Gmail。` : `已寄出 ${result.count} 封。請到對方信箱查看，有時會在垃圾郵件。`);
+      setMessage(
+        result.failed
+          ? `已建立 ${result.count} 封，其中 ${result.failed} 封沒有真正寄出。請到會員管理 → 該業者「查看信件」，看狀態是「僅模擬」還是「寄送失敗」，並依說明檢查 SMTP。`
+          : result.local
+            ? `已收下 ${result.count} 封，放在本機收件匣，還沒有進對方的 Gmail。`
+            : `已寄出 ${result.count} 封。請到對方信箱查看，有時會在垃圾郵件。`,
+      );
     } catch (error) {
       setMessage(failNotice(error instanceof ClientError ? error.message : "寄送失敗"));
     } finally {

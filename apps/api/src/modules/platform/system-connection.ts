@@ -15,14 +15,15 @@ export async function connectionRow() {
 
 export async function resolveMail(env: Env) {
   const row = await connectionRow();
-  const password = row.smtpPassword || env.SMTP_PASSWORD;
+  const password = (row.smtpPassword || env.SMTP_PASSWORD || "").replace(/\s+/g, "");
   if (row.smtpHost) {
     return {
       host: row.smtpHost,
       port: row.smtpPort ?? 587,
-      user: row.smtpUser,
+      user: row.smtpUser || env.SMTP_USER,
       from: row.smtpFrom || env.MAIL_FROM,
       password,
+      // 設定頁有填主機就改走這一組，不再看 MAIL_DRIVER=console
       enabled: true,
       local: row.smtpHost === "127.0.0.1" || row.smtpHost === "localhost",
     };

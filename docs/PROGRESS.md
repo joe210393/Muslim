@@ -689,6 +689,13 @@ Mock 示範資料改為七類各兩筆已核定、尚未登錄證書的案件（
 - 沒動：頁面編輯、案件／付款狀態機、綠界設定（流程暫不走但仍在設定頁）、editorial API（預設版面仍讀消息／問答資料；後台已無舊「文字與清單」編輯畫面）。
 - 檢查：`pnpm typecheck` 四個套件通過。
 
+## 2026-11-26 寄信未送出排查與 SMTP 強化
+
+- 正式站大量 `401`：工作階段失效或未登入（需重新登入）。`contentscript.js` 的 MaxListeners／ObjectMultiplex 來自瀏覽器擴充功能，不是本系統。
+- 系統**不會**為匯款單核准／退回／逾期自動寄信（見 OPEN_QUESTIONS）；會寄的是：手動寄信、補件、案件流程下一步、續約提醒、密碼重設。
+- 設定頁只改「自動通知」範本不會讓信真的寄出；要真寄必須 SMTP 可用：設定頁填主機＋在金鑰區存密碼，或 Zeabur `MAIL_DRIVER=smtp` 與 `SMTP_*`。
+- 強化：Gmail 常用埠 587 加 `requireTLS`；缺主機／缺密碼會寫入明確錯誤碼；會員「查看信件」顯示失敗原因；https 預發站 cookie 加 Secure，減少整站 401。
+
 ## 2026-11-26 每一頁可換背景圖；收合設定排版更清楚
 
 - `site_pages` 新增 `draft_background`／`published_background`（migration `20261126001500_site_page_background`）。草稿與已發布分開；前台公開 DTO 帶 `backgroundImage`，空字串＝沿用全站預設底色。契約、field-metadata、API、mock 同步。

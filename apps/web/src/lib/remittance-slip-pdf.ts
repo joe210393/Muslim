@@ -1,5 +1,4 @@
-import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, rgb } from "pdf-lib";
+import { pngPagesToPdf } from "@mf/contracts";
 
 export type RemittanceSlipPdfInput = {
   slipNo: string;
@@ -12,32 +11,72 @@ export type RemittanceSlipPdfInput = {
   accountName: string;
 };
 
-/** 依畫面匯款單內容產出可下載的 PDF（前端產生，中文字型取自站內字型檔）。 */
-export async function buildRemittanceSlipPdf(input: RemittanceSlipPdfInput): Promise<Blob> {
-  const pdf = await PDFDocument.create();
-  pdf.registerFontkit(fontkit);
-  const fontBytes = await fetch("/fonts/NotoSansTC-Subset.otf").then((res) => {
-    if (!res.ok) throw new Error("無法載入字型");
-    return res.arrayBuffer();
-  });
-  const font = await pdf.embedFont(fontBytes, { subset: true });
-  const page = pdf.addPage([595.28, 841.89]);
-  const { width, height } = page.getSize();
-  const ink = rgb(0.1, 0.1, 0.1);
-  const muted = rgb(0.35, 0.35, 0.35);
-  const line = rgb(0.75, 0.75, 0.75);
-  let y = height - 64;
+const PAGE_WIDTH = 1191;
+const PAGE_HEIGHT = 1684;
 
-  const draw = (text: string, size: number, color = ink, x = 56) => {
-    page.drawText(text, { x, y, size, font, color });
-    y -= size + 10;
+let fontReady: Promise<void> | null = null;
+
+function ensureFont() {
+  if (!fontReady) {
+    fontReady = (async () => {
+      const font = new FontFace("NotoSansTC", "url(/fonts/NotoSansTC-Subset.otf)");
+      await font.load();
+      document.fonts.add(font);
+    })();
+  }
+  return fontReady;
+}
+
+function canvasPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("無法產生匯款單圖片"));
+        return;
+      }
+      void blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer)), reject);
+    }, "image/png");
+  });
+}
+
+/** 依畫面匯款單內容產出可下載的 PDF（前端以站內中文字型繪製後轉 PDF）。 */
+export async function buildRemittanceSlipPdf(input: RemittanceSlipPdfInput): Promise<Blob> {
+  await ensureFont();
+  const canvas = document.createElement("canvas");
+  canvas.width = PAGE_WIDTH;
+  canvas.height = PAGE_HEIGHT;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("無法產生匯款單 PDF");
+
+  const ink = "#1a1a1a";
+  const muted = "#595959";
+  const line = "#bfbfbf";
+  const left = 112;
+  const right = PAGE_WIDTH - 112;
+  let y = 128;
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+  context.textBaseline = "alphabetic";
+  context.textAlign = "left";
+
+  const draw = (text: string, size: number, color = ink, x = left) => {
+    context.font = `${size}px NotoSansTC`;
+    context.fillStyle = color;
+    context.fillText(text, x, y);
+    y += size + 20;
   };
 
-  draw("穆斯林友善驗證 · 匯款單", 18);
-  draw("請依下列資訊完成匯款，並於期限內上傳繳費單據。", 11, muted);
-  y -= 8;
-  page.drawLine({ start: { x: 56, y }, end: { x: width - 56, y }, thickness: 1, color: line });
-  y -= 24;
+  draw("穆斯林友善驗證 · 匯款單", 36);
+  draw("請依下列資訊完成匯款，並於期限內上傳繳費單據。", 22, muted);
+  y += 8;
+  context.strokeStyle = line;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(left, y);
+  context.lineTo(right, y);
+  context.stroke();
+  y += 48;
 
   const rows: Array<[string, string]> = [
     ["匯款單號", input.slipNo || "—"],
@@ -51,20 +90,29 @@ export async function buildRemittanceSlipPdf(input: RemittanceSlipPdfInput): Pro
   ];
 
   for (const [label, value] of rows) {
-    page.drawText(label, { x: 56, y, size: 11, font, color: muted });
-    page.drawText(value, { x: 200, y, size: 12, font, color: ink });
-    y -= 28;
+    context.font = "22px NotoSansTC";
+    context.fillStyle = muted;
+    context.fillText(label, left, y);
+    context.font = "24px NotoSansTC";
+    context.fillStyle = ink;
+    context.fillText(value, 400, y);
+    y += 56;
   }
 
-  y -= 12;
-  page.drawLine({ start: { x: 56, y }, end: { x: width - 56, y }, thickness: 1, color: line });
-  y -= 24;
-  draw("備註", 11, muted);
-  draw("1. 匯款後請保留收據，並於會員區上傳 PDF／JPEG／PNG 單據。", 10, muted);
-  draw("2. 逾期未上傳將改為未成立，需重新申請方案。", 10, muted);
-  draw("3. 收款帳戶如有異動，以系統設定頁最新內容為準。", 10, muted);
+  y += 16;
+  context.strokeStyle = line;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(left, y);
+  context.lineTo(right, y);
+  context.stroke();
+  y += 48;
+  draw("備註", 22, muted);
+  draw("1. 匯款後請保留收據，並於會員區上傳 PDF／JPEG／PNG 單據。", 20, muted);
+  draw("2. 逾期未上傳將改為未成立，需重新申請方案。", 20, muted);
+  draw("3. 收款帳戶如有異動，以系統設定頁最新內容為準。", 20, muted);
 
-  const bytes = await pdf.save();
+  const bytes = await pngPagesToPdf([await canvasPng(canvas)]);
   return new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
 }
 

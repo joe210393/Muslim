@@ -27,7 +27,8 @@ function cookieOptions(env: Env) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: env.APP_ENV === "production",
+    // 正式／預發若走 https，cookie 必須加 Secure，否則瀏覽器可能不帶上造成整站 401
+    secure: env.APP_ENV === "production" || env.APP_BASE_URL.startsWith("https://"),
     path: "/",
     maxAge: SESSION_MS,
   };

@@ -26,14 +26,30 @@ export async function deliverNotification(env: Env, jobId: string, consoleDetail
     });
     return;
   }
+  if (!mail.host) {
+    await prisma.notificationJob.update({
+      where: { id: job.id },
+      data: { status: NotificationJobStatus.FAILED, attemptCount: { increment: 1 }, lastErrorCode: "SMTP_HOST_MISSING" },
+    });
+    return;
+  }
+  if (mail.user && !mail.password) {
+    await prisma.notificationJob.update({
+      where: { id: job.id },
+      data: { status: NotificationJobStatus.FAILED, attemptCount: { increment: 1 }, lastErrorCode: "SMTP_PASSWORD_MISSING" },
+    });
+    return;
+  }
   try {
     const transport = nodemailer.createTransport({
       host: mail.host,
       port: mail.port,
+      secure: mail.port === 465,
+      requireTLS: mail.port === 587,
       auth: mail.user ? { user: mail.user, pass: mail.password } : undefined,
     });
     await transport.sendMail({
-      from: mail.from,
+      from: mail.from || mail.user || undefined,
       to: job.recipientEmail,
       subject: job.subject || subjectFor(job.type),
       text: job.body || consoleDetail || "請登入系統查看案件或帳號通知。",
